@@ -30,7 +30,7 @@ jobs:
       - name: Download and merge
         run: |
           yt-dlp --cookies cookies.txt --remote-components ejs:github \
-  -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
+            -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
             --merge-output-format mkv \
             -o "video.%(ext)s" \
             "${{ github.event.inputs.video_url }}"
@@ -38,13 +38,6 @@ jobs:
       - name: Clean up cookies
         if: always()
         run: rm -f cookies.txt
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: downloaded-video
-          path: video.mkv
-          retention-days: 1        run: rm -f cookies.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
