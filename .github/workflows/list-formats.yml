@@ -23,7 +23,7 @@ jobs:
       - name: List formats
         run: |
           echo '```' >> $GITHUB_STEP_SUMMARY
-          yt-dlp --cookies cookies.txt -F "${{ github.event.inputs.video_url }}" >> $GITHUB_STEP_SUMMARY
+          yt-dlp --cookies cookies.txt --remote-components ejs:github -F "${{ github.event.inputs.video_url }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Clean up cookies
