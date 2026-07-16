@@ -1,4 +1,4 @@
-name: Download Video
+name: List Formats
 
 on:
   workflow_dispatch:
@@ -6,31 +6,16 @@ on:
       video_url:
         description: 'YouTube URL'
         required: true
-      format_id:
-        description: 'Format id (e.g. 337) - will be merged with bestaudio'
-        required: true
-        default: 'bestvideo+bestaudio'
 
 jobs:
-  download:
+  list:
     runs-on: ubuntu-latest
     steps:
-      - name: Install yt-dlp and ffmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          pip install -U yt-dlp
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
 
-      - name: Download and merge
+      - name: List formats
         run: |
-          yt-dlp -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
-            --merge-output-format mkv \
-            -o "video.%(ext)s" \
-            "${{ github.event.inputs.video_url }}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: downloaded-video
-          path: video.mkv
-          retention-days: 1
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          yt-dlp -F "${{ github.event.inputs.video_url }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
