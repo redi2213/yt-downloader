@@ -15,6 +15,9 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+
       - name: Install yt-dlp and ffmpeg
         run: |
           sudo apt-get update
@@ -35,6 +38,13 @@ jobs:
       - name: Clean up cookies
         if: always()
         run: rm -f cookies.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-video
+          path: video.mkv
+          retention-days: 1        run: rm -f cookies.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
