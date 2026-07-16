@@ -11,6 +11,9 @@ jobs:
   list:
     runs-on: ubuntu-latest
     steps:
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+
       - name: Install yt-dlp
         run: pip install -U yt-dlp
 
