@@ -14,8 +14,15 @@ jobs:
       - name: Install yt-dlp
         run: pip install -U yt-dlp
 
+      - name: Write cookies file
+        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
+
       - name: List formats
         run: |
           echo '```' >> $GITHUB_STEP_SUMMARY
-          yt-dlp -F "${{ github.event.inputs.video_url }}" >> $GITHUB_STEP_SUMMARY
+          yt-dlp --cookies cookies.txt -F "${{ github.event.inputs.video_url }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Clean up cookies
+        if: always()
+        run: rm -f cookies.txt
