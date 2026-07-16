@@ -21,12 +21,20 @@ jobs:
           sudo apt-get install -y ffmpeg
           pip install -U yt-dlp
 
+      - name: Write cookies file
+        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
+
       - name: Download and merge
         run: |
-          yt-dlp -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
+          yt-dlp --cookies cookies.txt \
+            -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
             --merge-output-format mkv \
             -o "video.%(ext)s" \
             "${{ github.event.inputs.video_url }}"
+
+      - name: Clean up cookies
+        if: always()
+        run: rm -f cookies.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
