@@ -10,6 +10,7 @@ from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
+from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
@@ -20,17 +21,24 @@ REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 
-store = JsonStore("ytdl_settings.json")
+settings_store = JsonStore("ytdl_settings.json")
+history_store = JsonStore("ytdl_history.json")
+
+try:
+    from plyer import notification
+    HAS_NOTIFY = True
+except Exception:
+    HAS_NOTIFY = False
 
 
 def get_token():
-    if store.exists("github"):
-        return store.get("github")["token"]
+    if settings_store.exists("github"):
+        return settings_store.get("github")["token"]
     return ""
 
 
 def save_token(token):
-    store.put("github", token=token)
+    settings_store.put("github", token=token)
 
 
 def headers():
@@ -110,39 +118,145 @@ def get_artifact_and_download(run_id, dest_dir):
     z = zipfile.ZipFile(io.BytesIO(r.content))
     z.extractall(dest_dir)
     for name in z.namelist():
-        if name.endswith(".mkv"):
-            return os.path.join(dest_dir, name)
+        return os.path.join(dest_dir, name)
     return None
+
+
+def get_release_link(run_id):
+    tag = f"run-{run_id}"
+    url = f"{API_BASE}/releases/tags/{tag}"
+    for _ in range(10):
+        r = requests.get(url, headers=headers())
+        if r.status_code == 200:
+            data = r.json()
+            assets = data.get("assets", [])
+            if assets:
+                return assets[0]["browser_download_url"]
+        time.sleep(3)
+    return None
+
+
+def add_history(entry):
+    key = str(int(time.time() * 1000))
+    history_store.put(key, **entry)
+
+
+def get_history():
+    items = []
+    for key in history_store.keys():
+        items.append(history_store.get(key))
+    items.sort(key=lambda x: x.get("time", ""), reverse=True)
+    return items
+
+
+def notify(title, message):
+    if HAS_NOTIFY:
+        try:
+            notification.notify(title=title, message=message, timeout=5)
+        except Exception:
+            pass
 
 
 class YTDLApp(App):
     def build(self):
-        self.root_layout = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        self.audio_only = False
+        self.root_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
+        self.show_home()
+        return self.root_layout
+
+    def clear_root(self):
+        self.root_layout.clear_widgets()
+
+    def show_home(self):
+        self.clear_root()
 
         self.token_input = TextInput(
-            text=get_token(), hint_text="GitHub Token", multiline=False, size_hint_y=None, height=48
+            text=get_token(), hint_text="GitHub Token", multiline=False,
+            size_hint_y=None, height=48
         )
         self.root_layout.add_widget(self.token_input)
 
         self.url_input = TextInput(
-            hint_text="لینک یوتیوب", multiline=False, size_hint_y=None, height=48
+            hint_text="YouTube link", multiline=False, size_hint_y=None, height=48
         )
         self.root_layout.add_widget(self.url_input)
 
-        self.fetch_btn = Button(text="دریافت کیفیت‌ها", size_hint_y=None, height=56)
+        self.audio_toggle = ToggleButton(
+            text="Audio only (MP3): OFF", size_hint_y=None, height=48
+        )
+        self.audio_toggle.bind(on_press=self.toggle_audio)
+        self.root_layout.add_widget(self.audio_toggle)
+
+        self.fetch_btn = Button(text="Get qualities", size_hint_y=None, height=56)
         self.fetch_btn.bind(on_press=self.on_fetch)
         self.root_layout.add_widget(self.fetch_btn)
+
+        history_btn = Button(text="Download history", size_hint_y=None, height=48)
+        history_btn.bind(on_press=lambda i: self.show_history())
+        self.root_layout.add_widget(history_btn)
 
         self.status_label = Label(text="", size_hint_y=None, height=40)
         self.root_layout.add_widget(self.status_label)
 
-        self.scroll = ScrollView()
-        self.grid = GridLayout(cols=1, size_hint_y=None, spacing=5)
-        self.grid.bind(minimum_height=self.grid.setter("height"))
-        self.scroll.add_widget(self.grid)
-        self.root_layout.add_widget(self.scroll)
+    def toggle_audio(self, instance):
+        self.audio_only = not self.audio_only
+        instance.text = f"Audio only (MP3): {'ON' if self.audio_only else 'OFF'}"
 
-        return self.root_layout
+    def show_quality_list(self, url, formats):
+        self.clear_root()
+        self.root_layout.add_widget(Label(text="Choose quality", size_hint_y=None, height=40))
+
+        scroll = ScrollView()
+        grid = GridLayout(cols=1, size_hint_y=None, spacing=5)
+        grid.bind(minimum_height=grid.setter("height"))
+        for fmt_id, label in formats:
+            btn = Button(text=label, size_hint_y=None, height=50)
+            btn.bind(on_press=lambda inst, fid=fmt_id: self.show_mode_choice(url, fid))
+            grid.add_widget(btn)
+        scroll.add_widget(grid)
+        self.root_layout.add_widget(scroll)
+
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.root_layout.add_widget(back_btn)
+
+    def show_mode_choice(self, url, format_id):
+        self.clear_root()
+        self.root_layout.add_widget(Label(text="How do you want the file?", size_hint_y=None, height=40))
+
+        b1 = Button(text="Download in app", size_hint_y=None, height=56)
+        b1.bind(on_press=lambda i: self.start_download(url, format_id, mode="app"))
+        self.root_layout.add_widget(b1)
+
+        b2 = Button(text="Get direct link", size_hint_y=None, height=56)
+        b2.bind(on_press=lambda i: self.start_download(url, format_id, mode="link"))
+        self.root_layout.add_widget(b2)
+
+        self.status_label = Label(text="", size_hint_y=None, height=40)
+        self.root_layout.add_widget(self.status_label)
+
+    def show_history(self):
+        self.clear_root()
+        self.root_layout.add_widget(Label(text="Download history", size_hint_y=None, height=40))
+
+        scroll = ScrollView()
+        grid = GridLayout(cols=1, size_hint_y=None, spacing=5)
+        grid.bind(minimum_height=grid.setter("height"))
+        items = get_history()
+        if not items:
+            grid.add_widget(Label(text="No downloads yet", size_hint_y=None, height=40))
+        for item in items:
+            row = TextInput(
+                text=f"{item.get('time','')} | {item.get('mode','')} | {item.get('result','')}",
+                readonly=True, multiline=False, size_hint_y=None, height=48
+            )
+            grid.add_widget(row)
+        scroll.add_widget(grid)
+        self.root_layout.add_widget(scroll)
+
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.root_layout.add_widget(back_btn)
 
     def set_status(self, text):
         Clock.schedule_once(lambda dt: setattr(self.status_label, "text", text))
@@ -151,49 +265,82 @@ class YTDLApp(App):
         save_token(self.token_input.text.strip())
         url = self.url_input.text.strip()
         if not url:
-            self.set_status("لینک را وارد کن")
+            self.set_status("Enter a YouTube link")
             return
-        threading.Thread(target=self.fetch_formats_thread, args=(url,), daemon=True).start()
+        if self.audio_only:
+            threading.Thread(target=lambda: self.show_mode_choice_threaded(url), daemon=True).start()
+        else:
+            threading.Thread(target=self.fetch_formats_thread, args=(url,), daemon=True).start()
+
+    def show_mode_choice_threaded(self, url):
+        Clock.schedule_once(lambda dt: self.show_mode_choice(url, "audio"))
 
     def fetch_formats_thread(self, url):
         try:
-            self.set_status("در حال اجرای ورک‌فلو...")
+            self.set_status("Requesting qualities...")
             dispatch_workflow("list-formats.yml", {"video_url": url})
             time.sleep(5)
             run_id = get_latest_run_id("list-formats.yml")
-            wait_for_run(run_id, on_status=lambda s: self.set_status(f"وضعیت: {s}"))
+            wait_for_run(run_id, on_status=lambda s: self.set_status(f"Status: {s}"))
             log_text = get_run_log_text(run_id)
             formats = parse_formats(log_text)
-            Clock.schedule_once(lambda dt: self.show_formats(url, formats))
-            self.set_status("آماده - کیفیت را انتخاب کن")
+            if not formats:
+                self.set_status("No qualities found. Check the video link or cookies.")
+                return
+            Clock.schedule_once(lambda dt: self.show_quality_list(url, formats))
         except Exception as e:
-            self.set_status(f"خطا: {e}")
+            self.set_status(f"Error: {e}")
 
-    def show_formats(self, url, formats):
-        self.grid.clear_widgets()
-        for fmt_id, label in formats:
-            btn = Button(text=label, size_hint_y=None, height=50)
-            btn.bind(on_press=lambda inst, fid=fmt_id, lb=label: self.on_choose(url, fid, lb))
-            self.grid.add_widget(btn)
+    def start_download(self, url, format_id, mode):
+        threading.Thread(target=self.download_thread, args=(url, format_id, mode), daemon=True).start()
 
-    def on_choose(self, url, fmt_id, label):
-        threading.Thread(target=self.download_thread, args=(url, fmt_id, label), daemon=True).start()
-
-    def download_thread(self, url, fmt_id, label):
+    def download_thread(self, url, format_id, mode):
         try:
-            self.set_status(f"در حال دانلود {label}...")
-            dispatch_workflow("download.yml", {"video_url": url, "format_id": fmt_id})
+            self.set_status("Starting download on GitHub...")
+            inputs = {"video_url": url, "format_id": format_id if format_id != "audio" else "bestaudio"}
+            inputs["audio_only"] = "true" if format_id == "audio" else "false"
+            dispatch_workflow("download.yml", inputs)
             time.sleep(5)
             run_id = get_latest_run_id("download.yml")
-            wait_for_run(run_id, on_status=lambda s: self.set_status(f"وضعیت دانلود: {s}"))
-            dest_dir = self.user_data_dir
-            path = get_artifact_and_download(run_id, dest_dir)
-            if path:
-                self.set_status(f"آماده شد: {path}")
+            wait_for_run(run_id, on_status=lambda s: self.set_status(f"Download status: {s}"))
+
+            if mode == "app":
+                dest_dir = self.get_save_dir()
+                path = get_artifact_and_download(run_id, dest_dir)
+                if path:
+                    self.set_status(f"Saved to: {path}")
+                    notify("YT Downloader", "Download complete")
+                    add_history({
+                        "time": time.strftime("%Y-%m-%d %H:%M"),
+                        "mode": "app",
+                        "result": path,
+                    })
+                else:
+                    self.set_status("Could not find the final file")
             else:
-                self.set_status("فایل نهایی پیدا نشد")
+                link = get_release_link(run_id)
+                if link:
+                    self.set_status(f"Link ready:\n{link}")
+                    notify("YT Downloader", "Direct link is ready")
+                    add_history({
+                        "time": time.strftime("%Y-%m-%d %H:%M"),
+                        "mode": "link",
+                        "result": link,
+                    })
+                else:
+                    self.set_status("Could not get the direct link")
         except Exception as e:
-            self.set_status(f"خطا: {e}")
+            self.set_status(f"Error: {e}")
+
+    def get_save_dir(self):
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            context = PythonActivity.mActivity
+            ext_dir = context.getExternalFilesDir(None)
+            return ext_dir.getAbsolutePath()
+        except Exception:
+            return self.user_data_dir
 
 
 if __name__ == "__main__":

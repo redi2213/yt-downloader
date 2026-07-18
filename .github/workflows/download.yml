@@ -7,16 +7,19 @@ on:
         description: 'YouTube URL'
         required: true
       format_id:
-        description: 'Format id (e.g. 337) - will be merged with bestaudio'
+        description: 'Format id (e.g. 337) or bestaudio for audio-only'
         required: true
         default: 'bestvideo+bestaudio'
+      audio_only:
+        description: 'true for audio-only MP3'
+        required: false
+        default: 'false'
 
 jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2
 
       - name: Install yt-dlp and ffmpeg
         run: |
@@ -27,13 +30,22 @@ jobs:
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      - name: Download and merge
+      - name: Download
+        id: dl
         run: |
-          yt-dlp --cookies cookies.txt --remote-components ejs:github \
-            -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
-            --merge-output-format mkv \
-            -o "video.%(ext)s" \
-            "${{ github.event.inputs.video_url }}"
+          if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
+            yt-dlp --cookies cookies.txt --remote-components ejs:github \
+              -x --audio-format mp3 \
+              -o "output.%(ext)s" \
+              "${{ github.event.inputs.video_url }}"
+          else
+            yt-dlp --cookies cookies.txt --remote-components ejs:github \
+              -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
+              --merge-output-format mkv \
+              -o "output.%(ext)s" \
+              "${{ github.event.inputs.video_url }}"
+          fi
+          echo "filename=$(ls output.*)" >> $GITHUB_OUTPUT
 
       - name: Clean up cookies
         if: always()
@@ -43,5 +55,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: downloaded-video
-          path: video.mkv
+          path: ${{ steps.dl.outputs.filename }}
           retention-days: 1
+
+      - name: Create Release with direct link
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: run-${{ github.run_id }}
+          files: ${{ steps.dl.outputs.filename }}
+          prerelease: true
+          name: "Download run-${{ github.run_id }}"

@@ -13,11 +13,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cache buildozer NDK/build
+      - name: Cache buildozer (platform + app build)
         uses: actions/cache@v4
         with:
           path: |
             ~/.buildozer
+            .buildozer
             ~/.gradle
           key: buildozer-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
