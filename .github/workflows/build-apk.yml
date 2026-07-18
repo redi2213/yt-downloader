@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cache Android SDK/NDK and buildozer
+      - name: Cache buildozer NDK/build
         uses: actions/cache@v4
         with:
           path: |
@@ -34,13 +34,6 @@ jobs:
         run: |
           pip3 install --upgrade buildozer cython==0.29.36
 
-      - name: Pre-accept Android SDK licenses
-        run: |
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo "84831b9409646a918e30573bab4c9c91346d8abd" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-          echo "d975f751698a77b662f1254ddbeed3901e976f5" >> ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-
       - name: Build APK with buildozer
         run: |
           yes | buildozer android debug
@@ -50,4 +43,3 @@ jobs:
         with:
           name: ytdownloader-apk
           path: bin/*.apk
-
