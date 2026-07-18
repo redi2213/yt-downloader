@@ -40,6 +40,8 @@ jobs:
           ln -sf /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
 
       - name: Build APK with buildozer
+        env:
+          JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
         run: |
           yes | buildozer android debug
 
