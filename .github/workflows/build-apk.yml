@@ -34,6 +34,11 @@ jobs:
         run: |
           pip3 install --upgrade buildozer cython==0.29.36
 
+      - name: Fix legacy sdkmanager path for buildozer
+        run: |
+          mkdir -p /usr/local/lib/android/sdk/tools/bin
+          ln -sf /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
+
       - name: Build APK with buildozer
         run: |
           yes | buildozer android debug
