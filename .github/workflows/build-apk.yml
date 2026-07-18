@@ -13,6 +13,16 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Cache Android SDK/NDK and buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            ~/.gradle
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-
+
       - name: Install system dependencies
         run: |
           sudo apt update
@@ -33,4 +43,3 @@ jobs:
         with:
           name: ytdownloader-apk
           path: bin/*.apk
-          
