@@ -7,6 +7,8 @@ import zipfile
 import requests
 
 from kivy.app import App
+from kivy.core.window import Window
+from kivy.core.clipboard import Clipboard
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
@@ -159,104 +161,128 @@ def notify(title, message):
 
 class YTDLApp(App):
     def build(self):
-        self.audio_only = False
-        self.root_layout = BoxLayout(orientation="vertical", padding=10, spacing=8)
-        self.show_home()
-        return self.root_layout
+        Window.softinput_mode = "below_target"
 
-    def clear_root(self):
-        self.root_layout.clear_widgets()
+        self.audio_only = False
+
+        self.scroll = ScrollView()
+        self.content = BoxLayout(
+            orientation="vertical", padding=10, spacing=8,
+            size_hint_y=None
+        )
+        self.content.bind(minimum_height=self.content.setter("height"))
+        self.scroll.add_widget(self.content)
+
+        self.show_home()
+        return self.scroll
+
+    def clear_content(self):
+        self.content.clear_widgets()
+
+    def add(self, widget):
+        self.content.add_widget(widget)
 
     def show_home(self):
-        self.clear_root()
+        self.clear_content()
 
         self.token_input = TextInput(
             text=get_token(), hint_text="GitHub Token", multiline=False,
             size_hint_y=None, height=48
         )
-        self.root_layout.add_widget(self.token_input)
+        self.add(self.token_input)
 
         self.url_input = TextInput(
             hint_text="YouTube link", multiline=False, size_hint_y=None, height=48
         )
-        self.root_layout.add_widget(self.url_input)
+        self.add(self.url_input)
 
         self.audio_toggle = ToggleButton(
             text="Audio only (MP3): OFF", size_hint_y=None, height=48
         )
         self.audio_toggle.bind(on_press=self.toggle_audio)
-        self.root_layout.add_widget(self.audio_toggle)
+        self.add(self.audio_toggle)
 
         self.fetch_btn = Button(text="Get qualities", size_hint_y=None, height=56)
         self.fetch_btn.bind(on_press=self.on_fetch)
-        self.root_layout.add_widget(self.fetch_btn)
+        self.add(self.fetch_btn)
 
         history_btn = Button(text="Download history", size_hint_y=None, height=48)
         history_btn.bind(on_press=lambda i: self.show_history())
-        self.root_layout.add_widget(history_btn)
+        self.add(history_btn)
 
         self.status_label = Label(text="", size_hint_y=None, height=40)
-        self.root_layout.add_widget(self.status_label)
+        self.add(self.status_label)
 
     def toggle_audio(self, instance):
         self.audio_only = not self.audio_only
         instance.text = f"Audio only (MP3): {'ON' if self.audio_only else 'OFF'}"
 
     def show_quality_list(self, url, formats):
-        self.clear_root()
-        self.root_layout.add_widget(Label(text="Choose quality", size_hint_y=None, height=40))
+        self.clear_content()
+        self.add(Label(text="Choose quality", size_hint_y=None, height=40))
 
-        scroll = ScrollView()
-        grid = GridLayout(cols=1, size_hint_y=None, spacing=5)
-        grid.bind(minimum_height=grid.setter("height"))
         for fmt_id, label in formats:
             btn = Button(text=label, size_hint_y=None, height=50)
             btn.bind(on_press=lambda inst, fid=fmt_id: self.show_mode_choice(url, fid))
-            grid.add_widget(btn)
-        scroll.add_widget(grid)
-        self.root_layout.add_widget(scroll)
+            self.add(btn)
 
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
-        self.root_layout.add_widget(back_btn)
+        self.add(back_btn)
 
     def show_mode_choice(self, url, format_id):
-        self.clear_root()
-        self.root_layout.add_widget(Label(text="How do you want the file?", size_hint_y=None, height=40))
+        self.clear_content()
+        self.add(Label(text="How do you want the file?", size_hint_y=None, height=40))
 
         b1 = Button(text="Download in app", size_hint_y=None, height=56)
         b1.bind(on_press=lambda i: self.start_download(url, format_id, mode="app"))
-        self.root_layout.add_widget(b1)
+        self.add(b1)
 
         b2 = Button(text="Get direct link", size_hint_y=None, height=56)
         b2.bind(on_press=lambda i: self.start_download(url, format_id, mode="link"))
-        self.root_layout.add_widget(b2)
+        self.add(b2)
+
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
 
         self.status_label = Label(text="", size_hint_y=None, height=40)
-        self.root_layout.add_widget(self.status_label)
+        self.add(self.status_label)
+
+    def show_result(self, message, link=None):
+        self.clear_content()
+        self.add(Label(text=message, size_hint_y=None, height=80))
+
+        if link:
+            link_box = TextInput(text=link, readonly=True, multiline=False,
+                                  size_hint_y=None, height=48)
+            self.add(link_box)
+
+            copy_btn = Button(text="Copy link", size_hint_y=None, height=48)
+            copy_btn.bind(on_press=lambda i: Clipboard.copy(link))
+            self.add(copy_btn)
+
+        home_btn = Button(text="Back to home", size_hint_y=None, height=48)
+        home_btn.bind(on_press=lambda i: self.show_home())
+        self.add(home_btn)
 
     def show_history(self):
-        self.clear_root()
-        self.root_layout.add_widget(Label(text="Download history", size_hint_y=None, height=40))
+        self.clear_content()
+        self.add(Label(text="Download history", size_hint_y=None, height=40))
 
-        scroll = ScrollView()
-        grid = GridLayout(cols=1, size_hint_y=None, spacing=5)
-        grid.bind(minimum_height=grid.setter("height"))
         items = get_history()
         if not items:
-            grid.add_widget(Label(text="No downloads yet", size_hint_y=None, height=40))
+            self.add(Label(text="No downloads yet", size_hint_y=None, height=40))
         for item in items:
             row = TextInput(
                 text=f"{item.get('time','')} | {item.get('mode','')} | {item.get('result','')}",
                 readonly=True, multiline=False, size_hint_y=None, height=48
             )
-            grid.add_widget(row)
-        scroll.add_widget(grid)
-        self.root_layout.add_widget(scroll)
+            self.add(row)
 
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
-        self.root_layout.add_widget(back_btn)
+        self.add(back_btn)
 
     def set_status(self, text):
         Clock.schedule_once(lambda dt: setattr(self.status_label, "text", text))
@@ -268,12 +294,9 @@ class YTDLApp(App):
             self.set_status("Enter a YouTube link")
             return
         if self.audio_only:
-            threading.Thread(target=lambda: self.show_mode_choice_threaded(url), daemon=True).start()
+            Clock.schedule_once(lambda dt: self.show_mode_choice(url, "audio"))
         else:
             threading.Thread(target=self.fetch_formats_thread, args=(url,), daemon=True).start()
-
-    def show_mode_choice_threaded(self, url):
-        Clock.schedule_once(lambda dt: self.show_mode_choice(url, "audio"))
 
     def fetch_formats_thread(self, url):
         try:
@@ -308,25 +331,25 @@ class YTDLApp(App):
                 dest_dir = self.get_save_dir()
                 path = get_artifact_and_download(run_id, dest_dir)
                 if path:
-                    self.set_status(f"Saved to: {path}")
                     notify("YT Downloader", "Download complete")
                     add_history({
                         "time": time.strftime("%Y-%m-%d %H:%M"),
                         "mode": "app",
                         "result": path,
                     })
+                    Clock.schedule_once(lambda dt: self.show_result(f"Saved to:\n{path}"))
                 else:
                     self.set_status("Could not find the final file")
             else:
                 link = get_release_link(run_id)
                 if link:
-                    self.set_status(f"Link ready:\n{link}")
                     notify("YT Downloader", "Direct link is ready")
                     add_history({
                         "time": time.strftime("%Y-%m-%d %H:%M"),
                         "mode": "link",
                         "result": link,
                     })
+                    Clock.schedule_once(lambda dt: self.show_result("Link ready:", link=link))
                 else:
                     self.set_status("Could not get the direct link")
         except Exception as e:
