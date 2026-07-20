@@ -40,6 +40,10 @@ jobs:
           mkdir -p /usr/local/lib/android/sdk/tools/bin
           ln -sf /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
 
+      - name: Install Android platform 33
+        run: |
+          yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager "platforms;android-33" "build-tools;33.0.2"
+
       - name: Build APK with buildozer
         env:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
