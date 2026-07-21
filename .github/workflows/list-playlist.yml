@@ -1,0 +1,30 @@
+name: List Playlist
+
+on:
+  workflow_dispatch:
+    inputs:
+      playlist_url:
+        description: 'YouTube playlist URL'
+        required: true
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: denoland/setup-deno@v2
+
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
+
+      - name: Write cookies file
+        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
+
+      - name: List playlist entries
+        run: |
+          yt-dlp --cookies cookies.txt --remote-components ejs:github \
+            --flat-playlist --print "%(webpage_url)s" \
+            "${{ github.event.inputs.playlist_url }}" | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: Clean up cookies
+        if: always()
+        run: rm -f cookies.txt

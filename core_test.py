@@ -1,6 +1,8 @@
 import time
 import re
 import requests
+import time as _time
+import history_patch as hp
 
 REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
@@ -19,7 +21,7 @@ def headers():
 def dispatch_workflow(workflow_file, inputs):
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
     print(f"[dispatch] POST {url} inputs={inputs}")
-    r = requests.post(url, headers=headers(), json={"ref": "main", "inputs": inputs})
+    r = requests.post(url, headers=headers(), json={"ref": "dev", "inputs": inputs})
     print(f"[dispatch] status={r.status_code} body={r.text[:500]}")
     r.raise_for_status()
 
@@ -136,6 +138,15 @@ def test_download(url, format_id, audio_only, mode):
     if mode == "link":
         link = get_release_link(run_id)
         print(f"[RESULT] link = {link}")
+        if link:
+            hp.add_history_entry({
+                "time": _time.strftime("%Y-%m-%d %H:%M"),
+                "title": hp.title_from_link(link),
+                "quality": format_id,
+                "mode": "link",
+                "source_url": url,
+                "result": link,
+            })
     else:
         print("[RESULT] would download artifact here (skipped in CLI test)")
 
