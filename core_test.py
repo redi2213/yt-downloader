@@ -45,7 +45,7 @@ def wait_for_run(run_id):
         if status == "completed":
             print(f"[wait] conclusion={data['conclusion']}")
             return data["conclusion"]
-        time.sleep(4)
+        time.sleep(2)
 
 
 def get_run_log_text(run_id):
@@ -99,7 +99,7 @@ def get_release_link(run_id):
 def test_list_formats(url):
     print("\n===== TEST: list-formats =====")
     dispatch_workflow("list-formats.yml", {"video_url": url})
-    time.sleep(5)
+    time.sleep(2)
     run_id = get_latest_run_id("list-formats.yml")
     conclusion = wait_for_run(run_id)
     if conclusion != "success":
@@ -121,7 +121,7 @@ def test_download(url, format_id, audio_only, mode):
         "audio_only": "true" if audio_only else "false",
     }
     dispatch_workflow("download.yml", inputs)
-    time.sleep(5)
+    time.sleep(2)
     run_id = get_latest_run_id("download.yml")
     conclusion = wait_for_run(run_id)
     if conclusion != "success":

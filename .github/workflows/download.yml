@@ -36,23 +36,28 @@ jobs:
       - name: Download
         id: dl
         run: |
+          OUTTMPL="%(title).120s.%(ext)s"
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
+              --restrict-filenames \
               -x --audio-format mp3 \
-              -o "output.%(ext)s" \
+              -o "$OUTTMPL" \
+              --print-to-file after_move:filepath filename.txt \
               "${{ github.event.inputs.video_url }}"
           else
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
+              --restrict-filenames \
               -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
               --merge-output-format mkv \
-              -o "output.%(ext)s" \
+              -o "$OUTTMPL" \
+              --print-to-file after_move:filepath filename.txt \
               "${{ github.event.inputs.video_url }}"
           fi
-          echo "filename=$(ls output.*)" >> $GITHUB_OUTPUT
+          echo "filename=$(cat filename.txt)" >> $GITHUB_OUTPUT
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt
+        run: rm -f cookies.txt filename.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
