@@ -43,6 +43,7 @@ jobs:
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
+              --print-to-file after_move:"%(format_id)s|%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
               "${{ github.event.inputs.video_url }}"
           else
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
@@ -51,13 +52,24 @@ jobs:
               --merge-output-format mkv \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
+              --print-to-file after_move:"%(format_id)s|%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
               "${{ github.event.inputs.video_url }}"
           fi
-          echo "filename=$(cat filename.txt)" >> $GITHUB_OUTPUT
+          FILENAME=$(cat filename.txt)
+          METADATA=$(cat metadata.txt)
+          IFS='|' read -r FMT_ID HEIGHT HDR FPS <<< "$METADATA"
+          HDR_SUFFIX=$([ "$HDR" != "SDR" ] && [ -n "$HDR" ] && echo "_HDR" || echo "")
+          FPS_SUFFIX=$([ -n "$FPS" ] && [ "$FPS" != "null" ] && echo "_${FPS%.*}fps" || echo "")
+          QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
+          BASENAME="${FILENAME%.*}"
+          EXT="${FILENAME##*.}"
+          FINAL_NAME="${BASENAME}_[${QUALITY}].${EXT}"
+          mv "$FILENAME" "$FINAL_NAME"
+          echo "filename=$FINAL_NAME" >> $GITHUB_OUTPUT
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt filename.txt
+        run: rm -f cookies.txt filename.txt metadata.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
