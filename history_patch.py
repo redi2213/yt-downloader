@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.parse
 
 HISTORY_FILE = os.path.expanduser("~/.yt_downloader_history.json")
@@ -29,6 +30,7 @@ def title_from_link(link):
     tail = link.rstrip("/").split("/")[-1]
     name = urllib.parse.unquote(tail)
     name = os.path.splitext(name)[0]
+    name = re.sub(r"_\[[^\]]*\]$", "", name)
     return name
 
 

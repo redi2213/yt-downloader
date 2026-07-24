@@ -117,7 +117,7 @@ if __name__ == "__main__":
         t = threading.Thread(target=process_link, args=(url, height, hdr, i), daemon=True)
         threads.append(t)
         t.start()
-        time.sleep(1.5)
+        time.sleep(0.5)
 
     for t in threads:
         t.join()

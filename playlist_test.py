@@ -18,9 +18,6 @@ def get_playlist_links(playlist_url):
         print("[FAIL] could not list playlist")
         return []
     log_text = get_run_log_text(run_id)
-    links = URL_PATTERN.findall(log_text)
-    # findall with groups returns tuples sometimes; re-extract properly
-    links = URL_PATTERN.findall(log_text)
     urls = re.findall(r"https://(?:www\.)?youtube\.com/watch\?v=[\w-]+|https://youtu\.be/[\w-]+", log_text)
     return list(dict.fromkeys(urls))  # dedupe, keep order
 

@@ -24,10 +24,10 @@ jobs:
     steps:
       - uses: denoland/setup-deno@v2
 
-      - name: Install yt-dlp and ffmpeg
+      - name: Install yt-dlp, ffmpeg, aria2
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg aria2
           pip install -U yt-dlp
 
       - name: Write cookies file
@@ -37,30 +37,45 @@ jobs:
         id: dl
         run: |
           OUTTMPL="%(title).120s.%(ext)s"
+          COMMON_SPEED_FLAGS="--downloader aria2c --downloader-args aria2c:-x16_-s16_-k1M"
+
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --restrict-filenames \
+              --restrict-filenames $COMMON_SPEED_FLAGS \
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
-              --print-to-file after_move:"%(format_id)s|%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
               "${{ github.event.inputs.video_url }}"
+            QUALITY="audio"
           else
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --restrict-filenames \
+              --restrict-filenames $COMMON_SPEED_FLAGS \
               -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
-              --print-to-file after_move:"%(format_id)s|%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
+              --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
               "${{ github.event.inputs.video_url }}"
+
+            METADATA=$(cat metadata.txt)
+            IFS='|' read -r HEIGHT HDR FPS <<< "$METADATA"
+
+            if [ "$HEIGHT" = "NA" ] || [ -z "$HEIGHT" ]; then
+              QUALITY="unknown"
+            else
+              FPS_SUFFIX=""
+              if [ "$FPS" != "NA" ] && [ -n "$FPS" ]; then
+                FPS_SUFFIX="_${FPS%.*}fps"
+              fi
+              HDR_SUFFIX=""
+              if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
+                HDR_SUFFIX="_HDR"
+              fi
+              QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
+            fi
           fi
+
           FILENAME=$(cat filename.txt)
-          METADATA=$(cat metadata.txt)
-          IFS='|' read -r FMT_ID HEIGHT HDR FPS <<< "$METADATA"
-          HDR_SUFFIX=$([ "$HDR" != "SDR" ] && [ -n "$HDR" ] && echo "_HDR" || echo "")
-          FPS_SUFFIX=$([ -n "$FPS" ] && [ "$FPS" != "null" ] && echo "_${FPS%.*}fps" || echo "")
-          QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
           BASENAME="${FILENAME%.*}"
           EXT="${FILENAME##*.}"
           FINAL_NAME="${BASENAME}_[${QUALITY}].${EXT}"
