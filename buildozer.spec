@@ -1,10 +1,10 @@
 [app]
-title = YT Downloader
+title = YT Bridge Git
 package.name = ytdownloader
 package.domain = org.redi2213
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
-version = 1.0
+version = 1.1
 requirements = python3,kivy,requests,certifi,plyer
 orientation = portrait
 fullscreen = 0

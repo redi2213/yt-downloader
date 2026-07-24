@@ -4,6 +4,7 @@ import re
 import os
 import io
 import zipfile
+import queue
 import requests
 
 from kivy.app import App
@@ -22,6 +23,7 @@ from kivy.clock import Clock
 REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
+APP_VERSION = "1.1"
 
 settings_store = JsonStore("ytdl_settings.json")
 history_store = JsonStore("ytdl_history.json")
@@ -31,6 +33,19 @@ try:
     HAS_NOTIFY = True
 except Exception:
     HAS_NOTIFY = False
+
+# ---- Background queue worker ----
+job_queue = queue.Queue()
+history_lock = threading.Lock()
+worker_running = True
+
+
+def notify(title, message):
+    if HAS_NOTIFY:
+        try:
+            notification.notify(title=title, message=message, timeout=5)
+        except Exception:
+            pass
 
 
 def get_token():
@@ -75,7 +90,7 @@ def wait_for_run(run_id, on_status=None):
             on_status(status)
         if status == "completed":
             return data["conclusion"]
-        time.sleep(4)
+        time.sleep(2)
 
 
 def get_run_log_text(run_id):
@@ -107,23 +122,6 @@ def parse_formats(log_text):
     return results
 
 
-def get_artifact_and_download(run_id, dest_dir):
-    url = f"{API_BASE}/actions/runs/{run_id}/artifacts"
-    r = requests.get(url, headers=headers())
-    r.raise_for_status()
-    artifacts = r.json()["artifacts"]
-    if not artifacts:
-        return None
-    download_url = artifacts[0]["archive_download_url"]
-    r = requests.get(download_url, headers=headers())
-    r.raise_for_status()
-    z = zipfile.ZipFile(io.BytesIO(r.content))
-    z.extractall(dest_dir)
-    for name in z.namelist():
-        return os.path.join(dest_dir, name)
-    return None
-
-
 def get_release_link(run_id):
     tag = f"run-{run_id}"
     url = f"{API_BASE}/releases/tags/{tag}"
@@ -138,38 +136,120 @@ def get_release_link(run_id):
     return None
 
 
-def add_history(entry):
-    key = str(int(time.time() * 1000))
-    history_store.put(key, **entry)
+def add_history_entry(entry):
+    with history_lock:
+        items = history_store.getall() if hasattr(history_store, 'getall') else {}
+        entries = list(items.values()) if items else []
+        entries.insert(0, entry)
+        for i, e in enumerate(entries[:50]):
+            history_store.put(f"entry_{i}", **e)
 
 
 def get_history():
-    items = []
-    for key in history_store.keys():
-        items.append(history_store.get(key))
-    items.sort(key=lambda x: x.get("time", ""), reverse=True)
-    return items
+    items = history_store.getall() if hasattr(history_store, 'getall') else {}
+    entries = list(items.values()) if items else []
+    entries.sort(key=lambda x: x.get("time", ""), reverse=True)
+    return entries
 
 
-def notify(title, message):
-    if HAS_NOTIFY:
+def background_worker():
+    global worker_running
+    while worker_running:
         try:
-            notification.notify(title=title, message=message, timeout=5)
-        except Exception:
+            job = job_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+
+        url, target_height, want_hdr = job
+        try:
+            process_download_job(url, target_height, want_hdr)
+        except Exception as e:
             pass
+        job_queue.task_done()
 
 
-class YTDLApp(App):
+def process_download_job(url, target_height, want_hdr):
+    try:
+        dispatch_workflow("list-formats.yml", {"video_url": url})
+        time.sleep(2)
+        run_id = get_latest_run_id("list-formats.yml")
+        wait_for_run(run_id)
+        log_text = get_run_log_text(run_id)
+        formats = parse_formats(log_text)
+        if not formats:
+            return
+
+        picked = pick_format(formats, target_height, want_hdr)
+        if not picked:
+            return
+        fmt_id, label = picked
+
+        dispatch_workflow("download.yml", {
+            "video_url": url, "format_id": fmt_id, "audio_only": "false"
+        })
+        time.sleep(2)
+        dl_run_id = get_latest_run_id("download.yml")
+        wait_for_run(dl_run_id)
+
+        link = get_release_link(dl_run_id)
+        if link:
+            title = re.sub(r"_\[[^\]]*\]", "", link.split("/")[-1].rsplit(".", 1)[0])
+            add_history_entry({
+                "time": time.strftime("%Y-%m-%d %H:%M"),
+                "title": title,
+                "quality": label,
+                "mode": "link",
+                "source_url": url,
+                "result": link,
+            })
+            notify("YT Bridge Git", f"Ready: {title}")
+    except Exception:
+        pass
+
+
+def pick_format(formats, target_height, want_hdr):
+    candidates = []
+    for fmt_id, label in formats:
+        is_hdr = "HDR" in label
+        digits = "".join(ch for ch in label.split("p")[0] if ch.isdigit())
+        if not digits:
+            continue
+        height = int(digits)
+        candidates.append((fmt_id, label, height, is_hdr))
+
+    if not candidates:
+        return None
+
+    if want_hdr:
+        hdr_candidates = [c for c in candidates if c[3]]
+        pool = hdr_candidates if hdr_candidates else candidates
+    else:
+        pool = [c for c in candidates if not c[3]] or candidates
+
+    if target_height >= 99999:
+        best = max(pool, key=lambda c: c[2])
+        return best[0], best[1]
+
+    pool_sorted = sorted(pool, key=lambda c: abs(c[2] - target_height))
+    best = pool_sorted[0]
+    return best[0], best[1]
+
+
+class YTBridgeApp(App):
     def build(self):
         Window.softinput_mode = "below_target"
-
         self.audio_only = False
+        self.quality_presets = {
+            "480p": (480, False),
+            "720p": (720, False),
+            "1080p": (1080, False),
+            "2160p": (2160, False),
+            "Best": (99999, False),
+            "Best HDR": (99999, True),
+        }
 
         self.scroll = ScrollView()
-        self.content = BoxLayout(
-            orientation="vertical", padding=10, spacing=8,
-            size_hint_y=None
-        )
+        self.content = BoxLayout(orientation="vertical", padding=10, spacing=8, size_hint_y=None)
         self.content.bind(minimum_height=self.content.setter("height"))
         self.scroll.add_widget(self.content)
 
@@ -210,6 +290,10 @@ class YTDLApp(App):
         history_btn.bind(on_press=lambda i: self.show_history())
         self.add(history_btn)
 
+        about_btn = Button(text="About", size_hint_y=None, height=48)
+        about_btn.bind(on_press=lambda i: self.show_about())
+        self.add(about_btn)
+
         self.status_label = Label(text="", size_hint_y=None, height=40)
         self.add(self.status_label)
 
@@ -232,14 +316,14 @@ class YTDLApp(App):
 
     def show_mode_choice(self, url, format_id):
         self.clear_content()
-        self.add(Label(text="How do you want the file?", size_hint_y=None, height=40))
+        self.add(Label(text="Download mode?", size_hint_y=None, height=40))
 
-        b1 = Button(text="Download in app", size_hint_y=None, height=56)
-        b1.bind(on_press=lambda i: self.start_download(url, format_id, mode="app"))
+        b1 = Button(text="Download (background)", size_hint_y=None, height=56)
+        b1.bind(on_press=lambda i: self.start_background_download(url, format_id))
         self.add(b1)
 
         b2 = Button(text="Get direct link", size_hint_y=None, height=56)
-        b2.bind(on_press=lambda i: self.start_download(url, format_id, mode="link"))
+        b2.bind(on_press=lambda i: self.start_direct_download(url, format_id))
         self.add(b2)
 
         back_btn = Button(text="Back", size_hint_y=None, height=48)
@@ -275,10 +359,39 @@ class YTDLApp(App):
             self.add(Label(text="No downloads yet", size_hint_y=None, height=40))
         for item in items:
             row = TextInput(
-                text=f"{item.get('time','')} | {item.get('mode','')} | {item.get('result','')}",
+                text=f"{item.get('time','')} | {item.get('quality','')}",
                 readonly=True, multiline=False, size_hint_y=None, height=48
             )
             self.add(row)
+
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+    def show_about(self):
+        self.clear_content()
+
+        about_text = f"""YT Bridge Git v{APP_VERSION}
+
+دانلود از YouTube و آپلود به GitHub
+Download from YouTube to GitHub
+
+سازنده: Mohsen Mah
+Developer: Mohsen Mah
+
+تلگرام: t.me/moh3n201
+Telegram: t.me/moh3n201
+
+این اپ برای دانلود ویدیوهای 
+یوتیوب با کیفیت‌های مختلف 
+(از جمله HDR) و آپلود آن‌ها 
+به GitHub Releases طراحی شده است.
+
+This app downloads YouTube videos
+in various qualities (including HDR)
+and uploads them to GitHub Releases."""
+
+        self.add(Label(text=about_text, size_hint_y=None, height=300))
 
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
@@ -300,71 +413,56 @@ class YTDLApp(App):
 
     def fetch_formats_thread(self, url):
         try:
-            self.set_status("Requesting qualities...")
+            self.set_status("Fetching qualities...")
             dispatch_workflow("list-formats.yml", {"video_url": url})
-            time.sleep(5)
+            time.sleep(2)
             run_id = get_latest_run_id("list-formats.yml")
             wait_for_run(run_id, on_status=lambda s: self.set_status(f"Status: {s}"))
             log_text = get_run_log_text(run_id)
             formats = parse_formats(log_text)
             if not formats:
-                self.set_status("No qualities found. Check the video link or cookies.")
+                self.set_status("No formats found")
                 return
             Clock.schedule_once(lambda dt: self.show_quality_list(url, formats))
         except Exception as e:
-            self.set_status(f"Error: {e}")
+            self.set_status(f"Error: {str(e)[:50]}")
 
-    def start_download(self, url, format_id, mode):
-        threading.Thread(target=self.download_thread, args=(url, format_id, mode), daemon=True).start()
+    def start_background_download(self, url, format_id):
+        save_token(self.token_input.text.strip())
+        height, hdr = self.quality_presets.get("1080p", (1080, False))
+        job_queue.put((url, height, hdr))
+        self.show_result("Added to queue!\nDownloading in background...")
 
-    def download_thread(self, url, format_id, mode):
+    def start_direct_download(self, url, format_id):
+        threading.Thread(
+            target=self.direct_download_thread,
+            args=(url, format_id),
+            daemon=True
+        ).start()
+
+    def direct_download_thread(self, url, format_id):
         try:
-            self.set_status("Starting download on GitHub...")
-            inputs = {"video_url": url, "format_id": format_id if format_id != "audio" else "bestaudio"}
-            inputs["audio_only"] = "true" if format_id == "audio" else "false"
-            dispatch_workflow("download.yml", inputs)
-            time.sleep(5)
+            self.set_status("Starting download...")
+            dispatch_workflow("download.yml", {
+                "video_url": url, "format_id": format_id, "audio_only": "false"
+            })
+            time.sleep(2)
             run_id = get_latest_run_id("download.yml")
-            wait_for_run(run_id, on_status=lambda s: self.set_status(f"Download status: {s}"))
+            wait_for_run(run_id, on_status=lambda s: self.set_status(f"Status: {s}"))
 
-            if mode == "app":
-                dest_dir = self.get_save_dir()
-                path = get_artifact_and_download(run_id, dest_dir)
-                if path:
-                    notify("YT Downloader", "Download complete")
-                    add_history({
-                        "time": time.strftime("%Y-%m-%d %H:%M"),
-                        "mode": "app",
-                        "result": path,
-                    })
-                    Clock.schedule_once(lambda dt: self.show_result(f"Saved to:\n{path}"))
-                else:
-                    self.set_status("Could not find the final file")
+            link = get_release_link(run_id)
+            if link:
+                notify("YT Bridge Git", "Link ready!")
+                Clock.schedule_once(lambda dt: self.show_result("Link ready:", link=link))
             else:
-                link = get_release_link(run_id)
-                if link:
-                    notify("YT Downloader", "Direct link is ready")
-                    add_history({
-                        "time": time.strftime("%Y-%m-%d %H:%M"),
-                        "mode": "link",
-                        "result": link,
-                    })
-                    Clock.schedule_once(lambda dt: self.show_result("Link ready:", link=link))
-                else:
-                    self.set_status("Could not get the direct link")
+                self.set_status("Could not get link")
         except Exception as e:
-            self.set_status(f"Error: {e}")
-
-    def get_save_dir(self):
-        try:
-            from jnius import autoclass
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            context = PythonActivity.mActivity
-            ext_dir = context.getExternalFilesDir(None)
-            return ext_dir.getAbsolutePath()
-        except Exception:
-            return self.user_data_dir
+            self.set_status(f"Error: {str(e)[:50]}")
 
 
 if __name__ == "__main__":
-    YTDLApp().run()
+    worker_thread = threading.Thread(target=background_worker, daemon=True)
+    worker_thread.start()
+
+    app = YTBridgeApp()
+    app.run()
