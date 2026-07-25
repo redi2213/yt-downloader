@@ -37,11 +37,11 @@ jobs:
         id: dl
         run: |
           OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS="--downloader aria2c --downloader-args aria2c:-x 16 -s 16 -k 1M"
+          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 1M")
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --restrict-filenames $COMMON_SPEED_FLAGS \
+              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
@@ -49,7 +49,7 @@ jobs:
             QUALITY="audio"
           else
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --restrict-filenames $COMMON_SPEED_FLAGS \
+              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
               -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
