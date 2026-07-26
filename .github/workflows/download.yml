@@ -78,7 +78,7 @@ jobs:
           FILENAME=$(cat filename.txt)
           BASENAME="${FILENAME%.*}"
           EXT="${FILENAME##*.}"
-          FINAL_NAME="${BASENAME}_[${QUALITY}].${EXT}"
+          FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
           mv "$FILENAME" "$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> $GITHUB_OUTPUT
 
