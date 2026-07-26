@@ -2,6 +2,8 @@ import threading
 import time
 import re
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from kivy.app import App
@@ -25,6 +27,23 @@ APP_VERSION = "1.2"
 MAX_PARALLEL_JOBS = 5
 
 settings_store = JsonStore("ytdl_settings.json")
+
+REQUEST_TIMEOUT = 15  # seconds; avoids requests hanging forever on flaky mobile networks
+
+def _build_session():
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+http = _build_session()
 
 try:
     from plyer import notification
@@ -74,7 +93,7 @@ def dispatch_workflow(workflow_file, inputs):
     instead of guessing "the latest run belongs to me"."""
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
-    r = requests.post(url, headers=headers(), json={"ref": "main", "inputs": inputs})
+    r = http.post(url, headers=headers(), json={"ref": "main", "inputs": inputs}, timeout=REQUEST_TIMEOUT)
     _check_response(r)
     return dispatch_time
 
@@ -85,7 +104,7 @@ def get_run_id_after(workflow_file, dispatch_time, attempts=10, delay=1.5):
     dispatches happen close together)."""
     url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=5"
     for _ in range(attempts):
-        r = requests.get(url, headers=headers())
+        r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
         _check_response(r)
         runs = r.json().get("workflow_runs", [])
         for run in runs:
@@ -100,7 +119,7 @@ def wait_for_run(run_id, on_status=None, poll_interval=3):
     url = f"{API_BASE}/actions/runs/{run_id}"
     last_status = None
     while True:
-        r = requests.get(url, headers=headers())
+        r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
         _check_response(r)
         data = r.json()
         status = data["status"]
@@ -114,14 +133,14 @@ def wait_for_run(run_id, on_status=None, poll_interval=3):
 
 def get_run_log_text(run_id):
     url = f"{API_BASE}/actions/runs/{run_id}/jobs"
-    r = requests.get(url, headers=headers())
+    r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
     _check_response(r)
     jobs = r.json().get("jobs", [])
     if not jobs:
         return ""
     job_id = jobs[0]["id"]
     log_url = f"{API_BASE}/actions/jobs/{job_id}/logs"
-    r = requests.get(log_url, headers=headers())
+    r = http.get(log_url, headers=headers(), timeout=REQUEST_TIMEOUT)
     _check_response(r)
     return r.text
 
@@ -147,7 +166,7 @@ def get_release_link(run_id, attempts=10, delay=2):
     tag = f"run-{run_id}"
     url = f"{API_BASE}/releases/tags/{tag}"
     for _ in range(attempts):
-        r = requests.get(url, headers=headers())
+        r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
         if r.status_code in (401, 403):
             raise GitHubAuthError("GitHub token is invalid or lacks permission to read releases.")
         if r.status_code == 200:
@@ -173,7 +192,7 @@ def get_playlist_links(playlist_url):
 
 def get_live_history():
     url = f"{API_BASE}/releases?per_page=30"
-    r = requests.get(url, headers=headers())
+    r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
     _check_response(r)
     releases = r.json()
     items = []
@@ -315,23 +334,56 @@ class YTBridgeApp(App):
             })
             run_id = get_run_id_after("download.yml", dispatch_time)
             if run_id is None:
-                self.set_status("Could not detect the workflow run. Try again.")
+                Clock.schedule_once(lambda dt: self.show_result(
+                    "Could not detect the workflow run. It may still be running on GitHub Actions.",
+                ))
                 return
             conclusion = wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
             if conclusion != "success":
-                self.set_status(f"Download failed ({conclusion})")
+                Clock.schedule_once(lambda dt: self.show_result(f"Download failed ({conclusion})"))
                 return
 
-            link = get_release_link(run_id)
-            if link:
-                notify("YT Bridge Git", "Link ready!")
-                Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link))
-            else:
-                self.set_status("Could not get link")
+            self.finish_download(run_id)
         except GitHubAuthError:
-            self.set_status("GitHub token invalid or expired. Update it and retry.")
+            Clock.schedule_once(lambda dt: self.show_result(
+                "GitHub token invalid or expired. Update it and retry."
+            ))
         except Exception as e:
-            self.set_status(f"Error: {str(e)[:60]}")
+            # The GitHub Actions run itself may have already succeeded even if this
+            # network call failed (e.g. mobile connection drop) - let the person
+            # retry just the "fetch the link" step instead of starting over.
+            run_id_for_retry = locals().get("run_id")
+            if run_id_for_retry:
+                Clock.schedule_once(lambda dt: self.show_result(
+                    f"Network error while fetching the link: {str(e)[:60]}",
+                    retry=lambda: self.retry_fetch_link(run_id_for_retry),
+                ))
+            else:
+                Clock.schedule_once(lambda dt: self.show_result(f"Error: {str(e)[:60]}"))
+
+    def finish_download(self, run_id):
+        try:
+            link = get_release_link(run_id)
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self.show_result(
+                f"Network error while fetching the link: {str(e)[:60]}",
+                retry=lambda: self.retry_fetch_link(run_id),
+            ))
+            return
+        if link:
+            notify("YT Bridge Git", "Link ready!")
+            Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link))
+        else:
+            Clock.schedule_once(lambda dt: self.show_result(
+                "Could not get link (release may not be ready yet).",
+                retry=lambda: self.retry_fetch_link(run_id),
+            ))
+
+    def retry_fetch_link(self, run_id):
+        self.clear_content()
+        self.status_label = Label(text="Fetching link...", size_hint_y=None, height=60)
+        self.add(self.status_label)
+        threading.Thread(target=self.finish_download, args=(run_id,), daemon=True).start()
 
     def on_fetch_playlist(self, instance):
         save_token(self.token_input.text.strip())
@@ -489,7 +541,7 @@ class YTBridgeApp(App):
         home_btn.bind(on_press=lambda i: self.show_home())
         self.add(home_btn)
 
-    def show_result(self, message, link=None):
+    def show_result(self, message, link=None, retry=None):
         self.clear_content()
         self.add(Label(text=message, size_hint_y=None, height=60))
         if link:
@@ -498,6 +550,10 @@ class YTBridgeApp(App):
             copy_btn = Button(text="Copy link", size_hint_y=None, height=48)
             copy_btn.bind(on_press=lambda i: Clipboard.copy(link))
             self.add(copy_btn)
+        if retry:
+            retry_btn = Button(text="Try again", size_hint_y=None, height=48)
+            retry_btn.bind(on_press=lambda i: retry())
+            self.add(retry_btn)
         home_btn = Button(text="Back to home", size_hint_y=None, height=48)
         home_btn.bind(on_press=lambda i: self.show_home())
         self.add(home_btn)
@@ -524,9 +580,22 @@ class YTBridgeApp(App):
         if not items:
             self.add(Label(text="No downloads yet", size_hint_y=None, height=40))
         for item in items:
-            row = BoxLayout(orientation="vertical", size_hint_y=None, height=90, spacing=2)
-            title_label = Label(text=f"{item['date']}\n{item['title'][:45]}", size_hint_y=None, height=45)
+            row = BoxLayout(orientation="vertical", size_hint_y=None, spacing=6, padding=(0, 6))
+
+            title_label = Label(
+                text=f"{item['date']}\n{item['title']}",
+                size_hint_y=None,
+                halign="left",
+                valign="top",
+            )
+            # Wrap text within the row's width and size the label to fit however
+            # many lines that takes, instead of a fixed height that clips long titles.
+            title_label.bind(
+                width=lambda inst, w: setattr(inst, "text_size", (w, None)),
+                texture_size=lambda inst, size: setattr(inst, "height", size[1]),
+            )
             row.add_widget(title_label)
+
             link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
             box = TextInput(text=item["link"], readonly=True, multiline=False, size_hint_x=0.7)
             copy_btn = Button(text="Copy", size_hint_x=0.3)
@@ -534,6 +603,14 @@ class YTBridgeApp(App):
             link_row.add_widget(box)
             link_row.add_widget(copy_btn)
             row.add_widget(link_row)
+
+            # Row height = title height + link row height + padding/spacing, so rows
+            # never overlap regardless of how long the title is.
+            def _update_row_height(inst, value, row=row, title_label=title_label, link_row=link_row):
+                row.height = title_label.height + link_row.height + row.spacing + row.padding[1] * 2
+            title_label.bind(height=_update_row_height)
+            _update_row_height(None, None)
+
             self.add(row)
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
@@ -543,18 +620,14 @@ class YTBridgeApp(App):
         self.clear_content()
         about_text = f"""YT Bridge Git v{APP_VERSION}
 
-دانلود از YouTube و آپلود به GitHub
 Download from YouTube to GitHub
 
-سازنده: Mohsen Mah
 Developer: Mohsen Mah
 
-تلگرام: t.me/moh3n201
-Telegram: t.me/moh3n201
+Telegram: t.me/moh3n2016
 
-نکته: فایل‌ها پس از ۲ روز خودکار پاک می‌شوند
 Note: files are auto-deleted after 2 days"""
-        self.add(Label(text=about_text, size_hint_y=None, height=280))
+        self.add(Label(text=about_text, size_hint_y=None, height=220))
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
         self.add(back_btn)
