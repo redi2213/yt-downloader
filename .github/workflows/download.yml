@@ -24,11 +24,25 @@ jobs:
     steps:
       - uses: denoland/setup-deno@v2
 
-      - name: Install yt-dlp, ffmpeg, aria2
+      - name: Cache apt packages (ffmpeg, aria2)
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-cache-ffmpeg-aria2-${{ runner.os }}
+
+      - name: Install ffmpeg, aria2
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg aria2
-          pip install -U yt-dlp
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-yt-dlp-${{ runner.os }}
+
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
 
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
@@ -36,6 +50,7 @@ jobs:
       - name: Download
         id: dl
         run: |
+          set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
           COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 1M")
 
@@ -75,6 +90,10 @@ jobs:
             fi
           fi
 
+          if [ ! -s filename.txt ]; then
+            echo "::error::yt-dlp did not produce an output file (filename.txt is empty/missing)."
+            exit 1
+          fi
           FILENAME=$(cat filename.txt)
           BASENAME="${FILENAME%.*}"
           EXT="${FILENAME##*.}"

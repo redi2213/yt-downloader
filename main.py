@@ -2,6 +2,7 @@ import threading
 import time
 import re
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from kivy.app import App
 from kivy.core.window import Window
@@ -19,6 +20,9 @@ REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 APP_VERSION = "1.2"
+# GitHub Actions free tier allows ~20 concurrent jobs; stay under that so
+# dispatched runs don't queue behind each other.
+MAX_PARALLEL_JOBS = 5
 
 settings_store = JsonStore("ytdl_settings.json")
 
@@ -51,42 +55,74 @@ def headers():
     return {"Authorization": f"token {get_token()}", "Accept": "application/vnd.github+json"}
 
 
+class GitHubAuthError(Exception):
+    """Raised when the GitHub token is missing, invalid, or lacks permissions."""
+    pass
+
+
+def _check_response(r):
+    if r.status_code in (401, 403):
+        raise GitHubAuthError(
+            "GitHub token is invalid, expired, or missing required permissions."
+        )
+    r.raise_for_status()
+
+
 def dispatch_workflow(workflow_file, inputs):
+    """Dispatch a workflow and return the UTC timestamp (ISO, second precision)
+    just before dispatch, so the caller can reliably find *this* run afterwards
+    instead of guessing "the latest run belongs to me"."""
+    dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
     r = requests.post(url, headers=headers(), json={"ref": "main", "inputs": inputs})
-    r.raise_for_status()
+    _check_response(r)
+    return dispatch_time
 
 
-def get_latest_run_id(workflow_file):
-    url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=1"
-    r = requests.get(url, headers=headers())
-    r.raise_for_status()
-    runs = r.json()["workflow_runs"]
-    return runs[0]["id"] if runs else None
+def get_run_id_after(workflow_file, dispatch_time, attempts=10, delay=1.5):
+    """Poll for the run created at/after dispatch_time, instead of blindly
+    trusting 'most recent run' (which can grab someone else's run if two
+    dispatches happen close together)."""
+    url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=5"
+    for _ in range(attempts):
+        r = requests.get(url, headers=headers())
+        _check_response(r)
+        runs = r.json().get("workflow_runs", [])
+        for run in runs:
+            created_at = run.get("created_at", "").rstrip("Z")
+            if created_at >= dispatch_time:
+                return run["id"]
+        time.sleep(delay)
+    return None
 
 
-def wait_for_run(run_id, on_status=None):
+def wait_for_run(run_id, on_status=None, poll_interval=3):
     url = f"{API_BASE}/actions/runs/{run_id}"
+    last_status = None
     while True:
         r = requests.get(url, headers=headers())
-        r.raise_for_status()
+        _check_response(r)
         data = r.json()
         status = data["status"]
-        if on_status:
+        if on_status and status != last_status:
             on_status(status)
+            last_status = status
         if status == "completed":
             return data["conclusion"]
-        time.sleep(2)
+        time.sleep(poll_interval)
 
 
 def get_run_log_text(run_id):
     url = f"{API_BASE}/actions/runs/{run_id}/jobs"
     r = requests.get(url, headers=headers())
-    r.raise_for_status()
-    job_id = r.json()["jobs"][0]["id"]
+    _check_response(r)
+    jobs = r.json().get("jobs", [])
+    if not jobs:
+        return ""
+    job_id = jobs[0]["id"]
     log_url = f"{API_BASE}/actions/jobs/{job_id}/logs"
     r = requests.get(log_url, headers=headers())
-    r.raise_for_status()
+    _check_response(r)
     return r.text
 
 
@@ -107,23 +143,26 @@ def parse_formats(log_text):
     return results
 
 
-def get_release_link(run_id):
+def get_release_link(run_id, attempts=10, delay=2):
     tag = f"run-{run_id}"
     url = f"{API_BASE}/releases/tags/{tag}"
-    for _ in range(10):
+    for _ in range(attempts):
         r = requests.get(url, headers=headers())
+        if r.status_code in (401, 403):
+            raise GitHubAuthError("GitHub token is invalid or lacks permission to read releases.")
         if r.status_code == 200:
             assets = r.json().get("assets", [])
             if assets:
                 return assets[0]["browser_download_url"]
-        time.sleep(3)
+        time.sleep(delay)
     return None
 
 
 def get_playlist_links(playlist_url):
-    dispatch_workflow("list-playlist.yml", {"playlist_url": playlist_url})
-    time.sleep(2)
-    run_id = get_latest_run_id("list-playlist.yml")
+    dispatch_time = dispatch_workflow("list-playlist.yml", {"playlist_url": playlist_url})
+    run_id = get_run_id_after("list-playlist.yml", dispatch_time)
+    if run_id is None:
+        return []
     conclusion = wait_for_run(run_id)
     if conclusion != "success":
         return []
@@ -135,7 +174,7 @@ def get_playlist_links(playlist_url):
 def get_live_history():
     url = f"{API_BASE}/releases?per_page=30"
     r = requests.get(url, headers=headers())
-    r.raise_for_status()
+    _check_response(r)
     releases = r.json()
     items = []
     for rel in releases:
@@ -228,16 +267,23 @@ class YTBridgeApp(App):
     def fetch_formats_thread(self, url):
         try:
             self.set_status("Fetching qualities...")
-            dispatch_workflow("list-formats.yml", {"video_url": url})
-            time.sleep(2)
-            run_id = get_latest_run_id("list-formats.yml")
-            wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
+            dispatch_time = dispatch_workflow("list-formats.yml", {"video_url": url})
+            run_id = get_run_id_after("list-formats.yml", dispatch_time)
+            if run_id is None:
+                self.set_status("Could not detect the workflow run. Try again.")
+                return
+            conclusion = wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
+            if conclusion != "success":
+                self.set_status(f"Could not fetch qualities ({conclusion})")
+                return
             log_text = get_run_log_text(run_id)
             formats = parse_formats(log_text)
             if not formats:
                 self.set_status("No formats found")
                 return
             Clock.schedule_once(lambda dt: self.show_quality_list(url, formats))
+        except GitHubAuthError:
+            self.set_status("GitHub token invalid or expired. Update it and retry.")
         except Exception as e:
             self.set_status(f"Error: {str(e)[:60]}")
 
@@ -262,13 +308,19 @@ class YTBridgeApp(App):
 
     def download_thread(self, url, format_id, audio_only):
         try:
-            dispatch_workflow("download.yml", {
+            self.set_status("Starting workflow...")
+            dispatch_time = dispatch_workflow("download.yml", {
                 "video_url": url, "format_id": format_id,
                 "audio_only": "true" if audio_only else "false"
             })
-            time.sleep(2)
-            run_id = get_latest_run_id("download.yml")
-            wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
+            run_id = get_run_id_after("download.yml", dispatch_time)
+            if run_id is None:
+                self.set_status("Could not detect the workflow run. Try again.")
+                return
+            conclusion = wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
+            if conclusion != "success":
+                self.set_status(f"Download failed ({conclusion})")
+                return
 
             link = get_release_link(run_id)
             if link:
@@ -276,6 +328,8 @@ class YTBridgeApp(App):
                 Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link))
             else:
                 self.set_status("Could not get link")
+        except GitHubAuthError:
+            self.set_status("GitHub token invalid or expired. Update it and retry.")
         except Exception as e:
             self.set_status(f"Error: {str(e)[:60]}")
 
@@ -320,38 +374,74 @@ class YTBridgeApp(App):
         threading.Thread(
             target=self.playlist_download_thread, args=(urls, target_height, want_hdr), daemon=True
         ).start()
+    def process_one_video(self, url, target_height, want_hdr):
+        """Runs the full format-pick + download pipeline for a single video.
+        Returns (url, link_or_None, error_message_or_None)."""
+        try:
+            dispatch_time = dispatch_workflow("list-formats.yml", {"video_url": url})
+            run_id = get_run_id_after("list-formats.yml", dispatch_time)
+            if run_id is None:
+                return url, None, "could not detect list-formats run"
+            if wait_for_run(run_id) != "success":
+                return url, None, "list-formats run failed"
+            log_text = get_run_log_text(run_id)
+            formats = parse_formats(log_text)
+            picked = self.pick_format(formats, target_height, want_hdr)
+            if not picked:
+                return url, None, "no matching format"
+            fmt_id, _label = picked
+
+            dl_dispatch_time = dispatch_workflow(
+                "download.yml", {"video_url": url, "format_id": fmt_id, "audio_only": "false"}
+            )
+            dl_run_id = get_run_id_after("download.yml", dl_dispatch_time)
+            if dl_run_id is None:
+                return url, None, "could not detect download run"
+            conclusion = wait_for_run(dl_run_id)
+            if conclusion != "success":
+                return url, None, f"download failed ({conclusion})"
+            link = get_release_link(dl_run_id)
+            if not link:
+                return url, None, "no release link produced"
+            return url, link, None
+        except GitHubAuthError:
+            return url, None, "GitHub token invalid or expired"
+        except Exception as e:
+            return url, None, str(e)[:80]
 
     def playlist_download_thread(self, urls, target_height, want_hdr):
         results = []
-        for i, url in enumerate(urls, 1):
-            self.set_status(f"Processing {i}/{len(urls)}: fetching qualities...")
-            try:
-                dispatch_workflow("list-formats.yml", {"video_url": url})
-                time.sleep(2)
-                run_id = get_latest_run_id("list-formats.yml")
-                if wait_for_run(run_id) != "success":
-                    continue
-                log_text = get_run_log_text(run_id)
-                formats = parse_formats(log_text)
-                picked = self.pick_format(formats, target_height, want_hdr)
-                if not picked:
-                    continue
-                fmt_id, label = picked
+        errors = []
+        total = len(urls)
+        done_count = 0
+        lock = threading.Lock()
 
-                self.set_status(f"Processing {i}/{len(urls)}: downloading...")
-                dispatch_workflow("download.yml", {"video_url": url, "format_id": fmt_id, "audio_only": "false"})
-                time.sleep(2)
-                dl_run_id = get_latest_run_id("download.yml")
-                if wait_for_run(dl_run_id) != "success":
-                    continue
-                link = get_release_link(dl_run_id)
+        def update_progress():
+            nonlocal done_count
+            with lock:
+                done_count += 1
+                self.set_status(f"Processing {done_count}/{total}...")
+
+        # Process multiple videos concurrently instead of one-at-a-time, since
+        # each video's work is a separate GitHub Actions run anyway.
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOBS) as pool:
+            futures = {
+                pool.submit(self.process_one_video, url, target_height, want_hdr): url
+                for url in urls
+            }
+            for future in as_completed(futures):
+                url, link, error = future.result()
+                update_progress()
                 if link:
                     results.append(link)
-            except Exception:
-                continue
+                else:
+                    errors.append((url, error))
 
-        notify("YT Bridge Git", f"Playlist done: {len(results)}/{len(urls)} ready")
-        Clock.schedule_once(lambda dt: self.show_playlist_results(results))
+        if errors:
+            notify("YT Bridge Git", f"Playlist done: {len(results)}/{total} ready, {len(errors)} failed")
+        else:
+            notify("YT Bridge Git", f"Playlist done: {len(results)}/{total} ready")
+        Clock.schedule_once(lambda dt: self.show_playlist_results(results, errors))
 
     def pick_format(self, formats, target_height, want_hdr):
         candidates = []
@@ -373,7 +463,8 @@ class YTBridgeApp(App):
             best = sorted(pool, key=lambda c: abs(c[2] - target_height))[0]
         return best[0], best[1]
 
-    def show_playlist_results(self, links):
+    def show_playlist_results(self, links, errors=None):
+        errors = errors or []
         self.clear_content()
         self.add(Label(text=f"{len(links)} links ready:", size_hint_y=None, height=40))
         for link in links:
@@ -384,6 +475,16 @@ class YTBridgeApp(App):
             row.add_widget(box)
             row.add_widget(copy_btn)
             self.add(row)
+
+        if errors:
+            self.add(Label(text=f"{len(errors)} failed:", size_hint_y=None, height=40))
+            for url, reason in errors:
+                short_url = url if len(url) <= 45 else url[:42] + "..."
+                self.add(Label(
+                    text=f"{short_url}\n{reason}",
+                    size_hint_y=None, height=44,
+                ))
+
         home_btn = Button(text="Back to home", size_hint_y=None, height=48)
         home_btn.bind(on_press=lambda i: self.show_home())
         self.add(home_btn)

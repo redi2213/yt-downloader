@@ -14,6 +14,12 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v2
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-yt-dlp-${{ runner.os }}
+
       - name: Install yt-dlp
         run: pip install -U yt-dlp
 
