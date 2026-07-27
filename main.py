@@ -115,10 +115,15 @@ def get_run_id_after(workflow_file, dispatch_time, attempts=10, delay=1.5):
     return None
 
 
-def wait_for_run(run_id, on_status=None, poll_interval=3):
+def wait_for_run(run_id, on_status=None, poll_interval=3, stop_event=None):
+    """Polls until the run completes. If stop_event is set while waiting,
+    returns "cancelled_locally" without cancelling the run on GitHub itself
+    (use cancel_run for that)."""
     url = f"{API_BASE}/actions/runs/{run_id}"
     last_status = None
     while True:
+        if stop_event is not None and stop_event.is_set():
+            return "cancelled_locally"
         r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
         _check_response(r)
         data = r.json()
@@ -129,6 +134,13 @@ def wait_for_run(run_id, on_status=None, poll_interval=3):
         if status == "completed":
             return data["conclusion"]
         time.sleep(poll_interval)
+
+
+def cancel_run(run_id):
+    """Actually cancels the workflow run on GitHub Actions (not just local polling)."""
+    url = f"{API_BASE}/actions/runs/{run_id}/cancel"
+    r = http.post(url, headers=headers(), timeout=REQUEST_TIMEOUT)
+    _check_response(r)
 
 
 def get_run_log_text(run_id):
@@ -208,12 +220,14 @@ def get_live_history():
             "date": rel.get("created_at", "")[:16].replace("T", " "),
         })
     return items
-
-
 class YTBridgeApp(App):
     def build(self):
         Window.softinput_mode = "below_target"
         self.audio_only = False
+        # Tracks the most recent single-video job so the home screen can offer
+        # "check status" after navigating away, and so quality can be
+        # re-picked without re-running list-formats.
+        self.current_job = None  # dict: {stage, run_id, video_url, formats, stop_event}
         self.scroll = ScrollView()
         self.content = BoxLayout(orientation="vertical", padding=10, spacing=8, size_hint_y=None)
         self.content.bind(minimum_height=self.content.setter("height"))
@@ -262,6 +276,13 @@ class YTBridgeApp(App):
         about_btn.bind(on_press=lambda i: self.show_about())
         self.add(about_btn)
 
+        if self.current_job is not None:
+            job = self.current_job
+            label = "Check on last job" if job["stage"] != "done" else "View last result"
+            check_btn = Button(text=label, size_hint_y=None, height=48)
+            check_btn.bind(on_press=lambda i: self.resume_job_screen())
+            self.add(check_btn)
+
         self.status_label = Label(text="", size_hint_y=None, height=40)
         self.add(self.status_label)
 
@@ -281,51 +302,125 @@ class YTBridgeApp(App):
         if self.audio_only:
             Clock.schedule_once(lambda dt: self.start_download(url, "bestaudio", audio_only=True))
         else:
-            threading.Thread(target=self.fetch_formats_thread, args=(url,), daemon=True).start()
+            self.current_job = {"stage": "formats", "run_id": None, "video_url": url,
+                                 "result": None, "last_status": "starting"}
+            self.show_working_screen("Fetching qualities...")
+            threading.Thread(target=self.fetch_formats_thread, args=(url, self.current_job), daemon=True).start()
 
-    def fetch_formats_thread(self, url):
+    def show_working_screen(self, message):
+        """Screen shown while a background job runs. Back just navigates to
+        home - the job thread keeps running regardless, and writes its result
+        into current_job so 'check on last job' can pick it up later."""
+        self.clear_content()
+        self.status_label = Label(text=message, size_hint_y=None, height=60)
+        self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+    def resume_job_screen(self):
+        """Called from the home screen's 'check on last job' button."""
+        job = self.current_job
+        if job is None:
+            self.show_home()
+            return
+        if job["stage"] == "done":
+            result = job["result"]
+            if result["ok"]:
+                if job.get("kind") == "formats":
+                    self.show_quality_list(job["video_url"], result["formats"])
+                else:
+                    self.show_result("Ready!", link=result["link"])
+            else:
+                self.show_result(result["error"], retry=result.get("retry"))
+        else:
+            # Still running - show current status; the same background
+            # thread will update current_job when it finishes.
+            self.show_working_screen(f"{job.get('last_status', 'Working')}...")
+
+    def fetch_formats_thread(self, url, job):
         try:
             self.set_status("Fetching qualities...")
             dispatch_time = dispatch_workflow("list-formats.yml", {"video_url": url})
             run_id = get_run_id_after("list-formats.yml", dispatch_time)
+            job["run_id"] = run_id
             if run_id is None:
-                self.set_status("Could not detect the workflow run. Try again.")
+                self._complete_job(job, ok=False, error="Could not detect the workflow run. Try again.", kind="formats")
                 return
-            conclusion = wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
+
+            def on_status(s):
+                job["last_status"] = s
+                self.set_status(f"{s}...")
+            conclusion = wait_for_run(run_id, on_status=on_status)
             if conclusion != "success":
-                self.set_status(f"Could not fetch qualities ({conclusion})")
+                self._complete_job(job, ok=False, error=f"Could not fetch qualities ({conclusion})", kind="formats")
                 return
             log_text = get_run_log_text(run_id)
             formats = parse_formats(log_text)
             if not formats:
-                self.set_status("No formats found")
+                self._complete_job(job, ok=False, error="No formats found", kind="formats")
                 return
-            Clock.schedule_once(lambda dt: self.show_quality_list(url, formats))
+            self._complete_job(job, ok=True, formats=formats, kind="formats")
+            Clock.schedule_once(lambda dt: self.show_quality_list(url, formats) if self.current_job is job else None)
         except GitHubAuthError:
-            self.set_status("GitHub token invalid or expired. Update it and retry.")
+            self._complete_job(job, ok=False, error="GitHub token invalid or expired. Update it and retry.", kind="formats")
         except Exception as e:
-            self.set_status(f"Error: {str(e)[:60]}")
+            self._complete_job(job, ok=False, error=f"Error: {str(e)[:60]}", kind="formats")
 
-    def show_quality_list(self, url, formats):
+    def _complete_job(self, job, ok, kind, error=None, formats=None, link=None, retry=None):
+        job["stage"] = "done"
+        job["kind"] = kind
+        job["result"] = {"ok": ok, "error": error, "formats": formats, "link": link, "retry": retry}
+        if not ok:
+            # If the user is still sitting on the working screen for this job,
+            # update it in place; if they navigated home, current_job now
+            # reflects the failure so "check on last job" shows it correctly.
+            Clock.schedule_once(lambda dt: self.show_result(error, retry=retry) if self.current_job is job else None)
+
+    def show_quality_list(self, url, formats, reselect_only=False):
         self.clear_content()
         self.add(Label(text="Choose quality", size_hint_y=None, height=40))
         for fmt_id, label in formats:
             btn = Button(text=label, size_hint_y=None, height=50)
-            btn.bind(on_press=lambda inst, fid=fmt_id: self.start_download(url, fid, audio_only=False))
+            btn.bind(on_press=lambda inst, fid=fmt_id: self.start_download(url, fid, audio_only=False, formats_for_reselect=formats))
             self.add(btn)
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
         self.add(back_btn)
 
-    def start_download(self, url, format_id, audio_only):
+    def start_download(self, url, format_id, audio_only, formats_for_reselect=None):
+        self.current_job = {"stage": "download", "run_id": None, "video_url": url,
+                             "result": None, "last_status": "starting",
+                             "formats": formats_for_reselect}
+        job = self.current_job
         self.clear_content()
         self.status_label = Label(text="Starting download...", size_hint_y=None, height=60)
         self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+        if formats_for_reselect:
+            reselect_btn = Button(text="Pick a different quality", size_hint_y=None, height=48)
+            reselect_btn.bind(on_press=lambda i: self.stop_and_reselect(job, url, formats_for_reselect))
+            self.add(reselect_btn)
         threading.Thread(
-            target=self.download_thread, args=(url, format_id, audio_only), daemon=True
+            target=self.download_thread, args=(url, format_id, audio_only, job), daemon=True
         ).start()
 
-    def download_thread(self, url, format_id, audio_only):
+    def stop_and_reselect(self, job, url, formats):
+        """Cancels the in-progress download run on GitHub (if one exists yet)
+        and goes straight back to the quality list - no need to re-run
+        list-formats since we already have it."""
+        if job.get("run_id"):
+            try:
+                cancel_run(job["run_id"])
+            except Exception:
+                pass  # best-effort; the old run finishing harmlessly is fine
+        job["stage"] = "done"
+        job["result"] = {"ok": False, "error": "Cancelled by user"}
+        self.show_quality_list(url, formats)
+
+    def download_thread(self, url, format_id, audio_only, job):
         try:
             self.set_status("Starting workflow...")
             dispatch_time = dispatch_workflow("download.yml", {
@@ -333,57 +428,60 @@ class YTBridgeApp(App):
                 "audio_only": "true" if audio_only else "false"
             })
             run_id = get_run_id_after("download.yml", dispatch_time)
+            job["run_id"] = run_id
             if run_id is None:
-                Clock.schedule_once(lambda dt: self.show_result(
-                    "Could not detect the workflow run. It may still be running on GitHub Actions.",
-                ))
-                return
-            conclusion = wait_for_run(run_id, on_status=lambda s: self.set_status(f"{s}..."))
-            if conclusion != "success":
-                Clock.schedule_once(lambda dt: self.show_result(f"Download failed ({conclusion})"))
+                self._complete_job(job, ok=False, kind="download",
+                                    error="Could not detect the workflow run. It may still be running on GitHub Actions.")
                 return
 
-            self.finish_download(run_id)
+            def on_status(s):
+                job["last_status"] = s
+                self.set_status(f"{s}...")
+            conclusion = wait_for_run(run_id, on_status=on_status)
+            if job["stage"] == "done":
+                return  # was cancelled by stop_and_reselect while we were waiting
+            if conclusion != "success":
+                self._complete_job(job, ok=False, kind="download", error=f"Download failed ({conclusion})")
+                return
+
+            self.finish_download(run_id, job)
         except GitHubAuthError:
-            Clock.schedule_once(lambda dt: self.show_result(
-                "GitHub token invalid or expired. Update it and retry."
-            ))
+            self._complete_job(job, ok=False, kind="download",
+                                error="GitHub token invalid or expired. Update it and retry.")
         except Exception as e:
             # The GitHub Actions run itself may have already succeeded even if this
             # network call failed (e.g. mobile connection drop) - let the person
             # retry just the "fetch the link" step instead of starting over.
-            run_id_for_retry = locals().get("run_id")
+            run_id_for_retry = job.get("run_id")
             if run_id_for_retry:
-                Clock.schedule_once(lambda dt: self.show_result(
-                    f"Network error while fetching the link: {str(e)[:60]}",
-                    retry=lambda: self.retry_fetch_link(run_id_for_retry),
-                ))
+                self._complete_job(job, ok=False, kind="download",
+                                    error=f"Network error while fetching the link: {str(e)[:60]}",
+                                    retry=lambda: self.retry_fetch_link(run_id_for_retry, job))
             else:
-                Clock.schedule_once(lambda dt: self.show_result(f"Error: {str(e)[:60]}"))
+                self._complete_job(job, ok=False, kind="download", error=f"Error: {str(e)[:60]}")
 
-    def finish_download(self, run_id):
+    def finish_download(self, run_id, job):
         try:
             link = get_release_link(run_id)
         except Exception as e:
-            Clock.schedule_once(lambda dt: self.show_result(
-                f"Network error while fetching the link: {str(e)[:60]}",
-                retry=lambda: self.retry_fetch_link(run_id),
-            ))
+            self._complete_job(job, ok=False, kind="download",
+                                error=f"Network error while fetching the link: {str(e)[:60]}",
+                                retry=lambda: self.retry_fetch_link(run_id, job))
             return
         if link:
             notify("YT Bridge Git", "Link ready!")
-            Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link))
+            self._complete_job(job, ok=True, kind="download", link=link)
+            Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link) if self.current_job is job else None)
         else:
-            Clock.schedule_once(lambda dt: self.show_result(
-                "Could not get link (release may not be ready yet).",
-                retry=lambda: self.retry_fetch_link(run_id),
-            ))
+            self._complete_job(job, ok=False, kind="download",
+                                error="Could not get link (release may not be ready yet).",
+                                retry=lambda: self.retry_fetch_link(run_id, job))
 
-    def retry_fetch_link(self, run_id):
+    def retry_fetch_link(self, run_id, job):
         self.clear_content()
         self.status_label = Label(text="Fetching link...", size_hint_y=None, height=60)
         self.add(self.status_label)
-        threading.Thread(target=self.finish_download, args=(run_id,), daemon=True).start()
+        threading.Thread(target=self.finish_download, args=(run_id, job), daemon=True).start()
 
     def on_fetch_playlist(self, instance):
         save_token(self.token_input.text.strip())
