@@ -37,8 +37,9 @@ jobs:
         run: |
           set -euo pipefail
           URL="${{ github.event.inputs.file_url }}"
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
-          HEADERS=$(curl -sIL "$URL" || true)
+          HEADERS=$(curl -sIL -A "$UA" "$URL" || true)
           CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r')
 
           if [ -n "$CD_NAME" ]; then
@@ -52,10 +53,14 @@ jobs:
 
           echo "Detected original filename: $ORIGINAL_NAME"
 
-          curl -L --fail --retry 3 --retry-delay 2 -o "$ORIGINAL_NAME" "$URL"
+          set +e
+          HTTP_CODE=$(curl -L -A "$UA" -e "$URL" --retry 3 --retry-delay 2 \
+            -w "%{http_code}" -o "$ORIGINAL_NAME" "$URL")
+          CURL_EXIT=$?
+          set -e
 
-          if [ ! -s "$ORIGINAL_NAME" ]; then
-            echo "::error::Download produced an empty file."
+          if [ "$CURL_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
+            echo "::error::Download failed (curl exit code $CURL_EXIT, HTTP status $HTTP_CODE). The link may require a browser, block direct downloads, or need to be re-checked."
             exit 1
           fi
 
