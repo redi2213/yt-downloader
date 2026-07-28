@@ -44,7 +44,7 @@ jobs:
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
           HEADERS=$(curl -sIL -A "$UA" "$URL" || true)
-          CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r')
+          CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r' || true)
 
           if [ -n "$CD_NAME" ]; then
             ORIGINAL_NAME="$CD_NAME"
