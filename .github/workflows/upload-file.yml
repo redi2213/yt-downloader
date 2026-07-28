@@ -1,0 +1,89 @@
+name: Upload File
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_url:
+        description: 'Direct link to the file to download and upload'
+        required: true
+      zip_it:
+        description: 'true to zip the file before uploading'
+        required: false
+        default: 'false'
+      custom_name:
+        description: 'Optional new filename (no extension). Leave blank to keep the original name.'
+        required: false
+        default: ''
+      job_id:
+        description: 'Unique id used to find this run and tag the release (set by the app)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    name: ${{ github.event.inputs.job_id }}
+    steps:
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-requests-${{ runner.os }}
+
+      - name: Download the file
+        id: dl
+        run: |
+          set -euo pipefail
+          URL="${{ github.event.inputs.file_url }}"
+
+          HEADERS=$(curl -sIL "$URL" || true)
+          CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r')
+
+          if [ -n "$CD_NAME" ]; then
+            ORIGINAL_NAME="$CD_NAME"
+          else
+            ORIGINAL_NAME=$(basename "${URL%%\?*}")
+          fi
+          if [ -z "$ORIGINAL_NAME" ] || [ "$ORIGINAL_NAME" = "/" ]; then
+            ORIGINAL_NAME="downloaded_file"
+          fi
+
+          echo "Detected original filename: $ORIGINAL_NAME"
+
+          curl -L --fail --retry 3 --retry-delay 2 -o "$ORIGINAL_NAME" "$URL"
+
+          if [ ! -s "$ORIGINAL_NAME" ]; then
+            echo "::error::Download produced an empty file."
+            exit 1
+          fi
+
+          CUSTOM_NAME="${{ github.event.inputs.custom_name }}"
+          if [ -n "$CUSTOM_NAME" ]; then
+            EXT="${ORIGINAL_NAME##*.}"
+            if [ "$EXT" = "$ORIGINAL_NAME" ]; then
+              FINAL_NAME="$CUSTOM_NAME"
+            else
+              FINAL_NAME="${CUSTOM_NAME}.${EXT}"
+            fi
+            mv "$ORIGINAL_NAME" "$FINAL_NAME"
+          else
+            FINAL_NAME="$ORIGINAL_NAME"
+          fi
+
+          if [ "${{ github.event.inputs.zip_it }}" = "true" ]; then
+            ZIP_NAME="${FINAL_NAME%.*}.zip"
+            zip -r "$ZIP_NAME" "$FINAL_NAME"
+            FINAL_NAME="$ZIP_NAME"
+          fi
+
+          echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release with direct link
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: job-${{ github.event.inputs.job_id }}
+          files: ${{ steps.dl.outputs.filename }}
+          prerelease: true
+          name: "Upload ${{ steps.dl.outputs.filename }}"
