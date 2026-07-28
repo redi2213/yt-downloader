@@ -24,8 +24,12 @@ permissions:
 jobs:
   upload:
     runs-on: ubuntu-latest
+    timeout-minutes: 340
     name: ${{ github.event.inputs.job_id }}
     steps:
+      - name: Install aria2
+        run: sudo apt-get update && sudo apt-get install -y aria2
+
       - name: Cache pip packages
         uses: actions/cache@v4
         with:
@@ -54,13 +58,20 @@ jobs:
           echo "Detected original filename: $ORIGINAL_NAME"
 
           set +e
-          HTTP_CODE=$(curl -L -A "$UA" -e "$URL" --retry 3 --retry-delay 2 \
-            -w "%{http_code}" -o "$ORIGINAL_NAME" "$URL")
-          CURL_EXIT=$?
+          aria2c \
+            -x 16 -s 16 -k 1M \
+            --connect-timeout=20 \
+            --max-tries=5 \
+            --retry-wait=5 \
+            --user-agent="$UA" \
+            --referer="$URL" \
+            -o "$ORIGINAL_NAME" \
+            "$URL"
+          ARIA_EXIT=$?
           set -e
 
-          if [ "$CURL_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
-            echo "::error::Download failed (curl exit code $CURL_EXIT, HTTP status $HTTP_CODE). The link may require a browser, block direct downloads, or need to be re-checked."
+          if [ "$ARIA_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
+            echo "::error::Download failed (aria2c exit code $ARIA_EXIT). The link may require a browser, block direct downloads, or need to be re-checked."
             exit 1
           fi
 
