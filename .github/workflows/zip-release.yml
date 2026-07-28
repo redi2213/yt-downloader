@@ -1,0 +1,54 @@
+name: Zip Release Asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset_url:
+        description: 'Direct download URL of the existing release asset'
+        required: true
+      asset_name:
+        description: 'Current filename of the asset'
+        required: true
+      release_id:
+        description: 'Release id to attach the zipped file to'
+        required: true
+      job_id:
+        description: 'Unique id used to find this run'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  rezip:
+    runs-on: ubuntu-latest
+    name: ${{ github.event.inputs.job_id }}
+    steps:
+      - name: Download existing asset, zip it, and replace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ASSET_NAME="${{ github.event.inputs.asset_name }}"
+          RELEASE_ID="${{ github.event.inputs.release_id }}"
+
+          curl -L --fail --retry 3 -o "$ASSET_NAME" "${{ github.event.inputs.asset_url }}"
+
+          ZIP_NAME="${ASSET_NAME%.*}.zip"
+          zip -r "$ZIP_NAME" "$ASSET_NAME"
+
+          REPO="${{ github.repository }}"
+
+          ASSET_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/$RELEASE_ID" \
+            | python3 -c "import json,sys; data=json.load(sys.stdin); print(next((a['id'] for a in data['assets'] if a['name']=='$ASSET_NAME'), ''))")
+
+          if [ -n "$ASSET_ID" ]; then
+            curl -s -X DELETE -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/releases/assets/$ASSET_ID"
+          fi
+
+          curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/zip" \
+            --data-binary @"$ZIP_NAME" \
+            "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$ZIP_NAME"

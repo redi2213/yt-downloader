@@ -1,6 +1,7 @@
 import threading
 import time
 import re
+import uuid
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -22,13 +23,11 @@ REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 APP_VERSION = "1.2"
-# GitHub Actions free tier allows ~20 concurrent jobs; stay under that so
-# dispatched runs don't queue behind each other.
 MAX_PARALLEL_JOBS = 5
 
 settings_store = JsonStore("ytdl_settings.json")
 
-REQUEST_TIMEOUT = 15  # seconds; avoids requests hanging forever on flaky mobile networks
+REQUEST_TIMEOUT = 15
 
 def _build_session():
     session = requests.Session()
@@ -75,7 +74,6 @@ def headers():
 
 
 class GitHubAuthError(Exception):
-    """Raised when the GitHub token is missing, invalid, or lacks permissions."""
     pass
 
 
@@ -88,9 +86,6 @@ def _check_response(r):
 
 
 def dispatch_workflow(workflow_file, inputs):
-    """Dispatch a workflow and return the UTC timestamp (ISO, second precision)
-    just before dispatch, so the caller can reliably find *this* run afterwards
-    instead of guessing "the latest run belongs to me"."""
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
     r = http.post(url, headers=headers(), json={"ref": "main", "inputs": inputs}, timeout=REQUEST_TIMEOUT)
@@ -99,9 +94,6 @@ def dispatch_workflow(workflow_file, inputs):
 
 
 def get_run_id_after(workflow_file, dispatch_time, attempts=10, delay=1.5):
-    """Poll for the run created at/after dispatch_time, instead of blindly
-    trusting 'most recent run' (which can grab someone else's run if two
-    dispatches happen close together)."""
     url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=5"
     for _ in range(attempts):
         r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
@@ -115,10 +107,20 @@ def get_run_id_after(workflow_file, dispatch_time, attempts=10, delay=1.5):
     return None
 
 
+def get_run_id_by_job_id(workflow_file, job_id, attempts=20, delay=2):
+    url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=20"
+    for _ in range(attempts):
+        r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
+        _check_response(r)
+        runs = r.json().get("workflow_runs", [])
+        for run in runs:
+            if run.get("display_title") == job_id or run.get("name") == job_id:
+                return run["id"]
+        time.sleep(delay)
+    return None
+
+
 def wait_for_run(run_id, on_status=None, poll_interval=3, stop_event=None):
-    """Polls until the run completes. If stop_event is set while waiting,
-    returns "cancelled_locally" without cancelling the run on GitHub itself
-    (use cancel_run for that)."""
     url = f"{API_BASE}/actions/runs/{run_id}"
     last_status = None
     while True:
@@ -137,7 +139,6 @@ def wait_for_run(run_id, on_status=None, poll_interval=3, stop_event=None):
 
 
 def cancel_run(run_id):
-    """Actually cancels the workflow run on GitHub Actions (not just local polling)."""
     url = f"{API_BASE}/actions/runs/{run_id}/cancel"
     r = http.post(url, headers=headers(), timeout=REQUEST_TIMEOUT)
     _check_response(r)
@@ -174,8 +175,9 @@ def parse_formats(log_text):
     return results
 
 
-def get_release_link(run_id, attempts=10, delay=2):
-    tag = f"run-{run_id}"
+def get_release_link(run_id=None, tag=None, attempts=10, delay=2):
+    if tag is None:
+        tag = f"run-{run_id}"
     url = f"{API_BASE}/releases/tags/{tag}"
     for _ in range(attempts):
         r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
@@ -209,7 +211,8 @@ def get_live_history():
     releases = r.json()
     items = []
     for rel in releases:
-        if not rel.get("tag_name", "").startswith("run-"):
+        tag = rel.get("tag_name", "")
+        if not (tag.startswith("run-") or tag.startswith("job-")):
             continue
         assets = rel.get("assets", [])
         if not assets:
@@ -218,16 +221,35 @@ def get_live_history():
             "title": assets[0]["name"],
             "link": assets[0]["browser_download_url"],
             "date": rel.get("created_at", "")[:16].replace("T", " "),
+            "release_id": rel["id"],
+            "asset_id": assets[0]["id"],
+            "tag_name": tag,
+            "size": assets[0].get("size", 0),
         })
     return items
+
+
+def delete_release(release_id, tag_name):
+    url = f"{API_BASE}/releases/{release_id}"
+    r = http.delete(url, headers=headers(), timeout=REQUEST_TIMEOUT)
+    _check_response(r)
+    tag_url = f"{API_BASE}/git/refs/tags/{tag_name}"
+    try:
+        http.delete(tag_url, headers=headers(), timeout=REQUEST_TIMEOUT)
+    except Exception:
+        pass
+
+
+def rename_release_asset(release_id, asset_id, new_filename):
+    url = f"{API_BASE}/releases/assets/{asset_id}"
+    r = http.patch(url, headers=headers(), json={"name": new_filename}, timeout=REQUEST_TIMEOUT)
+    _check_response(r)
+    return r.json().get("browser_download_url")
 class YTBridgeApp(App):
     def build(self):
         Window.softinput_mode = "below_target"
         self.audio_only = False
-        # Tracks the most recent single-video job so the home screen can offer
-        # "check status" after navigating away, and so quality can be
-        # re-picked without re-running list-formats.
-        self.current_job = None  # dict: {stage, run_id, video_url, formats, stop_event}
+        self.current_job = None
         self.scroll = ScrollView()
         self.content = BoxLayout(orientation="vertical", padding=10, spacing=8, size_hint_y=None)
         self.content.bind(minimum_height=self.content.setter("height"))
@@ -267,6 +289,10 @@ class YTBridgeApp(App):
         playlist_btn = Button(text="This is a playlist", size_hint_y=None, height=48)
         playlist_btn.bind(on_press=self.on_fetch_playlist)
         self.add(playlist_btn)
+
+        upload_btn = Button(text="Upload a file (any link)", size_hint_y=None, height=48)
+        upload_btn.bind(on_press=lambda i: self.show_upload_screen())
+        self.add(upload_btn)
 
         history_btn = Button(text="Download history", size_hint_y=None, height=48)
         history_btn.bind(on_press=lambda i: self.show_history())
@@ -308,9 +334,6 @@ class YTBridgeApp(App):
             threading.Thread(target=self.fetch_formats_thread, args=(url, self.current_job), daemon=True).start()
 
     def show_working_screen(self, message):
-        """Screen shown while a background job runs. Back just navigates to
-        home - the job thread keeps running regardless, and writes its result
-        into current_job so 'check on last job' can pick it up later."""
         self.clear_content()
         self.status_label = Label(text=message, size_hint_y=None, height=60)
         self.add(self.status_label)
@@ -319,7 +342,6 @@ class YTBridgeApp(App):
         self.add(back_btn)
 
     def resume_job_screen(self):
-        """Called from the home screen's 'check on last job' button."""
         job = self.current_job
         if job is None:
             self.show_home()
@@ -334,8 +356,6 @@ class YTBridgeApp(App):
             else:
                 self.show_result(result["error"], retry=result.get("retry"))
         else:
-            # Still running - show current status; the same background
-            # thread will update current_job when it finishes.
             self.show_working_screen(f"{job.get('last_status', 'Working')}...")
 
     def fetch_formats_thread(self, url, job):
@@ -372,9 +392,6 @@ class YTBridgeApp(App):
         job["kind"] = kind
         job["result"] = {"ok": ok, "error": error, "formats": formats, "link": link, "retry": retry}
         if not ok:
-            # If the user is still sitting on the working screen for this job,
-            # update it in place; if they navigated home, current_job now
-            # reflects the failure so "check on last job" shows it correctly.
             Clock.schedule_once(lambda dt: self.show_result(error, retry=retry) if self.current_job is job else None)
 
     def show_quality_list(self, url, formats, reselect_only=False):
@@ -408,14 +425,11 @@ class YTBridgeApp(App):
         ).start()
 
     def stop_and_reselect(self, job, url, formats):
-        """Cancels the in-progress download run on GitHub (if one exists yet)
-        and goes straight back to the quality list - no need to re-run
-        list-formats since we already have it."""
         if job.get("run_id"):
             try:
                 cancel_run(job["run_id"])
             except Exception:
-                pass  # best-effort; the old run finishing harmlessly is fine
+                pass
         job["stage"] = "done"
         job["result"] = {"ok": False, "error": "Cancelled by user"}
         self.show_quality_list(url, formats)
@@ -439,7 +453,7 @@ class YTBridgeApp(App):
                 self.set_status(f"{s}...")
             conclusion = wait_for_run(run_id, on_status=on_status)
             if job["stage"] == "done":
-                return  # was cancelled by stop_and_reselect while we were waiting
+                return
             if conclusion != "success":
                 self._complete_job(job, ok=False, kind="download", error=f"Download failed ({conclusion})")
                 return
@@ -449,9 +463,6 @@ class YTBridgeApp(App):
             self._complete_job(job, ok=False, kind="download",
                                 error="GitHub token invalid or expired. Update it and retry.")
         except Exception as e:
-            # The GitHub Actions run itself may have already succeeded even if this
-            # network call failed (e.g. mobile connection drop) - let the person
-            # retry just the "fetch the link" step instead of starting over.
             run_id_for_retry = job.get("run_id")
             if run_id_for_retry:
                 self._complete_job(job, ok=False, kind="download",
@@ -481,7 +492,125 @@ class YTBridgeApp(App):
         self.clear_content()
         self.status_label = Label(text="Fetching link...", size_hint_y=None, height=60)
         self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
         threading.Thread(target=self.finish_download, args=(run_id, job), daemon=True).start()
+    def show_upload_screen(self):
+        self.clear_content()
+        self.add(Label(text="Upload a file from a link", size_hint_y=None, height=40))
+
+        self.upload_url_input = TextInput(
+            hint_text="Direct file link", multiline=False, size_hint_y=None, height=48
+        )
+        self.add(self.upload_url_input)
+
+        self.upload_rename_input = TextInput(
+            hint_text="New name (optional, leave blank to keep original)",
+            multiline=False, size_hint_y=None, height=48
+        )
+        self.add(self.upload_rename_input)
+
+        self.upload_zip_toggle = ToggleButton(text="Zip before upload: OFF", size_hint_y=None, height=48)
+        self.upload_zip_toggle.bind(on_press=self._toggle_upload_zip)
+        self.add(self.upload_zip_toggle)
+
+        start_btn = Button(text="Upload", size_hint_y=None, height=56)
+        start_btn.bind(on_press=self.on_start_upload)
+        self.add(start_btn)
+
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+    def _toggle_upload_zip(self, instance):
+        is_on = instance.state == "down"
+        instance.text = f"Zip before upload: {'ON' if is_on else 'OFF'}"
+
+    def on_start_upload(self, instance):
+        file_url = self.upload_url_input.text.strip()
+        if not file_url:
+            self.show_upload_screen()
+            return
+        custom_name = self.upload_rename_input.text.strip()
+        zip_it = self.upload_zip_toggle.state == "down"
+        self.start_upload(file_url, zip_it, custom_name)
+
+    def start_upload(self, file_url, zip_it, custom_name):
+        job_id = uuid.uuid4().hex[:12]
+        self.current_job = {"stage": "upload", "run_id": None, "video_url": file_url,
+                             "result": None, "last_status": "starting", "job_id": job_id}
+        job = self.current_job
+        self.clear_content()
+        self.status_label = Label(text="Starting upload...", size_hint_y=None, height=60)
+        self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+        threading.Thread(
+            target=self.upload_file_thread, args=(file_url, zip_it, custom_name, job), daemon=True
+        ).start()
+
+    def upload_file_thread(self, file_url, zip_it, custom_name, job):
+        try:
+            self.set_status("Starting workflow...")
+            dispatch_workflow("upload-file.yml", {
+                "file_url": file_url,
+                "zip_it": "true" if zip_it else "false",
+                "custom_name": custom_name,
+                "job_id": job["job_id"],
+            })
+            run_id = get_run_id_by_job_id("upload-file.yml", job["job_id"])
+            job["run_id"] = run_id
+            if run_id is None:
+                self._complete_job(job, ok=False, kind="upload",
+                                    error="Could not detect the workflow run. It may still be running on GitHub Actions.")
+                return
+
+            def on_status(s):
+                job["last_status"] = s
+                self.set_status(f"{s}...")
+            conclusion = wait_for_run(run_id, on_status=on_status)
+            if job["stage"] == "done":
+                return
+            if conclusion != "success":
+                self._complete_job(job, ok=False, kind="upload", error=f"Upload failed ({conclusion})")
+                return
+
+            tag = f"job-{job['job_id']}"
+            link = get_release_link(tag=tag)
+            if link:
+                notify("YT Bridge Git", "Upload link ready!")
+                self._complete_job(job, ok=True, kind="upload", link=link)
+                Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link) if self.current_job is job else None)
+            else:
+                self._complete_job(job, ok=False, kind="upload",
+                                    error="Could not get link (release may not be ready yet).",
+                                    retry=lambda: self.retry_fetch_upload_link(tag, job))
+        except GitHubAuthError:
+            self._complete_job(job, ok=False, kind="upload",
+                                error="GitHub token invalid or expired. Update it and retry.")
+        except Exception as e:
+            self._complete_job(job, ok=False, kind="upload", error=f"Error: {str(e)[:60]}")
+
+    def retry_fetch_upload_link(self, tag, job):
+        self.clear_content()
+        self.status_label = Label(text="Fetching link...", size_hint_y=None, height=60)
+        self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+        def _retry():
+            link = get_release_link(tag=tag)
+            if link:
+                self._complete_job(job, ok=True, kind="upload", link=link)
+                Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link) if self.current_job is job else None)
+            else:
+                self._complete_job(job, ok=False, kind="upload",
+                                    error="Still could not get link.",
+                                    retry=lambda: self.retry_fetch_upload_link(tag, job))
+        threading.Thread(target=_retry, daemon=True).start()
 
     def on_fetch_playlist(self, instance):
         save_token(self.token_input.text.strip())
@@ -521,12 +650,13 @@ class YTBridgeApp(App):
         self.clear_content()
         self.status_label = Label(text=f"Processing 0/{len(urls)}...", size_hint_y=None, height=60)
         self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
         threading.Thread(
             target=self.playlist_download_thread, args=(urls, target_height, want_hdr), daemon=True
         ).start()
     def process_one_video(self, url, target_height, want_hdr):
-        """Runs the full format-pick + download pipeline for a single video.
-        Returns (url, link_or_None, error_message_or_None)."""
         try:
             dispatch_time = dispatch_workflow("list-formats.yml", {"video_url": url})
             run_id = get_run_id_after("list-formats.yml", dispatch_time)
@@ -572,8 +702,6 @@ class YTBridgeApp(App):
                 done_count += 1
                 self.set_status(f"Processing {done_count}/{total}...")
 
-        # Process multiple videos concurrently instead of one-at-a-time, since
-        # each video's work is a separate GitHub Actions run anyway.
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOBS) as pool:
             futures = {
                 pool.submit(self.process_one_video, url, target_height, want_hdr): url
@@ -680,14 +808,14 @@ class YTBridgeApp(App):
         for item in items:
             row = BoxLayout(orientation="vertical", size_hint_y=None, spacing=6, padding=(0, 6))
 
+            size_mb = item.get("size", 0) / (1024 * 1024)
+            size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
             title_label = Label(
-                text=f"{item['date']}\n{item['title']}",
+                text=f"{item['date']}\n{item['title']}{size_text}",
                 size_hint_y=None,
                 halign="left",
                 valign="top",
             )
-            # Wrap text within the row's width and size the label to fit however
-            # many lines that takes, instead of a fixed height that clips long titles.
             title_label.bind(
                 width=lambda inst, w: setattr(inst, "text_size", (w, None)),
                 texture_size=lambda inst, size: setattr(inst, "height", size[1]),
@@ -695,15 +823,22 @@ class YTBridgeApp(App):
             row.add_widget(title_label)
 
             link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
-            box = TextInput(text=item["link"], readonly=True, multiline=False, size_hint_x=0.7)
-            copy_btn = Button(text="Copy", size_hint_x=0.3)
+            box = TextInput(text=item["link"], readonly=True, multiline=False, size_hint_x=0.55)
+            copy_btn = Button(text="Copy", size_hint_x=0.15)
             copy_btn.bind(on_press=lambda i, l=item["link"]: Clipboard.copy(l))
+            rename_btn = Button(text="Rename", size_hint_x=0.15)
+            rename_btn.bind(on_press=lambda i, it=item: self.show_rename_prompt(it))
+            zip_btn = Button(text="Zip", size_hint_x=0.15)
+            zip_btn.bind(on_press=lambda i, it=item: self.start_zip_release(it))
+            delete_btn = Button(text="Delete", size_hint_x=0.15)
+            delete_btn.bind(on_press=lambda i, it=item: self.show_delete_confirm(it))
             link_row.add_widget(box)
             link_row.add_widget(copy_btn)
+            link_row.add_widget(rename_btn)
+            link_row.add_widget(zip_btn)
+            link_row.add_widget(delete_btn)
             row.add_widget(link_row)
 
-            # Row height = title height + link row height + padding/spacing, so rows
-            # never overlap regardless of how long the title is.
             def _update_row_height(inst, value, row=row, title_label=title_label, link_row=link_row):
                 row.height = title_label.height + link_row.height + row.spacing + row.padding[1] * 2
             title_label.bind(height=_update_row_height)
@@ -713,6 +848,99 @@ class YTBridgeApp(App):
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
         self.add(back_btn)
+
+    def show_delete_confirm(self, item):
+        self.clear_content()
+        self.add(Label(text=f"Delete this release?\n{item['title']}", size_hint_y=None, height=80))
+        confirm_btn = Button(text="Yes, delete", size_hint_y=None, height=48)
+        confirm_btn.bind(on_press=lambda i: self.do_delete_release(item))
+        self.add(confirm_btn)
+        cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
+        cancel_btn.bind(on_press=lambda i: self.show_history())
+        self.add(cancel_btn)
+    def do_delete_release(self, item):
+        self.clear_content()
+        self.add(Label(text="Deleting...", size_hint_y=None, height=60))
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+        def _delete():
+            try:
+                delete_release(item["release_id"], item["tag_name"])
+                Clock.schedule_once(lambda dt: self.show_history())
+            except GitHubAuthError:
+                Clock.schedule_once(lambda dt: self.show_result(
+                    "GitHub token invalid or expired. Update it and retry."))
+            except Exception as e:
+                Clock.schedule_once(lambda dt: self.show_result(f"Delete failed: {str(e)[:60]}"))
+        threading.Thread(target=_delete, daemon=True).start()
+
+    def show_rename_prompt(self, item):
+        self.clear_content()
+        self.add(Label(text=f"Rename:\n{item['title']}", size_hint_y=None, height=60))
+        name_input = TextInput(text=item["title"], multiline=False, size_hint_y=None, height=48)
+        self.add(name_input)
+        confirm_btn = Button(text="Save name", size_hint_y=None, height=48)
+        confirm_btn.bind(on_press=lambda i: self.do_rename_release(item, name_input.text.strip()))
+        self.add(confirm_btn)
+        cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
+        cancel_btn.bind(on_press=lambda i: self.show_history())
+        self.add(cancel_btn)
+
+    def do_rename_release(self, item, new_name):
+        if not new_name or new_name == item["title"]:
+            self.show_history()
+            return
+        self.clear_content()
+        self.add(Label(text="Renaming...", size_hint_y=None, height=60))
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+        def _rename():
+            try:
+                rename_release_asset(item["release_id"], item["asset_id"], new_name)
+                Clock.schedule_once(lambda dt: self.show_history())
+            except GitHubAuthError:
+                Clock.schedule_once(lambda dt: self.show_result(
+                    "GitHub token invalid or expired. Update it and retry."))
+            except Exception as e:
+                Clock.schedule_once(lambda dt: self.show_result(f"Rename failed: {str(e)[:60]}"))
+        threading.Thread(target=_rename, daemon=True).start()
+
+    def start_zip_release(self, item):
+        self.clear_content()
+        self.add(Label(text=f"Zipping:\n{item['title']}...", size_hint_y=None, height=60))
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+        job_id = uuid.uuid4().hex[:12]
+
+        def _zip():
+            try:
+                dispatch_workflow("zip-release.yml", {
+                    "asset_url": item["link"],
+                    "asset_name": item["title"],
+                    "release_id": str(item["release_id"]),
+                    "job_id": job_id,
+                })
+                run_id = get_run_id_by_job_id("zip-release.yml", job_id)
+                if run_id is None:
+                    Clock.schedule_once(lambda dt: self.show_result(
+                        "Could not detect the zip workflow run. It may still be running."))
+                    return
+                conclusion = wait_for_run(run_id)
+                if conclusion != "success":
+                    Clock.schedule_once(lambda dt: self.show_result(f"Zip failed ({conclusion})"))
+                    return
+                Clock.schedule_once(lambda dt: self.show_history())
+            except GitHubAuthError:
+                Clock.schedule_once(lambda dt: self.show_result(
+                    "GitHub token invalid or expired. Update it and retry."))
+            except Exception as e:
+                Clock.schedule_once(lambda dt: self.show_result(f"Zip failed: {str(e)[:60]}"))
+        threading.Thread(target=_zip, daemon=True).start()
 
     def show_about(self):
         self.clear_content()
