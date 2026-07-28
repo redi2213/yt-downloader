@@ -581,8 +581,10 @@ class YTBridgeApp(App):
             link = get_release_link(tag=tag)
             if link:
                 notify("YT Bridge Git", "Upload link ready!")
-                self._complete_job(job, ok=True, kind="upload", link=link)
-                Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link) if self.current_job is job else None)
+                job["stage"] = "done"
+                job["kind"] = "upload"
+                job["result"] = {"ok": True, "error": None, "formats": None, "link": link, "retry": None}
+                Clock.schedule_once(lambda dt: self.show_result("Ready!", link=link))
             else:
                 self._complete_job(job, ok=False, kind="upload",
                                     error="Could not get link (release may not be ready yet).",
