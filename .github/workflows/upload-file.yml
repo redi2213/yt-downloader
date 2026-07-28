@@ -94,12 +94,15 @@ jobs:
             FINAL_NAME="$ZIP_NAME"
           fi
 
+          mkdir -p release_asset
+          mv "$FINAL_NAME" "release_asset/$FINAL_NAME"
+
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Create Release with direct link
         uses: softprops/action-gh-release@v2
         with:
           tag_name: job-${{ github.event.inputs.job_id }}
-          files: ${{ steps.dl.outputs.filename }}
+          files: release_asset/*
           prerelease: true
           name: "Upload ${{ steps.dl.outputs.filename }}"
