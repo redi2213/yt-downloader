@@ -15,7 +15,16 @@ RUN apt-get update -qq && \
 # "latest as of last night" — which is what you want for extraction fixes.
 RUN pip install --no-cache-dir -U yt-dlp
 
+# Deno is required for yt-dlp's --remote-components ejs:github flag,
+# which solves YouTube's "n challenge" JS puzzle. Without this,
+# yt-dlp can only see image/thumbnail formats, not video/audio.
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends curl unzip && \
+    curl -fsSL https://deno.land/install.sh | sh -s -- -y && \
+    ln -s /root/.deno/bin/deno /usr/local/bin/deno && \
+    rm -rf /var/lib/apt/lists/*
+
 # Sanity check that binaries are actually on PATH and working
-RUN yt-dlp --version && ffmpeg -version && aria2c --version
+RUN yt-dlp --version && ffmpeg -version && aria2c --version && deno --version
 
 WORKDIR /workspace
