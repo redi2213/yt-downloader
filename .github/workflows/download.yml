@@ -29,8 +29,8 @@ jobs:
         id: cache-apt
         uses: actions/cache@v4
         with:
-          path: /var/cache/apt/archives/*.deb
-          key: apt-debs-ffmpeg-aria2-v1
+          path: /var/cache/apt/archives
+          key: apt-debs-ffmpeg-aria2-v2
 
       - name: Download apt packages (cache miss only)
         if: steps.cache-apt.outputs.cache-hit != 'true'
@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 4M --file-allocation=none")
+          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 4M --file-allocation=none" -N 8 --retries 10 --fragment-retries 10 --socket-timeout 30)
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
