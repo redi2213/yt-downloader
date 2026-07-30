@@ -17,27 +17,30 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   download:
     runs-on: ubuntu-latest
+    # This is the whole speedup: no apt-get, no pip install.
+    # ffmpeg, aria2, yt-dlp are already baked into this image,
+    # rebuilt daily by rebuild-base-image.yml.
+    container:
+      image: ghcr.io/redi2213/yt-downloader-base:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
-      - uses: denoland/setup-deno@v2
-
-      - name: Install yt-dlp, ffmpeg, aria2
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg aria2
-          pip install -U yt-dlp
-
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
       - name: Download
         id: dl
         run: |
+          set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 1M")
+          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 4M --file-allocation=none")
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
@@ -75,6 +78,10 @@ jobs:
             fi
           fi
 
+          if [ ! -s filename.txt ]; then
+            echo "::error::yt-dlp did not produce an output file (filename.txt is empty/missing)."
+            exit 1
+          fi
           FILENAME=$(cat filename.txt)
           BASENAME="${FILENAME%.*}"
           EXT="${FILENAME##*.}"
