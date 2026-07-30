@@ -560,19 +560,40 @@ class YTBridgeApp(App):
                 "custom_name": custom_name,
                 "job_id": job["job_id"],
             })
-            run_id = get_run_id_by_job_id("upload-file.yml", job["job_id"])
-            job["run_id"] = run_id
-            if run_id is None:
-                self._complete_job(job, ok=False, kind="upload",
-                                    error="Could not detect the workflow run. It may still be running on GitHub Actions.")
-                return
+            self._find_and_track_upload_run(job)
+        except GitHubAuthError:
+            self._complete_job(job, ok=False, kind="upload",
+                                error="GitHub token invalid or expired. Update it and retry.")
+        except Exception as e:
+            self._complete_job(job, ok=False, kind="upload", error=f"Error: {str(e)[:60]}")
 
+    def _find_and_track_upload_run(self, job):
+        run_id = get_run_id_by_job_id("upload-file.yml", job["job_id"], attempts=40, delay=3)
+        job["run_id"] = run_id
+        if run_id is None:
+            self._complete_job(job, ok=False, kind="upload",
+                                error="Could not detect the workflow run yet. It may still be starting on GitHub Actions.",
+                                retry=lambda: self._retry_find_upload_run(job))
+            return
+        self._track_upload_run(run_id, job)
+
+    def _retry_find_upload_run(self, job):
+        self.clear_content()
+        self.status_label = Label(text="Looking for the workflow run...", size_hint_y=None, height=60)
+        self.add(self.status_label)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+        threading.Thread(target=self._find_and_track_upload_run, args=(job,), daemon=True).start()
+
+    def _track_upload_run(self, run_id, job):
+        try:
             def on_status(s):
                 job["last_status"] = s
                 self.set_status(f"{s}...")
             conclusion = wait_for_run(run_id, on_status=on_status)
             if job["stage"] == "done":
-                return
+                return  # cancelled by the user in the meantime
             if conclusion != "success":
                 self._complete_job(job, ok=False, kind="upload", error=f"Upload failed ({conclusion})")
                 return
