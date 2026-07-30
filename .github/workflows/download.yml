@@ -37,6 +37,7 @@ jobs:
 
       - name: Download
         id: dl
+        shell: bash
         run: |
           set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
