@@ -1,12 +1,13 @@
 name: Warm Caches
 
-# Pre-builds the apt/yt-dlp/deno caches so download.yml never has to
-# install anything from scratch. Run this manually once, then it
-# refreshes itself daily.
+# Pre-builds the apt/yt-dlp caches so download.yml never has to
+# install anything from scratch. Deno is intentionally not cached here:
+# denoland/setup-deno downloads it fresh each run in a few seconds via
+# GitHub's own tool-cache, which is fast enough on its own.
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # every day at 02:00 UTC (1 hour before base-image rebuild, if you use that too)
+    - cron: '0 2 * * *'
   workflow_dispatch: {}
 
 env:
@@ -16,7 +17,6 @@ jobs:
   warm-cache:
     runs-on: ubuntu-latest
     steps:
-      # --- ffmpeg + aria2 ---
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
@@ -29,7 +29,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --download-only ffmpeg aria2
 
-      # --- yt-dlp ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
@@ -40,23 +39,9 @@ jobs:
       - name: Install yt-dlp
         run: pip install --target /opt/ytdlp yt-dlp==${{ env.YTDLP_VERSION }}
 
-      # --- Deno ---
-      - name: Cache Deno
-        id: cache-deno
-        uses: actions/cache@v4
-        with:
-          path: ~/.deno
-          key: deno-${{ runner.os }}-v2
-
-      - name: Install Deno
-        if: steps.cache-deno.outputs.cache-hit != 'true'
-        uses: denoland/setup-deno@v2
-
       - name: Confirm cache contents
         run: |
           echo "apt debs:"
           ls -la /var/cache/apt/archives/*.deb | head -5
           echo "yt-dlp:"
           ls -la /opt/ytdlp | head -5
-          echo "deno:"
-          ls -la ~/.deno/bin
