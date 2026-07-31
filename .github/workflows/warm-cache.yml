@@ -46,7 +46,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.deno
-          key: deno-${{ runner.os }}-v1
+          key: deno-${{ runner.os }}-v2
 
       - name: Install Deno
         if: steps.cache-deno.outputs.cache-hit != 'true'
