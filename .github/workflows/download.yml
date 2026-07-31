@@ -25,6 +25,7 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
+      # --- ffmpeg + aria2 (cached as .deb files, installed via dpkg = fast) ---
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
@@ -41,6 +42,7 @@ jobs:
       - name: Install ffmpeg + aria2 from local debs
         run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
 
+      # --- yt-dlp (pinned version, cached — no network call when cached) ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
@@ -60,24 +62,16 @@ jobs:
           chmod +x /opt/ytdlp-bin/yt-dlp
           echo "/opt/ytdlp-bin" >> $GITHUB_PATH
 
-      - name: Cache Deno
-        id: cache-deno
-        uses: actions/cache@v4
-        with:
-          path: ~/.deno
-          key: deno-${{ runner.os }}-v2
-
-      - name: Install Deno (cache miss only)
-        if: steps.cache-deno.outputs.cache-hit != 'true'
+      # --- Deno (used by yt-dlp's n-challenge solver; setup-deno downloads it
+      #     fresh each run via GitHub's own tool-cache, fast enough as-is) ---
+      - name: Install Deno
         uses: denoland/setup-deno@v2
 
-      - name: Add Deno to PATH (cache hit)
-        if: steps.cache-deno.outputs.cache-hit == 'true'
-        run: echo "$HOME/.deno/bin" >> $GITHUB_PATH
-
+      # --- Cookies ---
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
+      # --- Download (runs directly on the runner — full network speed, no container overhead) ---
       - name: Download
         id: dl
         shell: bash
