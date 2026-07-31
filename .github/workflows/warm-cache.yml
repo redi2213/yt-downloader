@@ -1,0 +1,55 @@
+name: Warm Caches
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch: {}
+
+env:
+  YTDLP_VERSION: '2026.07.04'
+
+jobs:
+  warm-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache apt debs
+        id: cache-apt
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-debs-ffmpeg-aria2-v2
+
+      - name: Download apt packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --download-only ffmpeg aria2
+
+      - name: Cache yt-dlp
+        id: cache-ytdlp
+        uses: actions/cache@v4
+        with:
+          path: /opt/ytdlp
+          key: ytdlp-${{ env.YTDLP_VERSION }}
+
+      - name: Install yt-dlp
+        run: pip install --target /opt/ytdlp yt-dlp==${{ env.YTDLP_VERSION }}
+
+      - name: Cache Deno
+        id: cache-deno
+        uses: actions/cache@v4
+        with:
+          path: ~/.deno
+          key: deno-${{ runner.os }}-v1
+
+      - name: Install Deno
+        if: steps.cache-deno.outputs.cache-hit != 'true'
+        uses: denoland/setup-deno@v2
+
+      - name: Confirm cache contents
+        run: |
+          echo "apt debs:"
+          ls -la /var/cache/apt/archives/*.deb | head -5
+          echo "yt-dlp:"
+          ls -la /opt/ytdlp | head -5
+          echo "deno:"
+          ls -la ~/.deno/bin
