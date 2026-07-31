@@ -1,9 +1,10 @@
 name: Warm Caches
 
-# Pre-builds the apt/yt-dlp caches so download.yml never has to
-# install anything from scratch. Deno is intentionally not cached here:
-# denoland/setup-deno downloads it fresh each run in a few seconds via
-# GitHub's own tool-cache, which is fast enough on its own.
+# Pre-builds the apt (ffmpeg, aria2) and yt-dlp caches so download.yml
+# never has to install anything from scratch. Deno is NOT cached here —
+# denoland/setup-deno downloads it fresh each run via GitHub's own
+# tool-cache in a few seconds, which is fast enough on its own and
+# avoids the path mismatch that broke manual caching.
 
 on:
   schedule:
@@ -22,7 +23,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: apt-debs-ffmpeg-aria2-v2
+          key: apt-debs-ffmpeg-aria2-v3
 
       - name: Download apt packages
         run: |
@@ -42,6 +43,6 @@ jobs:
       - name: Confirm cache contents
         run: |
           echo "apt debs:"
-          ls -la /var/cache/apt/archives/*.deb | head -5
+          ls -la /var/cache/apt/archives/*.deb | wc -l
           echo "yt-dlp:"
-          ls -la /opt/ytdlp | head -5
+          ls -la /opt/ytdlp/bin
