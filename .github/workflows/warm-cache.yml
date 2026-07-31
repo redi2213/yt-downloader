@@ -1,8 +1,12 @@
 name: Warm Caches
 
+# Pre-builds the apt/yt-dlp/deno caches so download.yml never has to
+# install anything from scratch. Run this manually once, then it
+# refreshes itself daily.
+
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *'  # every day at 02:00 UTC (1 hour before base-image rebuild, if you use that too)
   workflow_dispatch: {}
 
 env:
@@ -12,6 +16,7 @@ jobs:
   warm-cache:
     runs-on: ubuntu-latest
     steps:
+      # --- ffmpeg + aria2 ---
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
@@ -24,6 +29,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --download-only ffmpeg aria2
 
+      # --- yt-dlp ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
@@ -34,6 +40,7 @@ jobs:
       - name: Install yt-dlp
         run: pip install --target /opt/ytdlp yt-dlp==${{ env.YTDLP_VERSION }}
 
+      # --- Deno ---
       - name: Cache Deno
         id: cache-deno
         uses: actions/cache@v4
