@@ -29,16 +29,23 @@ jobs:
           chmod +x ffmpeg
           sudo mv ffmpeg /usr/local/bin/
 
-      - name: Install Node.js (fix n-challenge)
+      - name: Install Node.js (JS runtime for EJS solver)
         run: |
           curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
           sudo apt-get install -y nodejs
 
-      - name: Install yt-dlp
+      - name: Install yt-dlp via pip (includes EJS scripts)
         run: |
-          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-            -o /usr/local/bin/yt-dlp
-          sudo chmod +x /usr/local/bin/yt-dlp
+          python3 -m pip install --break-system-packages -U "yt-dlp[default]"
+          yt-dlp --version
+
+      - name: Write yt-dlp config (enable node runtime + EJS auto-fetch)
+        run: |
+          mkdir -p ~/.config/yt-dlp
+          cat > ~/.config/yt-dlp/config <<EOF
+          --js-runtimes node
+          --remote-components ejs:github
+          EOF
 
       - name: Write cookies
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
@@ -60,7 +67,7 @@ jobs:
             QUALITY="audio"
           else
             yt-dlp --cookies cookies.txt \
-              -f "${{ github.event.inputs.format_id }}" \
+              -f "${{ github.event.inputs.format_id }}/best" \
               --downloader aria2c --downloader-args "$ARIA" \
               -o "$OUT" \
               --print filename.txt \
