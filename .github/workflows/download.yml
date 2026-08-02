@@ -42,7 +42,7 @@ jobs:
       - name: Install ffmpeg + aria2 from local debs
         run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
 
-      # --- yt-dlp (pinned version, cached — no network call when cached) ---
+      # --- yt-dlp (pinned version, cached â€” no network call when cached) ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
@@ -72,7 +72,7 @@ jobs:
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      # --- Download (runs directly on the runner — full network speed, no container overhead) ---
+      # --- Download (runs directly on the runner â€” full network speed, no container overhead) ---
       - name: Download
         id: dl
         shell: bash
