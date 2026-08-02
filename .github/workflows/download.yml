@@ -22,12 +22,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install ffmpeg (static binary)
+      - name: Install ffmpeg
         run: |
-          curl -L https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64 \
-            -o ffmpeg
-          chmod +x ffmpeg
-          sudo mv ffmpeg /usr/local/bin/
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
 
       - name: Install Node.js (JS runtime for EJS solver)
         run: |
@@ -53,29 +52,43 @@ jobs:
       - name: Download video
         id: dl
         run: |
+          set -x
           OUT="%(title).120s.%(ext)s"
           ARIA="aria2c:-x16 -s16 -k4M --file-allocation=none"
+          CLIENT="youtube:player_client=android"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt \
+              --extractor-args "$CLIENT" \
+              --retries 10 --retry-sleep 30 \
               -f "bestaudio" \
               --downloader aria2c --downloader-args "$ARIA" \
               -x --audio-format mp3 \
               -o "$OUT" \
-              --print filename.txt \
-              "${{ github.event.inputs.video_url }}"
+              --print filename \
+              "${{ github.event.inputs.video_url }}" | tee filename.txt
             QUALITY="audio"
           else
             yt-dlp --cookies cookies.txt \
+              --extractor-args "$CLIENT" \
+              --retries 10 --retry-sleep 30 \
               -f "${{ github.event.inputs.format_id }}/best" \
               --downloader aria2c --downloader-args "$ARIA" \
               -o "$OUT" \
-              --print filename.txt \
-              "${{ github.event.inputs.video_url }}"
+              --print filename \
+              "${{ github.event.inputs.video_url }}" | tee filename.txt
             QUALITY="${{ github.event.inputs.format_id }}"
           fi
 
-          FILE=$(cat filename.txt)
+          FILE=$(tail -n1 filename.txt)
+          echo "Detected file: $FILE"
+          ls -la
+
+          if [ ! -f "$FILE" ]; then
+            echo "::error::Downloaded file not found: $FILE"
+            exit 1
+          fi
+
           BASE="${FILE%.*}"
           EXT="${FILE##*.}"
           FINAL="${BASE}_${QUALITY}.${EXT}"
