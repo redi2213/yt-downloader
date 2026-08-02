@@ -88,7 +88,7 @@ class YTBridgeApp(App):
         self.add(upload_btn)
 
         history_btn = Button(text="Download history", size_hint_y=None, height=48)
-        history_btn.bind(on_press=lambda i: self.show_job_history())
+        history_btn.bind(on_press=lambda i: self.show_live_history())
         self.add(history_btn)
 
         about_btn = Button(text="About", size_hint_y=None, height=48)
@@ -836,6 +836,18 @@ class YTBridgeApp(App):
     def view_job_from_history(self, job):
         self.current_job = job
         self.resume_job_screen()
+    def show_live_history(self):
+        self.clear_content()
+        self.add(Label(text="Loading...", size_hint_y=None, height=40))
+        threading.Thread(target=self._load_live_history_thread, daemon=True).start()
+
+    def _load_live_history_thread(self):
+        try:
+            items = get_live_history()
+        except Exception as e:
+            items = []
+        Clock.schedule_once(lambda dt: self.render_history(items))
+
     def render_history(self, items):
         self.clear_content()
         self.add(Label(text=f"Download history ({len(items)} found)", size_hint_y=None, height=40))
