@@ -235,6 +235,18 @@ def get_recent_runs(limit=10):
     return items
 
 
+def get_run_steps(run_id):
+    """Fetches the step-by-step status of a run's first job, like the
+    official GitHub Actions app shows."""
+    url = f"{API_BASE}/actions/runs/{run_id}/jobs"
+    r = http.get(url, headers=headers(), timeout=REQUEST_TIMEOUT)
+    _check_response(r)
+    jobs = r.json().get("jobs", [])
+    if not jobs:
+        return []
+    return jobs[0].get("steps", [])
+
+
 def get_playlist_links(playlist_url):
     dispatch_time = dispatch_workflow("list-playlist.yml", {"playlist_url": playlist_url})
     run_id = get_run_id_after("list-playlist.yml", dispatch_time)

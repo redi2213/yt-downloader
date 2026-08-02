@@ -19,7 +19,7 @@ from github_api import (
     GitHubAuthError,
     dispatch_workflow, get_run_id_after, get_run_id_by_job_id,
     wait_for_run, cancel_run, get_run_log_text, parse_formats,
-    get_release_link, get_recent_runs, get_playlist_links,
+    get_release_link, get_recent_runs, get_run_steps, get_playlist_links,
     get_live_history, delete_release, rename_release_asset,
 )
 
@@ -775,6 +775,7 @@ class YTBridgeApp(App):
         if not runs:
             self.add(Label(text="No runs found", size_hint_y=None, height=40))
         content_width = Window.width - 20
+        chars_per_line = max(10, int(content_width / 15))
         for run in runs:
             status = run["status"]
             if status == "completed":
@@ -782,17 +783,69 @@ class YTBridgeApp(App):
             else:
                 status_text = status
             row_text = f"{run['created_at']}  [{run['workflow']}]\n{status_text}"
-            row_label = Label(
-                text=row_text, size_hint_y=None, halign="left", valign="top",
-                text_size=(content_width, None),
+            explicit_lines = row_text.count("\n") + 1
+            wrapped_lines = sum(
+                max(1, (len(line) + chars_per_line - 1) // chars_per_line)
+                for line in row_text.split("\n")
             )
-            row_label.bind(texture_size=lambda inst, size: setattr(inst, "height", size[1] + 12))
-            self.add(row_label)
+            row_height = max(explicit_lines, wrapped_lines) * 24 + 16
+            row_btn = Button(
+                text=row_text, size_hint_y=None, height=row_height,
+                halign="left", valign="top",
+            )
+            row_btn.text_size = (content_width, None)
+            row_btn.bind(on_press=lambda inst, r=run: self.show_run_detail(r))
+            self.add(row_btn)
         refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)
         refresh_btn.bind(on_press=lambda i: self.show_actions_status())
         self.add(refresh_btn)
         back_btn = Button(text="Back", size_hint_y=None, height=48)
         back_btn.bind(on_press=lambda i: self.show_home())
+        self.add(back_btn)
+
+    def show_run_detail(self, run):
+        self.clear_content()
+        self.add(Label(text=f"[{run['workflow']}]\nrun #{run['run_id']}", size_hint_y=None, height=60))
+        self.add(Label(text="Loading steps...", size_hint_y=None, height=40))
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_actions_status())
+        self.add(back_btn)
+        threading.Thread(target=self._load_run_detail_thread, args=(run["run_id"],), daemon=True).start()
+
+    def _load_run_detail_thread(self, run_id):
+        try:
+            steps = get_run_steps(run_id)
+        except Exception:
+            steps = None
+        Clock.schedule_once(lambda dt: self.render_run_detail(run_id, steps))
+
+    def render_run_detail(self, run_id, steps):
+        self.clear_content()
+        self.add(Label(text=f"Run #{run_id}", size_hint_y=None, height=40))
+        content_width = Window.width - 20
+        chars_per_line = max(10, int(content_width / 15))
+        if not steps:
+            self.add(Label(text="Could not load steps", size_hint_y=None, height=40))
+        else:
+            for step in steps:
+                name = step.get("name", "?")
+                status = step.get("status", "?")
+                conclusion = step.get("conclusion") or status
+                text = f"{name}\n{conclusion}"
+                explicit_lines = text.count("\n") + 1
+                wrapped_lines = sum(
+                    max(1, (len(line) + chars_per_line - 1) // chars_per_line)
+                    for line in text.split("\n")
+                )
+                h = max(explicit_lines, wrapped_lines) * 24 + 16
+                lbl = Label(text=text, size_hint_y=None, height=h, halign="left", valign="top")
+                lbl.text_size = (content_width, None)
+                self.add(lbl)
+        refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)
+        refresh_btn.bind(on_press=lambda i: self.show_run_detail({"run_id": run_id, "workflow": ""}))
+        self.add(refresh_btn)
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        back_btn.bind(on_press=lambda i: self.show_actions_status())
         self.add(back_btn)
 
     def show_job_history(self):
@@ -817,12 +870,19 @@ class YTBridgeApp(App):
             label_text = job.get("video_url") or "(upload)"
             if len(label_text) > 45:
                 label_text = label_text[:42] + "..."
-            row = BoxLayout(orientation="vertical", size_hint_y=None, height=64, spacing=2, padding=(0, 4))
             content_width = Window.width - 20
-            kind_label = Label(text=f"[{kind}] {label_text}", size_hint_y=None, height=30,
-                                halign="left", valign="middle", text_size=(content_width, None))
-            outcome_label = Label(text=outcome, size_hint_y=None, height=30,
-                                   halign="left", valign="middle", text_size=(content_width, None))
+            chars_per_line = max(10, int(content_width / 15))
+            kind_text = f"[{kind}] {label_text}"
+            kind_lines = max(1, (len(kind_text) + chars_per_line - 1) // chars_per_line)
+            kind_height = kind_lines * 24 + 8
+            outcome_lines = max(1, (len(outcome) + chars_per_line - 1) // chars_per_line)
+            outcome_height = outcome_lines * 24 + 8
+            row_height = kind_height + outcome_height + 40 + 6
+            row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=2, padding=(0, 4))
+            kind_label = Label(text=kind_text, size_hint_y=None, height=kind_height,
+                                halign="left", valign="top", text_size=(content_width, None))
+            outcome_label = Label(text=outcome, size_hint_y=None, height=outcome_height,
+                                   halign="left", valign="top", text_size=(content_width, None))
             row.add_widget(kind_label)
             row.add_widget(outcome_label)
             view_btn = Button(text="View", size_hint_y=None, height=40)
