@@ -7,9 +7,9 @@ on:
         description: 'YouTube URL'
         required: true
       format_id:
-        description: 'Format id or bestaudio'
+        description: 'Exact format id (no fallback)'
         required: true
-        default: 'bestvideo+bestaudio'
+        default: '136'
       audio_only:
         description: 'true for MP3'
         required: false
@@ -23,10 +23,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install ffmpeg + aria2
+      - name: Install ffmpeg (static binary, super fast)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg aria2
+          curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-static/ffmpeg /usr/local/bin/
+          sudo mv ffmpeg-*-static/ffprobe /usr/local/bin/
+
+      - name: Install Node.js (fix n-challenge)
+        run: |
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+          sudo apt-get install -y nodejs
 
       - name: Install yt-dlp (binary)
         run: |
@@ -41,11 +48,11 @@ jobs:
         id: dl
         run: |
           OUT="%(title).120s.%(ext)s"
-          ARIA="aria2c:-x32 -s32 -k4M --file-allocation=none"
+          ARIA="aria2c:-x16 -s16 -k4M --file-allocation=none"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt \
-              -f "bestaudio[acodec^=mp4a]/bestaudio" \
+              -f "bestaudio" \
               --downloader aria2c --downloader-args "$ARIA" \
               -x --audio-format mp3 \
               -o "$OUT" \
@@ -53,25 +60,14 @@ jobs:
               "${{ github.event.inputs.video_url }}"
             QUALITY="audio"
           else
-            META=$(yt-dlp --cookies cookies.txt \
-              -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
+            yt-dlp --cookies cookies.txt \
+              -f "${{ github.event.inputs.format_id }}" \
               --downloader aria2c --downloader-args "$ARIA" \
-              --print "%(height)s|%(dynamic_range)s|%(fps)s" \
               -o "$OUT" \
               --print filename.txt \
-              "${{ github.event.inputs.video_url }}")
+              "${{ github.event.inputs.video_url }}"
 
-            HEIGHT=$(echo "$META" | cut -d'|' -f1)
-            HDR=$(echo "$META" | cut -d'|' -f2)
-            FPS=$(echo "$META" | cut -d'|' -f3)
-
-            FPS_SUFFIX=""
-            [ "$FPS" != "NA" ] && FPS_SUFFIX="_${FPS%.*}fps"
-
-            HDR_SUFFIX=""
-            [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && HDR_SUFFIX="_HDR"
-
-            QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
+            QUALITY="${{ github.event.inputs.format_id }}"
           fi
 
           FILE=$(cat filename.txt)
