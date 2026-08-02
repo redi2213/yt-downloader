@@ -1,4 +1,4 @@
-name: Download Video
+name: Fast YouTube Downloader
 
 on:
   workflow_dispatch:
@@ -7,16 +7,13 @@ on:
         description: 'YouTube URL'
         required: true
       format_id:
-        description: 'Format id (e.g. 337) or bestaudio for audio-only'
+        description: 'Format id or bestaudio'
         required: true
         default: 'bestvideo+bestaudio'
       audio_only:
-        description: 'true for audio-only MP3'
+        description: 'true for MP3'
         required: false
         default: 'false'
-
-env:
-  YTDLP_VERSION: '2026.07.04'
 
 permissions:
   contents: write
@@ -24,114 +21,66 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
-    steps:
-      # --- ffmpeg + aria2 (cached as .deb files, installed via dpkg = fast) ---
-      - name: Cache apt debs
-        id: cache-apt
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: apt-debs-ffmpeg-aria2-v3
 
-      - name: Download apt packages (cache miss only)
-        if: steps.cache-apt.outputs.cache-hit != 'true'
+    steps:
+      - name: Install ffmpeg + aria2
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --download-only ffmpeg aria2
+          sudo apt-get install -y ffmpeg aria2
 
-      - name: Install ffmpeg + aria2 from local debs
-        run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
-
-      # --- yt-dlp (pinned version, cached â€” no network call when cached) ---
-      - name: Cache yt-dlp
-        id: cache-ytdlp
-        uses: actions/cache@v4
-        with:
-          path: /opt/ytdlp
-          key: ytdlp-${{ env.YTDLP_VERSION }}
-
-      - name: Install yt-dlp (cache miss only)
-        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
-        run: pip install --target /opt/ytdlp yt-dlp==${{ env.YTDLP_VERSION }}
-
-      - name: Add yt-dlp to PATH
+      - name: Install yt-dlp (binary)
         run: |
-          echo "PYTHONPATH=/opt/ytdlp" >> $GITHUB_ENV
-          mkdir -p /opt/ytdlp-bin
-          printf '#!/usr/bin/env bash\nPYTHONPATH=/opt/ytdlp python3 -m yt_dlp "$@"\n' > /opt/ytdlp-bin/yt-dlp
-          chmod +x /opt/ytdlp-bin/yt-dlp
-          echo "/opt/ytdlp-bin" >> $GITHUB_PATH
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+            -o /usr/local/bin/yt-dlp
+          sudo chmod +x /usr/local/bin/yt-dlp
 
-      # --- Deno (used by yt-dlp's n-challenge solver; downloaded fresh
-      #     each run via GitHub's own tool-cache, a few seconds, no
-      #     manual caching needed) ---
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
-
-      # --- Cookies ---
-      - name: Write cookies file
+      - name: Write cookies
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      # --- Download (runs directly on the runner â€” full network speed, no container overhead) ---
-      - name: Download
+      - name: Download video
         id: dl
-        shell: bash
         run: |
-          set -euo pipefail
-          OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 4M --file-allocation=none" -N 8 --retries 10 --fragment-retries 10 --socket-timeout 30)
+          OUT="%(title).120s.%(ext)s"
+          ARIA="aria2c:-x32 -s32 -k4M --file-allocation=none"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
-            yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
+            yt-dlp --cookies cookies.txt \
               -f "bestaudio[acodec^=mp4a]/bestaudio" \
+              --downloader aria2c --downloader-args "$ARIA" \
               -x --audio-format mp3 \
-              -o "$OUTTMPL" \
-              --print-to-file after_move:filepath filename.txt \
+              -o "$OUT" \
+              --print filename.txt \
               "${{ github.event.inputs.video_url }}"
             QUALITY="audio"
           else
-            yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "${{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/${{ github.event.inputs.format_id }}+bestaudio/best" \
-              --merge-output-format mkv \
-              -o "$OUTTMPL" \
-              --print-to-file after_move:filepath filename.txt \
-              --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
-              "${{ github.event.inputs.video_url }}"
+            META=$(yt-dlp --cookies cookies.txt \
+              -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
+              --downloader aria2c --downloader-args "$ARIA" \
+              --print "%(height)s|%(dynamic_range)s|%(fps)s" \
+              -o "$OUT" \
+              --print filename.txt \
+              "${{ github.event.inputs.video_url }}")
 
-            METADATA=$(cat metadata.txt)
-            IFS='|' read -r HEIGHT HDR FPS <<< "$METADATA"
+            HEIGHT=$(echo "$META" | cut -d'|' -f1)
+            HDR=$(echo "$META" | cut -d'|' -f2)
+            FPS=$(echo "$META" | cut -d'|' -f3)
 
-            if [ "$HEIGHT" = "NA" ] || [ -z "$HEIGHT" ]; then
-              QUALITY="unknown"
-            else
-              FPS_SUFFIX=""
-              if [ "$FPS" != "NA" ] && [ -n "$FPS" ]; then
-                FPS_SUFFIX="_${FPS%.*}fps"
-              fi
-              HDR_SUFFIX=""
-              if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
-                HDR_SUFFIX="_HDR"
-              fi
-              QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
-            fi
+            FPS_SUFFIX=""
+            [ "$FPS" != "NA" ] && FPS_SUFFIX="_${FPS%.*}fps"
+
+            HDR_SUFFIX=""
+            [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && HDR_SUFFIX="_HDR"
+
+            QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
           fi
 
-          if [ ! -s filename.txt ]; then
-            echo "::error::yt-dlp did not produce an output file (filename.txt is empty/missing)."
-            exit 1
-          fi
-          FILENAME=$(cat filename.txt)
-          BASENAME="${FILENAME%.*}"
-          EXT="${FILENAME##*.}"
-          FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
-          mv "$FILENAME" "$FINAL_NAME"
-          echo "filename=$FINAL_NAME" >> $GITHUB_OUTPUT
+          FILE=$(cat filename.txt)
+          BASE="${FILE%.*}"
+          EXT="${FILE##*.}"
+          FINAL="${BASE}_${QUALITY}.${EXT}"
 
-      - name: Clean up cookies
-        if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt
+          mv "$FILE" "$FINAL"
+          echo "filename=$FINAL" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -140,10 +89,9 @@ jobs:
           path: ${{ steps.dl.outputs.filename }}
           retention-days: 1
 
-      - name: Create Release with direct link
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: run-${{ github.run_id }}
           files: ${{ steps.dl.outputs.filename }}
           prerelease: true
-          name: "Download run-${{ github.run_id }}"
