@@ -774,6 +774,7 @@ class YTBridgeApp(App):
         self.add(Label(text="Recent GitHub Actions runs", size_hint_y=None, height=40))
         if not runs:
             self.add(Label(text="No runs found", size_hint_y=None, height=40))
+        content_width = Window.width - 20
         for run in runs:
             status = run["status"]
             if status == "completed":
@@ -781,7 +782,12 @@ class YTBridgeApp(App):
             else:
                 status_text = status
             row_text = f"{run['created_at']}  [{run['workflow']}]\n{status_text}"
-            self.add(Label(text=row_text, size_hint_y=None, height=50, halign="left"))
+            row_label = Label(
+                text=row_text, size_hint_y=None, halign="left", valign="top",
+                text_size=(content_width, None),
+            )
+            row_label.bind(texture_size=lambda inst, size: setattr(inst, "height", size[1] + 12))
+            self.add(row_label)
         refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)
         refresh_btn.bind(on_press=lambda i: self.show_actions_status())
         self.add(refresh_btn)
@@ -812,8 +818,13 @@ class YTBridgeApp(App):
             if len(label_text) > 45:
                 label_text = label_text[:42] + "..."
             row = BoxLayout(orientation="vertical", size_hint_y=None, height=64, spacing=2, padding=(0, 4))
-            row.add_widget(Label(text=f"[{kind}] {label_text}", size_hint_y=None, height=30))
-            row.add_widget(Label(text=outcome, size_hint_y=None, height=30))
+            content_width = Window.width - 20
+            kind_label = Label(text=f"[{kind}] {label_text}", size_hint_y=None, height=30,
+                                halign="left", valign="middle", text_size=(content_width, None))
+            outcome_label = Label(text=outcome, size_hint_y=None, height=30,
+                                   halign="left", valign="middle", text_size=(content_width, None))
+            row.add_widget(kind_label)
+            row.add_widget(outcome_label)
             view_btn = Button(text="View", size_hint_y=None, height=40)
             view_btn.bind(on_press=lambda i, j=job: self.view_job_from_history(j))
             row.add_widget(view_btn)
@@ -834,6 +845,11 @@ class YTBridgeApp(App):
             bulk_delete_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None, height=48)
             bulk_delete_btn.bind(on_press=lambda i: self.show_bulk_delete_confirm(items))
             self.add(bulk_delete_btn)
+        # The app is portrait-locked and content width is always the window
+        # width minus the outer padding (10px each side, set in build()), so
+        # this is safe to compute once rather than binding to width changes -
+        # that binding chain was the source of the layout crash.
+        content_width = Window.width - 20
         for item in items:
             row = BoxLayout(orientation="vertical", size_hint_y=None, spacing=6, padding=(0, 6))
 
@@ -844,19 +860,11 @@ class YTBridgeApp(App):
                 size_hint_y=None,
                 halign="left",
                 valign="top",
+                text_size=(content_width, None),
             )
-            # Wrap text within the row's width and size the label to fit however
-            # many lines that takes. Bind from `row` (the stable parent whose
-            # width only changes on real layout events) rather than the
-            # label's own width, which otherwise creates a width<->height
-            # feedback loop that can garble the layout or crash on some devices.
-            def _make_width_updater(label):
-                def _update_width(inst, w):
-                    label.text_size = (w, None)
-                return _update_width
-            row.bind(width=_make_width_updater(title_label))
-            title_label.text_size = (row.width or Window.width - 40, None)
-
+            # Size the label to fit however many lines the text wraps to.
+            # This binding only ever adjusts height from texture size, never
+            # feeding back into width, so it can't loop.
             def _make_height_updater(label):
                 def _update_height(inst, size):
                     label.height = size[1]
