@@ -846,30 +846,35 @@ class YTBridgeApp(App):
             bulk_delete_btn.bind(on_press=lambda i: self.show_bulk_delete_confirm(items))
             self.add(bulk_delete_btn)
         # The app is portrait-locked and content width is always the window
-        # width minus the outer padding (10px each side, set in build()), so
-        # this is safe to compute once rather than binding to width changes -
-        # that binding chain was the source of the layout crash.
+        # width minus the outer padding (10px each side, set in build()).
         content_width = Window.width - 20
         for item in items:
-            row = BoxLayout(orientation="vertical", size_hint_y=None, spacing=6, padding=(0, 6))
-
             size_mb = item.get("size", 0) / (1024 * 1024)
             size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
+            title_text = f"{item['date']}\n{item['title']}{size_text}"
+
+            # Estimate wrapped line count up front instead of binding to
+            # texture_size - avoids any live layout feedback loop entirely.
+            # ~15px average character width at the default font size.
+            chars_per_line = max(10, int(content_width / 15))
+            explicit_lines = title_text.count("\n") + 1
+            wrapped_lines = sum(
+                max(1, (len(line) + chars_per_line - 1) // chars_per_line)
+                for line in title_text.split("\n")
+            )
+            title_height = max(explicit_lines, wrapped_lines) * 24 + 8
+
+            row_height = title_height + 44 + 6 + 12  # title + link_row + spacing + padding
+            row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=6, padding=(0, 6))
+
             title_label = Label(
-                text=f"{item['date']}\n{item['title']}{size_text}",
+                text=title_text,
                 size_hint_y=None,
+                height=title_height,
                 halign="left",
                 valign="top",
                 text_size=(content_width, None),
             )
-            # Size the label to fit however many lines the text wraps to.
-            # This binding only ever adjusts height from texture size, never
-            # feeding back into width, so it can't loop.
-            def _make_height_updater(label):
-                def _update_height(inst, size):
-                    label.height = size[1]
-                return _update_height
-            title_label.bind(texture_size=_make_height_updater(title_label))
             row.add_widget(title_label)
 
             link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
@@ -888,16 +893,6 @@ class YTBridgeApp(App):
             link_row.add_widget(zip_btn)
             link_row.add_widget(delete_btn)
             row.add_widget(link_row)
-
-            # Row height = title height + link row height + padding/spacing, so rows
-            # never overlap regardless of how long the title is.
-            def _make_row_height_updater(row, title_label, link_row):
-                def _update_row_height(inst, value):
-                    row.height = title_label.height + link_row.height + row.spacing + row.padding[1] * 2
-                return _update_row_height
-            row_height_updater = _make_row_height_updater(row, title_label, link_row)
-            title_label.bind(height=row_height_updater)
-            row_height_updater(None, None)
 
             self.add(row)
         back_btn = Button(text="Back", size_hint_y=None, height=48)
