@@ -88,7 +88,7 @@ class YTBridgeApp(App):
         self.add(upload_btn)
 
         history_btn = Button(text="Download history", size_hint_y=None, height=48)
-        history_btn.bind(on_press=lambda i: self.show_history())
+        history_btn.bind(on_press=lambda i: self.show_job_history())
         self.add(history_btn)
 
         about_btn = Button(text="About", size_hint_y=None, height=48)
@@ -906,7 +906,7 @@ class YTBridgeApp(App):
         confirm_btn.bind(on_press=lambda i: self.do_delete_release(item))
         self.add(confirm_btn)
         cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-        cancel_btn.bind(on_press=lambda i: self.show_history())
+        cancel_btn.bind(on_press=lambda i: self.show_job_history())
         self.add(cancel_btn)
     def show_bulk_delete_confirm(self, items):
         self.clear_content()
@@ -916,7 +916,7 @@ class YTBridgeApp(App):
         confirm_btn.bind(on_press=lambda i: self.do_bulk_delete(items))
         self.add(confirm_btn)
         cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-        cancel_btn.bind(on_press=lambda i: self.show_history())
+        cancel_btn.bind(on_press=lambda i: self.show_job_history())
         self.add(cancel_btn)
 
     def do_bulk_delete(self, items):
@@ -938,7 +938,7 @@ class YTBridgeApp(App):
                 done += 1
                 self.set_status(f"Deleting {done}/{len(items)}...")
             notify("YT Bridge Git", f"Deleted {done - failed}/{len(items)} releases")
-            Clock.schedule_once(lambda dt: self.show_history())
+            Clock.schedule_once(lambda dt: self.show_job_history())
         threading.Thread(target=_bulk_delete, daemon=True).start()
 
     def do_delete_release(self, item):
@@ -951,7 +951,7 @@ class YTBridgeApp(App):
         def _delete():
             try:
                 delete_release(item["release_id"], item["tag_name"])
-                Clock.schedule_once(lambda dt: self.show_history())
+                Clock.schedule_once(lambda dt: self.show_job_history())
             except GitHubAuthError:
                 Clock.schedule_once(lambda dt: self.show_result(
                     "GitHub token invalid or expired. Update it and retry."))
@@ -968,12 +968,12 @@ class YTBridgeApp(App):
         confirm_btn.bind(on_press=lambda i: self.do_rename_release(item, name_input.text.strip()))
         self.add(confirm_btn)
         cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-        cancel_btn.bind(on_press=lambda i: self.show_history())
+        cancel_btn.bind(on_press=lambda i: self.show_job_history())
         self.add(cancel_btn)
 
     def do_rename_release(self, item, new_name):
         if not new_name or new_name == item["title"]:
-            self.show_history()
+            self.show_job_history()
             return
         self.clear_content()
         self.add(Label(text="Renaming...", size_hint_y=None, height=60))
@@ -984,7 +984,7 @@ class YTBridgeApp(App):
         def _rename():
             try:
                 rename_release_asset(item["release_id"], item["asset_id"], new_name)
-                Clock.schedule_once(lambda dt: self.show_history())
+                Clock.schedule_once(lambda dt: self.show_job_history())
             except GitHubAuthError:
                 Clock.schedule_once(lambda dt: self.show_result(
                     "GitHub token invalid or expired. Update it and retry."))
@@ -1017,7 +1017,7 @@ class YTBridgeApp(App):
                 if conclusion != "success":
                     Clock.schedule_once(lambda dt: self.show_result(f"Zip failed ({conclusion})"))
                     return
-                Clock.schedule_once(lambda dt: self.show_history())
+                Clock.schedule_once(lambda dt: self.show_job_history())
             except GitHubAuthError:
                 Clock.schedule_once(lambda dt: self.show_result(
                     "GitHub token invalid or expired. Update it and retry."))
