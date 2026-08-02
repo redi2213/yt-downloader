@@ -49,11 +49,21 @@ class YTBridgeApp(App):
     def show_home(self):
         self.clear_content()
 
-        self.token_input = TextInput(
-            text=get_token(), hint_text="GitHub Token", multiline=False,
-            size_hint_y=None, height=48
-        )
-        self.add(self.token_input)
+        saved_token = get_token()
+        if saved_token and not getattr(self, "_show_token_field", False):
+            self.token_input = None
+            update_token_btn = Button(text="Update GitHub token", size_hint_y=None, height=44)
+            update_token_btn.bind(on_press=lambda i: self._reveal_token_field())
+            self.add(update_token_btn)
+        else:
+            self.token_input = TextInput(
+                text=saved_token, hint_text="GitHub Token", multiline=False,
+                size_hint_y=None, height=48
+            )
+            self.add(self.token_input)
+            save_token_btn = Button(text="Save token", size_hint_y=None, height=40)
+            save_token_btn.bind(on_press=lambda i: self._save_token_and_refresh())
+            self.add(save_token_btn)
 
         self.url_input = TextInput(
             hint_text="YouTube video or playlist link", multiline=False,
@@ -104,6 +114,16 @@ class YTBridgeApp(App):
         self.status_label = Label(text="", size_hint_y=None, height=40)
         self.add(self.status_label)
 
+    def _reveal_token_field(self):
+        self._show_token_field = True
+        self.show_home()
+
+    def _save_token_and_refresh(self):
+        if self.token_input is not None:
+            save_token(self.token_input.text.strip())
+        self._show_token_field = False
+        self.show_home()
+
     def toggle_audio(self, instance):
         self.audio_only = not self.audio_only
         instance.text = f"Audio only (MP3): {'ON' if self.audio_only else 'OFF'}"
@@ -112,7 +132,8 @@ class YTBridgeApp(App):
         Clock.schedule_once(lambda dt: setattr(self.status_label, "text", text))
 
     def on_fetch_single(self, instance):
-        save_token(self.token_input.text.strip())
+        if self.token_input is not None:
+            save_token(self.token_input.text.strip())
         url = self.url_input.text.strip()
         if not url:
             self.set_status("Enter a YouTube link")
@@ -239,8 +260,13 @@ class YTBridgeApp(App):
     def show_quality_list(self, url, formats, reselect_only=False):
         self.clear_content()
         self.add(Label(text="Choose quality", size_hint_y=None, height=40))
-        for fmt_id, label, size_label in formats:
-            btn_text = f"{label} (~{size_label})" if size_label else label
+        for fmt_id, label, size_label, codec_label in formats:
+            details = []
+            if size_label:
+                details.append(f"~{size_label}")
+            if codec_label:
+                details.append(codec_label)
+            btn_text = f"{label} ({', '.join(details)})" if details else label
             btn = Button(text=btn_text, size_hint_y=None, height=50)
             btn.bind(on_press=lambda inst, fid=fmt_id: self.start_download(url, fid, audio_only=False, formats_for_reselect=formats))
             self.add(btn)
@@ -490,7 +516,13 @@ class YTBridgeApp(App):
             self._complete_job(job, ok=False, kind="upload",
                                 error="GitHub token invalid or expired. Update it and retry.")
         except Exception as e:
-            self._complete_job(job, ok=False, kind="upload", error=f"Error: {str(e)[:60]}")
+            # The GitHub Actions run itself may have already succeeded even if
+            # this network call failed (e.g. mobile connection drop) - offer a
+            # retry that just re-fetches the link instead of a dead end.
+            tag = f"job-{job['job_id']}"
+            self._complete_job(job, ok=False, kind="upload",
+                                error=f"Network error: {str(e)[:60]}",
+                                retry=lambda: self.retry_fetch_upload_link(tag, job))
 
     def retry_fetch_upload_link(self, tag, job):
         self.clear_content()
@@ -512,7 +544,8 @@ class YTBridgeApp(App):
         threading.Thread(target=_retry, daemon=True).start()
 
     def on_fetch_playlist(self, instance):
-        save_token(self.token_input.text.strip())
+        if self.token_input is not None:
+            save_token(self.token_input.text.strip())
         url = self.url_input.text.strip()
         if not url:
             self.set_status("Enter a playlist link")
@@ -656,7 +689,7 @@ class YTBridgeApp(App):
 
     def pick_format(self, formats, target_height, want_hdr):
         candidates = []
-        for fmt_id, label, _size in formats:
+        for fmt_id, label, _size, _codec in formats:
             is_hdr = "HDR" in label
             digits = "".join(ch for ch in label.split("p")[0] if ch.isdigit())
             if not digits:
@@ -813,11 +846,22 @@ class YTBridgeApp(App):
                 valign="top",
             )
             # Wrap text within the row's width and size the label to fit however
-            # many lines that takes, instead of a fixed height that clips long titles.
-            title_label.bind(
-                width=lambda inst, w: setattr(inst, "text_size", (w, None)),
-                texture_size=lambda inst, size: setattr(inst, "height", size[1]),
-            )
+            # many lines that takes. Bind from `row` (the stable parent whose
+            # width only changes on real layout events) rather than the
+            # label's own width, which otherwise creates a width<->height
+            # feedback loop that can garble the layout or crash on some devices.
+            def _make_width_updater(label):
+                def _update_width(inst, w):
+                    label.text_size = (w, None)
+                return _update_width
+            row.bind(width=_make_width_updater(title_label))
+            title_label.text_size = (row.width or Window.width - 40, None)
+
+            def _make_height_updater(label):
+                def _update_height(inst, size):
+                    label.height = size[1]
+                return _update_height
+            title_label.bind(texture_size=_make_height_updater(title_label))
             row.add_widget(title_label)
 
             link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
@@ -839,10 +883,13 @@ class YTBridgeApp(App):
 
             # Row height = title height + link row height + padding/spacing, so rows
             # never overlap regardless of how long the title is.
-            def _update_row_height(inst, value, row=row, title_label=title_label, link_row=link_row):
-                row.height = title_label.height + link_row.height + row.spacing + row.padding[1] * 2
-            title_label.bind(height=_update_row_height)
-            _update_row_height(None, None)
+            def _make_row_height_updater(row, title_label, link_row):
+                def _update_row_height(inst, value):
+                    row.height = title_label.height + link_row.height + row.spacing + row.padding[1] * 2
+                return _update_row_height
+            row_height_updater = _make_row_height_updater(row, title_label, link_row)
+            title_label.bind(height=row_height_updater)
+            row_height_updater(None, None)
 
             self.add(row)
         back_btn = Button(text="Back", size_hint_y=None, height=48)
