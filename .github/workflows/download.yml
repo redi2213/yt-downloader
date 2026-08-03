@@ -25,12 +25,13 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
+      # --- ffmpeg + aria2 (cached as .deb files, installed via dpkg = fast) ---
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: apt-debs-ffmpeg-aria2-v2
+          key: apt-debs-ffmpeg-aria2-v3
 
       - name: Download apt packages (cache miss only)
         if: steps.cache-apt.outputs.cache-hit != 'true'
@@ -41,6 +42,7 @@ jobs:
       - name: Install ffmpeg + aria2 from local debs
         run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
 
+      # --- yt-dlp (pinned version, cached Ã¢â‚¬â€ no network call when cached) ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
@@ -60,24 +62,17 @@ jobs:
           chmod +x /opt/ytdlp-bin/yt-dlp
           echo "/opt/ytdlp-bin" >> $GITHUB_PATH
 
-      - name: Cache Deno
-        id: cache-deno
-        uses: actions/cache@v4
-        with:
-          path: ~/.deno
-          key: deno-${{ runner.os }}-v1
-
-      - name: Install Deno (cache miss only)
-        if: steps.cache-deno.outputs.cache-hit != 'true'
+      # --- Deno (used by yt-dlp's n-challenge solver; downloaded fresh
+      #     each run via GitHub's own tool-cache, a few seconds, no
+      #     manual caching needed) ---
+      - name: Install Deno
         uses: denoland/setup-deno@v2
 
-      - name: Add Deno to PATH (cache hit)
-        if: steps.cache-deno.outputs.cache-hit == 'true'
-        run: echo "$HOME/.deno/bin" >> $GITHUB_PATH
-
+      # --- Cookies ---
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
+      # --- Download (runs directly on the runner Ã¢â‚¬â€ full network speed, no container overhead) ---
       - name: Download
         id: dl
         shell: bash
@@ -89,6 +84,7 @@ jobs:
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
+              -f "bestaudio[acodec^=mp4a]/bestaudio" \
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
@@ -97,7 +93,7 @@ jobs:
           else
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "${{ github.event.inputs.format_id }}+bestaudio/best" \
+              -f "${{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/${{ github.event.inputs.format_id }}+bestaudio/best" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
