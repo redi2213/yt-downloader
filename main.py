@@ -788,7 +788,7 @@ class YTBridgeApp(App):
                 max(1, (len(line) + chars_per_line - 1) // chars_per_line)
                 for line in row_text.split("\n")
             )
-            row_height = max(explicit_lines, wrapped_lines) * 24 + 16
+            row_height = max(explicit_lines, wrapped_lines) * 40 + 20
             row_btn = Button(
                 text=row_text, size_hint_y=None, height=row_height,
                 halign="left", valign="top",
@@ -837,7 +837,7 @@ class YTBridgeApp(App):
                     max(1, (len(line) + chars_per_line - 1) // chars_per_line)
                     for line in text.split("\n")
                 )
-                h = max(explicit_lines, wrapped_lines) * 24 + 16
+                h = max(explicit_lines, wrapped_lines) * 40 + 20
                 lbl = Label(text=text, size_hint_y=None, height=h, halign="left", valign="top")
                 lbl.text_size = (content_width, None)
                 self.add(lbl)
@@ -874,9 +874,9 @@ class YTBridgeApp(App):
             chars_per_line = max(10, int(content_width / 15))
             kind_text = f"[{kind}] {label_text}"
             kind_lines = max(1, (len(kind_text) + chars_per_line - 1) // chars_per_line)
-            kind_height = kind_lines * 24 + 8
+            kind_height = kind_lines * 40 + 12
             outcome_lines = max(1, (len(outcome) + chars_per_line - 1) // chars_per_line)
-            outcome_height = outcome_lines * 24 + 8
+            outcome_height = outcome_lines * 40 + 12
             row_height = kind_height + outcome_height + 40 + 6
             row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=2, padding=(0, 4))
             kind_label = Label(text=kind_text, size_hint_y=None, height=kind_height,
@@ -934,7 +934,7 @@ class YTBridgeApp(App):
                 max(1, (len(line) + chars_per_line - 1) // chars_per_line)
                 for line in title_text.split("\n")
             )
-            title_height = max(explicit_lines, wrapped_lines) * 24 + 8
+            title_height = max(explicit_lines, wrapped_lines) * 40 + 12
 
             row_height = title_height + 44 + 6 + 12  # title + link_row + spacing + padding
             row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=6, padding=(0, 6))
