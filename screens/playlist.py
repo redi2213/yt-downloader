@@ -7,6 +7,48 @@ from screens.base import BaseScreen
 
 class PlaylistScreen(BaseScreen):
 
+    def fetch_playlist_thread(self, playlist_url, job):
+        app = self.app
+
+        try:
+            app.set_status("Reading playlist...")
+
+            urls = app.get_playlist_links(playlist_url)
+
+            if job.get("cancel_requested"):
+                return
+
+            if not urls:
+                app._complete_job(
+                    job,
+                    ok=False,
+                    kind="playlist_links",
+                    error="No videos found in playlist"
+                )
+                return
+
+            app._complete_job(
+                job,
+                ok=True,
+                kind="playlist_links",
+                formats=urls
+            )
+
+            Clock.schedule_once(
+                lambda dt: app.show_playlist_quality_picker(urls)
+                if app.current_job is job else None
+            )
+
+        except Exception as e:
+            app._complete_job(
+                job,
+                ok=False,
+                kind="playlist_links",
+                error=f"Error: {str(e)[:60]}"
+            )
+
+
+
     pass
 
     def show_playlist_quality_picker(self, urls):
@@ -254,3 +296,35 @@ class PlaylistScreen(BaseScreen):
             if app.current_job is job else None
         )
 
+
+    def pick_format(self, formats, target_height, want_hdr):
+        candidates = []
+
+        for fmt_id, label, _size, _codec in formats:
+            is_hdr = "HDR" in label
+            digits = "".join(ch for ch in label.split("p")[0] if ch.isdigit())
+
+            if not digits:
+                continue
+
+            candidates.append(
+                (fmt_id, label, int(digits), is_hdr)
+            )
+
+        if not candidates:
+            return None
+
+        if want_hdr:
+            pool = [c for c in candidates if c[3]] or candidates
+        else:
+            pool = [c for c in candidates if not c[3]] or candidates
+
+        if target_height >= 99999:
+            best = max(pool, key=lambda c: c[2])
+        else:
+            best = sorted(
+                pool,
+                key=lambda c: abs(c[2] - target_height)
+            )[0]
+
+        return best[0], best[1]
