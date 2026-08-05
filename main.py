@@ -808,7 +808,7 @@ class YTBridgeApp(App):
             items = get_live_history()
         except Exception as e:
             items = []
-        Clock.schedule_once(lambda dt: self.render_history(items))
+        Clock.schedule_once(lambda dt: self.history_screen.render(items))
 
     def render_history(self, items):
         self.clear_content()
