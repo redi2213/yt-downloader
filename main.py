@@ -24,7 +24,7 @@ from backend.github_api import (
     GitHubAuthError,
     dispatch_workflow, get_run_id_after, get_run_id_by_job_id,
     wait_for_run, cancel_run, get_run_log_text, parse_formats,
-    get_release_link, get_recent_runs, get_run_steps, get_playlist_links,
+    get_release_link, get_playlist_links,
     get_live_history, delete_release, rename_release_asset,
 )
 
