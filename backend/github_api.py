@@ -8,6 +8,7 @@ import re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from utils.settings import get_token, save_token
 
 REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
@@ -52,20 +53,8 @@ def notify(title, message):
 
 
 # --- Token storage -----------------------------------------------------
-# Uses Kivy's JsonStore, but this module doesn't otherwise depend on Kivy.
-from kivy.storage.jsonstore import JsonStore  # noqa: E402
-
-settings_store = JsonStore("ytdl_settings.json")
 
 
-def get_token():
-    if settings_store.exists("github"):
-        return settings_store.get("github")["token"]
-    return ""
-
-
-def save_token(token):
-    settings_store.put("github", token=token)
 
 
 def headers():
