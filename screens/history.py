@@ -71,8 +71,19 @@ class HistoryScreen(BaseScreen):
             )
         )
 
+        def load():
+            try:
+                from backend.github_api import get_live_history
+                items = get_live_history()
+            except Exception:
+                items = []
+
+            Clock.schedule_once(
+                lambda dt: self.render(items)
+            )
+
         threading.Thread(
-            target=app._load_live_history_thread,
+            target=load,
             daemon=True
         ).start()
 
