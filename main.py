@@ -12,6 +12,7 @@ from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
+from screens.home import HomeScreen
 
 from backend.github_api import (
     APP_VERSION, MAX_PARALLEL_JOBS,
@@ -37,7 +38,8 @@ class YTBridgeApp(App):
         self.content = BoxLayout(orientation="vertical", padding=10, spacing=8, size_hint_y=None)
         self.content.bind(minimum_height=self.content.setter("height"))
         self.scroll.add_widget(self.content)
-        self.show_home()
+        self.home_screen = HomeScreen(self)
+        self.home_screen.show()
         return self.scroll
 
     def clear_content(self):
