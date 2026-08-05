@@ -17,6 +17,7 @@ from screens.result import ResultScreen
 from screens.actions import ActionsScreen
 from screens.history import HistoryScreen
 from screens.about import AboutScreen
+from screens.download import DownloadScreen
 
 from backend.github_api import (
     APP_VERSION, MAX_PARALLEL_JOBS,
@@ -263,22 +264,9 @@ class YTBridgeApp(App):
         self.job_history.insert(0, job)
         self.job_history = self.job_history[:MAX_JOB_HISTORY]
 
-    def show_quality_list(self, url, formats, reselect_only=False):
-        self.clear_content()
-        self.add(Label(text="Choose quality", size_hint_y=None, height=40))
-        for fmt_id, label, size_label, codec_label in formats:
-            details = []
-            if size_label:
-                details.append(f"~{size_label}")
-            if codec_label:
-                details.append(codec_label)
-            btn_text = f"{label} ({', '.join(details)})" if details else label
-            btn = Button(text=btn_text, size_hint_y=None, height=50)
-            btn.bind(on_press=lambda inst, fid=fmt_id: self.start_download(url, fid, audio_only=False, formats_for_reselect=formats))
-            self.add(btn)
-        back_btn = Button(text="Back", size_hint_y=None, height=48)
-        back_btn.bind(on_press=lambda i: self.show_home())
-        self.add(back_btn)
+    def show_quality_list(self, url, formats):
+        self.download_screen = DownloadScreen(self)
+        self.download_screen.show_quality_list(url, formats)
 
     def start_download(self, url, format_id, audio_only, formats_for_reselect=None):
         self.current_job = {"stage": "download", "run_id": None, "video_url": url,
