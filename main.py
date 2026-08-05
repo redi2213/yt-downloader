@@ -13,6 +13,7 @@ from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
 from screens.home import HomeScreen
+from screens.about import AboutScreen
 
 from backend.github_api import (
     APP_VERSION, MAX_PARALLEL_JOBS,
@@ -1100,21 +1101,8 @@ class YTBridgeApp(App):
         threading.Thread(target=_zip, daemon=True).start()
 
     def show_about(self):
-        self.clear_content()
-        about_text = f"""YT Bridge Git v{APP_VERSION}
-
-Download from YouTube to GitHub
-
-Developer: Mohsen Mah
-
-Telegram: t.me/moh3n2016
-
-Note: files are auto-deleted after 2 days"""
-        self.add(Label(text=about_text, size_hint_y=None, height=220))
-        back_btn = Button(text="Back", size_hint_y=None, height=48)
-        back_btn.bind(on_press=lambda i: self.show_home())
-        self.add(back_btn)
-
+        self.about_screen = AboutScreen(self)
+        self.about_screen.show()
 
 if __name__ == "__main__":
     YTBridgeApp().run()
