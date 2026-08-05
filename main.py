@@ -800,9 +800,8 @@ class YTBridgeApp(App):
         self.current_job = job
         self.resume_job_screen()
     def show_live_history(self):
-        self.clear_content()
-        self.add(Label(text="Loading...", size_hint_y=None, height=40))
-        threading.Thread(target=self._load_live_history_thread, daemon=True).start()
+        self.history_screen = HistoryScreen(self)
+        self.history_screen.show_live()
 
     def _load_live_history_thread(self):
         try:
