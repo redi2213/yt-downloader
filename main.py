@@ -95,7 +95,7 @@ class YTBridgeApp(App):
         self.add(history_btn)
 
         about_btn = Button(text="About", size_hint_y=None, height=48)
-        about_btn.bind(on_press=lambda i: self.show_about())
+        about_btn.bind(on_press=lambda i: AboutScreen(self).show())
         self.add(about_btn)
 
         if self.current_job is not None:
