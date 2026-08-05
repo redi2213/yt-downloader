@@ -15,6 +15,7 @@ from kivy.clock import Clock
 from screens.home import HomeScreen
 from screens.result import ResultScreen
 from screens.actions import ActionsScreen
+from screens.history import HistoryScreen
 from screens.about import AboutScreen
 
 from backend.github_api import (
@@ -747,6 +748,10 @@ class YTBridgeApp(App):
         self.actions_screen.show()
 
     def show_job_history(self):
+        self.history_screen = HistoryScreen(self)
+        self.history_screen.show()
+        return
+
         self.clear_content()
         self.add(Label(text=f"Recent jobs ({len(self.job_history)})", size_hint_y=None, height=40))
         if not self.job_history:
