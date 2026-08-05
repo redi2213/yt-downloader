@@ -13,7 +13,7 @@ from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
 
-from github_api import (
+from backend.github_api import (
     APP_VERSION, MAX_PARALLEL_JOBS,
     get_token, save_token, notify,
     GitHubAuthError,
