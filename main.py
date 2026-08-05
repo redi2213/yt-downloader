@@ -13,6 +13,7 @@ from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
 from screens.home import HomeScreen
+from screens.result import ResultScreen
 from screens.about import AboutScreen
 
 from backend.github_api import (
@@ -737,21 +738,8 @@ class YTBridgeApp(App):
         self.add(home_btn)
 
     def show_result(self, message, link=None, retry=None):
-        self.clear_content()
-        self.add(Label(text=message, size_hint_y=None, height=60))
-        if link:
-            link_box = TextInput(text=link, readonly=True, multiline=False, size_hint_y=None, height=48)
-            self.add(link_box)
-            copy_btn = Button(text="Copy link", size_hint_y=None, height=48)
-            copy_btn.bind(on_press=lambda i: Clipboard.copy(link))
-            self.add(copy_btn)
-        if retry:
-            retry_btn = Button(text="Try again", size_hint_y=None, height=48)
-            retry_btn.bind(on_press=lambda i: retry())
-            self.add(retry_btn)
-        home_btn = Button(text="Back to home", size_hint_y=None, height=48)
-        home_btn.bind(on_press=lambda i: self.show_home())
-        self.add(home_btn)
+        self.result_screen = ResultScreen(self)
+        self.result_screen.show(message, link, retry)
 
     def show_actions_status(self):
         self.clear_content()
