@@ -14,6 +14,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
 from screens.home import HomeScreen
 from screens.result import ResultScreen
+from screens.actions import ActionsScreen
 from screens.about import AboutScreen
 
 from backend.github_api import (
@@ -742,102 +743,8 @@ class YTBridgeApp(App):
         self.result_screen.show(message, link, retry)
 
     def show_actions_status(self):
-        self.clear_content()
-        self.add(Label(text="Recent GitHub Actions runs", size_hint_y=None, height=40))
-        self.add(Label(text="Loading...", size_hint_y=None, height=40))
-        back_btn = Button(text="Back", size_hint_y=None, height=48)
-        back_btn.bind(on_press=lambda i: self.show_home())
-        self.add(back_btn)
-        threading.Thread(target=self.load_actions_status_thread, daemon=True).start()
-
-    def load_actions_status_thread(self):
-        try:
-            runs = get_recent_runs()
-            Clock.schedule_once(lambda dt: self.render_actions_status(runs))
-        except GitHubAuthError:
-            Clock.schedule_once(lambda dt: self.show_result(
-                "GitHub token invalid or expired. Update it and retry."))
-        except Exception as e:
-            Clock.schedule_once(lambda dt: self.show_result(f"Could not fetch status: {str(e)[:60]}"))
-
-    def render_actions_status(self, runs):
-        self.clear_content()
-        self.add(Label(text="Recent GitHub Actions runs", size_hint_y=None, height=40))
-        if not runs:
-            self.add(Label(text="No runs found", size_hint_y=None, height=40))
-        content_width = Window.width - 20
-        chars_per_line = max(10, int(content_width / 15))
-        for run in runs:
-            status = run["status"]
-            if status == "completed":
-                status_text = run["conclusion"] or "unknown"
-            else:
-                status_text = status
-            row_text = f"{run['created_at']}  [{run['workflow']}]\n{status_text}"
-            explicit_lines = row_text.count("\n") + 1
-            wrapped_lines = sum(
-                max(1, (len(line) + chars_per_line - 1) // chars_per_line)
-                for line in row_text.split("\n")
-            )
-            row_height = max(explicit_lines, wrapped_lines) * 40 + 20
-            row_btn = Button(
-                text=row_text, size_hint_y=None, height=row_height,
-                halign="left", valign="top",
-            )
-            row_btn.text_size = (content_width, None)
-            row_btn.bind(on_press=lambda inst, r=run: self.show_run_detail(r))
-            self.add(row_btn)
-        refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)
-        refresh_btn.bind(on_press=lambda i: self.show_actions_status())
-        self.add(refresh_btn)
-        back_btn = Button(text="Back", size_hint_y=None, height=48)
-        back_btn.bind(on_press=lambda i: self.show_home())
-        self.add(back_btn)
-
-    def show_run_detail(self, run):
-        self.clear_content()
-        self.add(Label(text=f"[{run['workflow']}]\nrun #{run['run_id']}", size_hint_y=None, height=60))
-        self.add(Label(text="Loading steps...", size_hint_y=None, height=40))
-        back_btn = Button(text="Back", size_hint_y=None, height=48)
-        back_btn.bind(on_press=lambda i: self.show_actions_status())
-        self.add(back_btn)
-        threading.Thread(target=self._load_run_detail_thread, args=(run["run_id"],), daemon=True).start()
-
-    def _load_run_detail_thread(self, run_id):
-        try:
-            steps = get_run_steps(run_id)
-        except Exception:
-            steps = None
-        Clock.schedule_once(lambda dt: self.render_run_detail(run_id, steps))
-
-    def render_run_detail(self, run_id, steps):
-        self.clear_content()
-        self.add(Label(text=f"Run #{run_id}", size_hint_y=None, height=40))
-        content_width = Window.width - 20
-        chars_per_line = max(10, int(content_width / 15))
-        if not steps:
-            self.add(Label(text="Could not load steps", size_hint_y=None, height=40))
-        else:
-            for step in steps:
-                name = step.get("name", "?")
-                status = step.get("status", "?")
-                conclusion = step.get("conclusion") or status
-                text = f"{name}\n{conclusion}"
-                explicit_lines = text.count("\n") + 1
-                wrapped_lines = sum(
-                    max(1, (len(line) + chars_per_line - 1) // chars_per_line)
-                    for line in text.split("\n")
-                )
-                h = max(explicit_lines, wrapped_lines) * 40 + 20
-                lbl = Label(text=text, size_hint_y=None, height=h, halign="left", valign="top")
-                lbl.text_size = (content_width, None)
-                self.add(lbl)
-        refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)
-        refresh_btn.bind(on_press=lambda i: self.show_run_detail({"run_id": run_id, "workflow": ""}))
-        self.add(refresh_btn)
-        back_btn = Button(text="Back", size_hint_y=None, height=48)
-        back_btn.bind(on_press=lambda i: self.show_actions_status())
-        self.add(back_btn)
+        self.actions_screen = ActionsScreen(self)
+        self.actions_screen.show()
 
     def show_job_history(self):
         self.clear_content()
