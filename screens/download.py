@@ -4,8 +4,115 @@ from kivy.uix.label import Label
 
 from screens.base import BaseScreen
 
+from backend.github_api import (
+    dispatch_workflow,
+    get_run_id_after,
+    wait_for_run,
+    get_run_log_text,
+    parse_formats,
+    cancel_run,
+    get_release_link,
+    notify,
+    GitHubAuthError,
+)
+
 
 class DownloadScreen(BaseScreen):
+
+    def fetch_formats_thread(self, url, job):
+        app = self.app
+
+        try:
+            self.set_status("Fetching qualities...")
+
+            dispatch_time = dispatch_workflow(
+                "list-formats.yml",
+                {"video_url": url}
+            )
+
+            run_id = get_run_id_after(
+                "list-formats.yml",
+                dispatch_time
+            )
+
+            job["run_id"] = run_id
+
+            if job.get("cancel_requested"):
+                if run_id:
+                    try:
+                        cancel_run(run_id)
+                    except Exception:
+                        pass
+                return
+
+            if run_id is None:
+                app._complete_job(
+                    job,
+                    ok=False,
+                    kind="formats",
+                    error="Could not detect the workflow run. Try again."
+                )
+                return
+
+            def on_status(status):
+                job["last_status"] = status
+                self.set_status(f"{status}...")
+
+            conclusion = wait_for_run(
+                run_id,
+                on_status=on_status
+            )
+
+            if conclusion != "success":
+                app._complete_job(
+                    job,
+                    ok=False,
+                    kind="formats",
+                    error=f"Could not fetch qualities ({conclusion})"
+                )
+                return
+
+            log_text = get_run_log_text(run_id)
+            formats = parse_formats(log_text)
+
+            if not formats:
+                app._complete_job(
+                    job,
+                    ok=False,
+                    kind="formats",
+                    error="No formats found"
+                )
+                return
+
+            app._complete_job(
+                job,
+                ok=True,
+                kind="formats",
+                formats=formats
+            )
+
+            Clock.schedule_once(
+                lambda dt:
+                self.show_quality_list(url, formats)
+                if app.current_job is job else None
+            )
+
+        except GitHubAuthError:
+            app._complete_job(
+                job,
+                ok=False,
+                kind="formats",
+                error="GitHub token invalid or expired. Update it and retry."
+            )
+
+        except Exception as e:
+            app._complete_job(
+                job,
+                ok=False,
+                kind="formats",
+                error=f"Error: {str(e)[:60]}"
+            )
+
 
     def show_quality_list(self, url, formats):
         self.clear()
@@ -43,7 +150,7 @@ class DownloadScreen(BaseScreen):
 
             btn.bind(
                 on_press=lambda i, fid=fmt_id:
-                app.start_download(
+                self.start_download(
                     url,
                     fid,
                     audio_only=False,
@@ -123,7 +230,8 @@ class DownloadScreen(BaseScreen):
             "video_url": url,
             "result": None,
             "last_status": "starting",
-            "formats": formats_for_reselect
+            "formats": formats_for_reselect,
+            "cancel_requested": False
         }
 
         job = app.current_job
@@ -145,7 +253,7 @@ class DownloadScreen(BaseScreen):
 
         if job.get("run_id"):
             try:
-                app.cancel_run(job["run_id"])
+                cancel_run(job["run_id"])
             except Exception:
                 pass
 
@@ -160,7 +268,7 @@ class DownloadScreen(BaseScreen):
 
         app._record_job_history(job)
 
-        app.show_quality_list(url, formats)
+        self.show_quality_list(url, formats)
 
 
     def download_thread(self, url, format_id, audio_only, job):
@@ -169,7 +277,7 @@ class DownloadScreen(BaseScreen):
         try:
             self.set_status("Starting workflow...")
 
-            dispatch_time = app.dispatch_workflow(
+            dispatch_time = dispatch_workflow(
                 "download.yml",
                 {
                     "video_url": url,
@@ -178,7 +286,7 @@ class DownloadScreen(BaseScreen):
                 }
             )
 
-            run_id = app.get_run_id_after(
+            run_id = get_run_id_after(
                 "download.yml",
                 dispatch_time
             )
@@ -200,7 +308,7 @@ class DownloadScreen(BaseScreen):
                 self.set_status(f"{s}...")
 
 
-            conclusion = app.wait_for_run(
+            conclusion = wait_for_run(
                 run_id,
                 on_status=on_status
             )
@@ -232,7 +340,7 @@ class DownloadScreen(BaseScreen):
         app = self.app
 
         try:
-            link = app.get_release_link(run_id)
+            link = get_release_link(run_id)
 
         except Exception as e:
             app._complete_job(
@@ -246,7 +354,7 @@ class DownloadScreen(BaseScreen):
 
 
         if link:
-            app.notify(
+            notify(
                 "YT Bridge Git",
                 "Link ready!"
             )

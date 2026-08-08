@@ -22,11 +22,8 @@ from screens.upload import UploadScreen
 
 from backend.github_api import (
     APP_VERSION,
-    get_token, save_token, notify,
-    GitHubAuthError,
-    dispatch_workflow, get_run_id_after, get_run_id_by_job_id,
-    wait_for_run, cancel_run, get_run_log_text, parse_formats,
-    get_release_link,
+    get_token, save_token,
+    cancel_run,
     get_live_history, delete_release, rename_release_asset,
 )
 
@@ -146,13 +143,36 @@ class YTBridgeApp(App):
         if not url:
             self.set_status("Enter a YouTube link")
             return
+        self.download_screen = DownloadScreen(self)
+
         if self.audio_only:
-            Clock.schedule_once(lambda dt: self.start_download(url, "bestaudio", audio_only=True))
+            Clock.schedule_once(
+                lambda dt: self.download_screen.start_download(
+                    url,
+                    "bestaudio",
+                    audio_only=True
+                )
+            )
         else:
-            self.current_job = {"stage": "formats", "run_id": None, "video_url": url,
-                                 "result": None, "last_status": "starting", "cancel_requested": False}
-            self.show_working_screen("Fetching qualities...", job=self.current_job)
-            threading.Thread(target=self.fetch_formats_thread, args=(url, self.current_job), daemon=True).start()
+            self.current_job = {
+                "stage": "formats",
+                "run_id": None,
+                "video_url": url,
+                "result": None,
+                "last_status": "starting",
+                "cancel_requested": False
+            }
+
+            self.download_screen.start_screen(
+                self.current_job,
+                "Fetching qualities..."
+            )
+
+            threading.Thread(
+                target=self.download_screen.fetch_formats_thread,
+                args=(url, self.current_job),
+                daemon=True
+            ).start()
 
     def show_working_screen(self, message, job=None):
         """Screen shown while a background job runs. Back just navigates to
@@ -195,7 +215,11 @@ class YTBridgeApp(App):
             if result["ok"]:
                 kind = job.get("kind")
                 if kind == "formats":
-                    self.show_quality_list(job["video_url"], result["formats"])
+                    self.download_screen = DownloadScreen(self)
+                    self.download_screen.show_quality_list(
+                        job["video_url"],
+                        result["formats"]
+                    )
                 elif kind == "playlist_links":
                     self.show_playlist_quality_picker(result["formats"])
                 elif kind == "playlist_download":
@@ -208,42 +232,6 @@ class YTBridgeApp(App):
             # Still running - show current status; the same background
             # thread will update current_job when it finishes.
             self.show_working_screen(f"{job.get('last_status', 'Working')}...", job=job)
-
-    def fetch_formats_thread(self, url, job):
-        try:
-            self.set_status("Fetching qualities...")
-            dispatch_time = dispatch_workflow("list-formats.yml", {"video_url": url})
-            run_id = get_run_id_after("list-formats.yml", dispatch_time)
-            job["run_id"] = run_id
-            if job.get("cancel_requested"):
-                if run_id:
-                    try:
-                        cancel_run(run_id)
-                    except Exception:
-                        pass
-                return  # job already marked done by cancel_job_in_progress
-            if run_id is None:
-                self._complete_job(job, ok=False, error="Could not detect the workflow run. Try again.", kind="formats")
-                return
-
-            def on_status(s):
-                job["last_status"] = s
-                self.set_status(f"{s}...")
-            conclusion = wait_for_run(run_id, on_status=on_status)
-            if conclusion != "success":
-                self._complete_job(job, ok=False, error=f"Could not fetch qualities ({conclusion})", kind="formats")
-                return
-            log_text = get_run_log_text(run_id)
-            formats = parse_formats(log_text)
-            if not formats:
-                self._complete_job(job, ok=False, error="No formats found", kind="formats")
-                return
-            self._complete_job(job, ok=True, formats=formats, kind="formats")
-            Clock.schedule_once(lambda dt: self.show_quality_list(url, formats) if self.current_job is job else None)
-        except GitHubAuthError:
-            self._complete_job(job, ok=False, error="GitHub token invalid or expired. Update it and retry.", kind="formats")
-        except Exception as e:
-            self._complete_job(job, ok=False, error=f"Error: {str(e)[:60]}", kind="formats")
 
     def _complete_job(self, job, ok, kind, error=None, formats=None, link=None, retry=None):
         job["stage"] = "done"
@@ -264,10 +252,6 @@ class YTBridgeApp(App):
         self.job_history = [j for j in self.job_history if j is not job]
         self.job_history.insert(0, job)
         self.job_history = self.job_history[:MAX_JOB_HISTORY]
-
-    def show_quality_list(self, url, formats):
-        self.download_screen = DownloadScreen(self)
-        self.download_screen.show_quality_list(url, formats)
 
     def show_playlist_quality_picker(self, urls):
         self.playlist_screen = PlaylistScreen(self)
