@@ -5,8 +5,6 @@ so it can be imported from core, api, services, or screens without risk of
 circular imports.
 """
 
-import os
-
 APP_VERSION = "1.3"
 
 # --- GitHub backend -----------------------------------------------------
@@ -18,33 +16,28 @@ API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 def _load_github_branch() -> str:
     """Determines which branch this build's APK should target for ALL
     workflow dispatches (list-formats, list-playlist, download, upload-file,
-    etc). Resolution order:
+    etc).
 
-    1. APP_GIT_BRANCH env var - set by build-apk.yml at build time via
-       github.ref_name, so whichever branch "Build APK" was run on.
-    2. branch.txt - a plain-text file written by build-apk.yml right next
-       to this module and packaged into the APK via buildozer. This is the
-       one that actually survives into the installed APK, since env vars
-       don't persist into the running Android app.
-    3. "main" - safe fallback for local/dev runs outside CI where neither
-       of the above exists.
+    build-apk.yml generates core/_branch.py at build time (containing
+    GITHUB_BRANCH = "<github.ref_name>") right before buildozer runs. This
+    has to be a .py file, not a .txt/env var, because buildozer.spec's
+    source.include_exts only packages py/png/jpg/kv/atlas into the APK -
+    anything else (including env vars, which don't survive into the
+    installed app anyway) never makes it onto the device.
 
-    Deliberately NOT hardcoded and NOT written back to the repo - this only
-    affects the artifact produced by this specific build run.
+    core/_branch.py is git-ignored and only exists inside a given CI build's
+    workspace, so this never gets committed/pushed back to the repo - it
+    only affects the artifact produced by that specific run.
+
+    Falls back to "main" for local/dev runs where core/_branch.py doesn't
+    exist (e.g. running straight from a git checkout, not a built APK).
     """
-    env_val = os.environ.get("APP_GIT_BRANCH")
-    if env_val:
-        return env_val.strip()
-
     try:
-        branch_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "branch.txt")
-        with open(branch_file, "r", encoding="utf-8") as f:
-            file_val = f.read().strip()
-            if file_val:
-                return file_val
-    except OSError:
+        from core._branch import GITHUB_BRANCH as _branch
+        if _branch:
+            return _branch.strip()
+    except ImportError:
         pass
-
     return "main"
 
 
