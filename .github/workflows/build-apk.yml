@@ -11,8 +11,7 @@ jobs:
 
       - name: Embed source branch into build (not committed to repo)
         run: |
-          echo "${{ github.ref_name }}" > core/branch.txt
-          echo "APP_GIT_BRANCH=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          echo "GITHUB_BRANCH = \"${{ github.ref_name }}\"" > core/_branch.py
           echo "Building from branch: ${{ github.ref_name }}"
 
       - uses: actions/setup-python@v5
@@ -53,7 +52,6 @@ jobs:
       - name: Build APK with buildozer
         env:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
-          APP_GIT_BRANCH: ${{ github.ref_name }}
         run: |
           yes | buildozer android debug
 
