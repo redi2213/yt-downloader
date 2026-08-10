@@ -9,57 +9,22 @@ runs-on: ubuntu-22.04
 steps:
 - uses: actions/checkout@v4
 
+  - name: Set workflow branch
+    run: |
+      BRANCH="${GITHUB_REF_NAME}"
+      echo "Building APK from branch: $BRANCH"
+
+      sed -i -E "s/(\"ref\": *\")[^\"]*(\")/\1$BRANCH\2/" api/github/workflows.py
+
+      echo "Updated workflows.py:"
+      grep -n '"ref"' api/github/workflows.py
+
   - uses: actions/setup-python@v5
     with:
       python-version: '3.11'
 
-  - name: Set GitHub Actions branch in app
-    run: |
-      BRANCH="${GITHUB_REF_NAME}"
-
-      echo "======================================"
-      echo "Building APK from branch: $BRANCH"
-      echo "======================================"
-
-      python3 - <<'PY'
-      import os
-      import re
-      from pathlib import Path
-
-      branch = os.environ["GITHUB_REF_NAME"]
-      file = Path("api/github/workflows.py")
-
-      if not file.exists():
-          raise SystemExit(f"File not found: {file}")
-
-      text = file.read_text()
-
-      pattern = r'("ref"\s*:\s*)"[^"]*"'
-
-      new_text, count = re.subn(
-          pattern,
-          rf'\1"{branch}"',
-          text,
-          count=1
-      )
-
-      if count != 1:
-          raise SystemExit(
-              'Could not find the workflow dispatch "ref" in '
-              'api/github/workflows.py'
-          )
-
-      file.write_text(new_text)
-
-      print(f"Successfully set workflow branch to: {branch}")
-
-      print("Updated line:")
-      for line in new_text.splitlines():
-          if 'client.post' in line and '"ref"' in line:
-              print(line)
-      PY
-
-  - uses: actions/cache@v4
+  - name: Cache buildozer (platform + app build)
+    uses: actions/cache@v4
     with:
       path: |
         ~/.buildozer
@@ -87,9 +52,7 @@ steps:
 
   - name: Install Android platform 33
     run: |
-      yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager \
-        "platforms;android-33" \
-        "build-tools;33.0.2"
+      yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager "platforms;android-33" "build-tools;33.0.2"
 
   - name: Build APK with buildozer
     env:
