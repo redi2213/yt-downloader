@@ -7,16 +7,21 @@ that belongs in the services layer.
 import time
 
 from api.github import client
-from core.config import API_BASE
+from core.config import API_BASE, GITHUB_BRANCH
 
 
 def dispatch_workflow(workflow_file: str, inputs: dict) -> str:
     """Dispatch a workflow and return the UTC timestamp (ISO, second
     precision) just before dispatch, so the caller can reliably find *this*
-    run afterwards instead of guessing "the latest run belongs to me"."""
+    run afterwards instead of guessing "the latest run belongs to me".
+
+    ref is GITHUB_BRANCH, not hardcoded - every workflow this app dispatches
+    (list-formats, list-playlist, download, upload-file, ...) runs on
+    whichever branch this specific APK was built from, since they all funnel
+    through this one function."""
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
-    client.post(url, json={"ref": "main", "inputs": inputs})
+    client.post(url, json={"ref": GITHUB_BRANCH, "inputs": inputs})
     return dispatch_time
 
 
