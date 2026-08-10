@@ -14,7 +14,19 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v2
 
-      - name: Install yt-dlp and PO Token provider
+      - name: Start PO Token provider server
+        run: |
+          docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
+          # Wait until the server responds
+          for i in {1..15}; do
+            if curl -sf http://127.0.0.1:4416/ping > /dev/null; then
+              echo "PO Token server is up"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Install yt-dlp and PO Token plugin
         run: |
           pip install -U yt-dlp
           pip install -U bgutil-ytdlp-pot-provider
