@@ -3,3 +3,6 @@ __pycache__/
 aether.toml
 *.apk
 *.apk
+
+# Generated at build time by build-apk.yml - never commit this
+core/_branch.py
