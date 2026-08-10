@@ -23,7 +23,9 @@ jobs:
       - name: List formats
         run: |
           echo '```' >> $GITHUB_STEP_SUMMARY
-          yt-dlp --cookies cookies.txt --remote-components ejs:github -F "${{ github.event.inputs.video_url }}" | tee -a $GITHUB_STEP_SUMMARY
+          yt-dlp --cookies cookies.txt --remote-components ejs:github \
+            --extractor-args "youtube:player_client=web,web_safari,android_vr,tv" \
+            -F "${{ github.event.inputs.video_url }}" | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Clean up cookies
