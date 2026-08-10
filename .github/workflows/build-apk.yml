@@ -1,57 +1,104 @@
 name: Build APK
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
+build:
+runs-on: ubuntu-22.04
+steps:
+- uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+  - uses: actions/setup-python@v5
+    with:
+      python-version: '3.11'
 
-      - name: Cache buildozer (platform + app build)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer
-            .buildozer
-            ~/.gradle
-          key: buildozer-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            buildozer-
+  - name: Set GitHub Actions branch in app
+    run: |
+      BRANCH="${GITHUB_REF_NAME}"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf \
-            libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
-            cmake libffi-dev libssl-dev build-essential
+      echo "======================================"
+      echo "Building APK from branch: $BRANCH"
+      echo "======================================"
 
-      - name: Install buildozer and cython
-        run: |
-          pip3 install --upgrade buildozer cython==0.29.36
+      python3 - <<'PY'
+      import os
+      import re
+      from pathlib import Path
 
-      - name: Fix legacy sdkmanager path for buildozer
-        run: |
-          mkdir -p /usr/local/lib/android/sdk/tools/bin
-          ln -sf /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
+      branch = os.environ["GITHUB_REF_NAME"]
+      file = Path("api/github/workflows.py")
 
-      - name: Install Android platform 33
-        run: |
-          yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager "platforms;android-33" "build-tools;33.0.2"
+      if not file.exists():
+          raise SystemExit(f"File not found: {file}")
 
-      - name: Build APK with buildozer
-        env:
-          JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
-        run: |
-          yes | buildozer android debug
+      text = file.read_text()
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ytdownloader-apk
-          path: bin/*.apk
+      pattern = r'("ref"\s*:\s*)"[^"]*"'
+
+      new_text, count = re.subn(
+          pattern,
+          rf'\1"{branch}"',
+          text,
+          count=1
+      )
+
+      if count != 1:
+          raise SystemExit(
+              'Could not find the workflow dispatch "ref" in '
+              'api/github/workflows.py'
+          )
+
+      file.write_text(new_text)
+
+      print(f"Successfully set workflow branch to: {branch}")
+
+      print("Updated line:")
+      for line in new_text.splitlines():
+          if 'client.post' in line and '"ref"' in line:
+              print(line)
+      PY
+
+  - uses: actions/cache@v4
+    with:
+      path: |
+        ~/.buildozer
+        .buildozer
+        ~/.gradle
+      key: buildozer-${{ hashFiles('buildozer.spec') }}
+      restore-keys: |
+        buildozer-
+
+  - name: Install system dependencies
+    run: |
+      sudo apt update
+      sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf \
+        libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
+        cmake libffi-dev libssl-dev build-essential
+
+  - name: Install buildozer and cython
+    run: |
+      pip3 install --upgrade buildozer cython==0.29.36
+
+  - name: Fix legacy sdkmanager path for buildozer
+    run: |
+      mkdir -p /usr/local/lib/android/sdk/tools/bin
+      ln -sf /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
+
+  - name: Install Android platform 33
+    run: |
+      yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager \
+        "platforms;android-33" \
+        "build-tools;33.0.2"
+
+  - name: Build APK with buildozer
+    env:
+      JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
+    run: |
+      yes | buildozer android debug
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: ytdownloader-apk
+      path: bin/*.apk
