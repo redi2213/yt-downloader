@@ -9,10 +9,26 @@ runs-on: ubuntu-22.04
 steps:
 - uses: actions/checkout@v4
 
+<<<<<<< HEAD
   - name: Set workflow branch
     run: |
       BRANCH="${GITHUB_REF_NAME}"
       echo "Building APK from branch: $BRANCH"
+=======
+      - name: Set workflow branch
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          echo "Building APK from branch: $BRANCH"
+
+          sed -i -E "s/(\"ref\": *\")[^\"]*(\")/\1$BRANCH\2/" api/github/workflows.py
+
+          echo "Updated workflows.py:"
+          grep -n '"ref"' api/github/workflows.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+>>>>>>> 3293e33 (Fix APK build workflow)
 
       sed -i -E "s/(\"ref\": *\")[^\"]*(\")/\1$BRANCH\2/" api/github/workflows.py
 
