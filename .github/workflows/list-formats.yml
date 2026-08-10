@@ -14,28 +14,18 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v2
 
-      - name: Install yt-dlp
-        run: pip install -U yt-dlp
+      - name: Install yt-dlp and PO Token provider
+        run: |
+          pip install -U yt-dlp
+          pip install -U bgutil-ytdlp-pot-provider
 
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      - name: List formats (with cookies)
-        continue-on-error: true
+      - name: List formats
         run: |
-          echo '### With cookies' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           yt-dlp -v --cookies cookies.txt --remote-components ejs:github \
-            --extractor-args "youtube:player_client=tv,web_safari,web" \
-            -F "${{ github.event.inputs.video_url }}" 2>&1 | tee -a $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: List formats (without cookies)
-        continue-on-error: true
-        run: |
-          echo '### Without cookies' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          yt-dlp -v --remote-components ejs:github \
             --extractor-args "youtube:player_client=tv,web_safari,web" \
             -F "${{ github.event.inputs.video_url }}" 2>&1 | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
