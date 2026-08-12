@@ -1,0 +1,62 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Embed source branch into build (not committed to repo)
+        run: |
+          echo "GITHUB_BRANCH = \"${{ github.ref_name }}\"" > core/_branch.py
+          echo "Building from branch: ${{ github.ref_name }}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache buildozer (platform + app build)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            .buildozer
+            ~/.gradle
+          key: buildozer-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf \
+            libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev \
+            cmake libffi-dev libssl-dev build-essential
+
+      - name: Install buildozer and cython
+        run: |
+          pip3 install --upgrade buildozer cython==0.29.36
+
+      - name: Fix legacy sdkmanager path for buildozer
+        run: |
+          mkdir -p /usr/local/lib/android/sdk/tools/bin
+          ln -sf /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /usr/local/lib/android/sdk/tools/bin/sdkmanager
+
+      - name: Install Android platform 33
+        run: |
+          yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager "platforms;android-33" "build-tools;33.0.2"
+
+      - name: Build APK with buildozer
+        env:
+          JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
+        run: |
+          yes | buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ytdownloader-apk
+          path: bin/*.apk
