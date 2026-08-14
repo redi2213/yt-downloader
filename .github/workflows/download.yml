@@ -98,7 +98,11 @@ jobs:
           # از دانلودر داخلی yt-dlp با چندنخی (-N) استفاده می‌کنیم که context درست رو حفظ می‌کنه.
           # -N از 8 به 4 کاهش یافت و retry-sleep افزایشی اضافه شد: روی فرمت‌های سنگین (4K/HFR)
           # تعداد اتصالات موازی بالا باعث می‌شد سرور گوگل‌ویدیو وسط دانلود (حوالی ~18%) با 403 قطع کنه.
-          COMMON_SPEED_FLAGS=(-N 4 --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
+          # --http-chunk-size 10M: طبق مستندات رسمی yt-dlp، یوتیوب هر درخواستی با
+          # chunk size بزرگ‌تر از 10MB رو throttle/قطع می‌کنه. همین باعث می‌شد فرمت‌های
+          # سنگین (4K/HFR) همیشه حوالی درصد مشخصی با 403 قطع بشن، چون یوتیوب داشت
+          # http chunk بزرگ رو رد می‌کرد. با محدود کردنش به زیر 10MB، دیگه به اون حد نمی‌رسه.
+          COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
           CLIENT_ARGS="youtube:player_client=mweb,tv,web_safari,web;formats=missing_pot"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
