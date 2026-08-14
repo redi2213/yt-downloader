@@ -25,21 +25,22 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      # --- ffmpeg + aria2 (cached as .deb files, installed via dpkg = fast) ---
+      # --- ffmpeg (cached as .deb files, installed via dpkg = fast) ---
+      # aria2c دیگه لازم نیست چون گوگل‌ویدیو با دانلودر خارجی 403 می‌ده
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: apt-debs-ffmpeg-aria2-v3
+          key: apt-debs-ffmpeg-v3
 
       - name: Download apt packages (cache miss only)
         if: steps.cache-apt.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --download-only ffmpeg aria2
+          sudo apt-get install -y --download-only ffmpeg
 
-      - name: Install ffmpeg + aria2 from local debs
+      - name: Install ffmpeg from local debs
         run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
 
       # --- yt-dlp (pinned version, cached — no network call when cached) ---
@@ -62,14 +63,11 @@ jobs:
           chmod +x /opt/ytdlp-bin/yt-dlp
           echo "/opt/ytdlp-bin" >> $GITHUB_PATH
 
-      # --- Deno (used by yt-dlp's n-challenge solver; downloaded fresh
-      #     each run via GitHub's own tool-cache, a few seconds, no
-      #     manual caching needed) ---
+      # --- Deno (used by yt-dlp's n-challenge solver) ---
       - name: Install Deno
         uses: denoland/setup-deno@v2
 
-      # --- PO Token provider (required since YouTube now blocks
-      #     formats without a valid PO Token on most clients) ---
+      # --- PO Token provider ---
       - name: Start PO Token provider server
         run: |
           docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
@@ -89,14 +87,16 @@ jobs:
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      # --- Download (runs directly on the runner — full network speed, no container overhead) ---
+      # --- Download (runs directly on the runner) ---
       - name: Download
         id: dl
         shell: bash
         run: |
           set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 4M --file-allocation=none" -N 8 --retries 10 --fragment-retries 10 --socket-timeout 30)
+          # aria2c حذف شد: گوگل‌ویدیو با دانلودر خارجی چون هدر/context یوتیوب رو نداره 403 می‌ده.
+          # از دانلودر داخلی yt-dlp با چندنخی (-N) استفاده می‌کنیم که context درست رو حفظ می‌کنه.
+          COMMON_SPEED_FLAGS=(-N 8 --retries 10 --fragment-retries 10 --socket-timeout 30)
           CLIENT_ARGS="youtube:player_client=mweb,tv,web_safari,web;formats=missing_pot"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
