@@ -103,11 +103,12 @@ jobs:
           # سنگین (4K/HFR) همیشه حوالی درصد مشخصی با 403 قطع بشن، چون یوتیوب داشت
           # http chunk بزرگ رو رد می‌کرد. با محدود کردنش به زیر 10MB، دیگه به اون حد نمی‌رسه.
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
-          # کلاینت محدود شد به فقط "tv": در تست‌های قبلی، هر بار که fallback به کلاینت‌های
-          # دیگه (mweb/web/web_safari و به‌خصوص android که به‌صورت ضمنی fallback می‌شه)
-          # اتفاق می‌افتاد، فرمت‌های سنگین (4K/HFR) وسط دانلود (~15-25%) با 403 قطع می‌شدن.
-          # tv تنها، پایدارترین کلاینت گزارش‌شده برای این مشکله.
-          CLIENT_ARGS="youtube:player_client=tv;formats=missing_pot"
+          # کلاینت‌ها: یوتیوب داره به‌مرور همه کلاینت‌ها رو مجبور به پروتکل اختصاصی SABR
+          # می‌کنه (به‌جای HTTP معمولی). کلاینت "tv" به‌تنهایی فرمت‌های سنگین (4K/HFR) رو
+          # کلاً skip می‌کنه (SABR-only) و فقط فرمت‌های پایین مثل 18=360p می‌ده.
+          # web_safari و ios هنوز فرمت‌های بالا رو با URL مستقیم HTTP می‌دن و پایدارترن؛
+          # tv به‌عنوان fallback دوم نگه داشته شده برای وقتی فرمت پایین کافیه.
+          CLIENT_ARGS="youtube:player_client=web_safari,tv,ios;formats=missing_pot"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
@@ -123,7 +124,7 @@ jobs:
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "${{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/${{ github.event.inputs.format_id }}+bestaudio/best" \
+              -f "${{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/${{ github.event.inputs.format_id }}+bestaudio" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
