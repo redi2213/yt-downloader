@@ -103,7 +103,11 @@ jobs:
           # سنگین (4K/HFR) همیشه حوالی درصد مشخصی با 403 قطع بشن، چون یوتیوب داشت
           # http chunk بزرگ رو رد می‌کرد. با محدود کردنش به زیر 10MB، دیگه به اون حد نمی‌رسه.
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
-          CLIENT_ARGS="youtube:player_client=mweb,tv,web_safari,web;formats=missing_pot"
+          # کلاینت محدود شد به فقط "tv": در تست‌های قبلی، هر بار که fallback به کلاینت‌های
+          # دیگه (mweb/web/web_safari و به‌خصوص android که به‌صورت ضمنی fallback می‌شه)
+          # اتفاق می‌افتاد، فرمت‌های سنگین (4K/HFR) وسط دانلود (~15-25%) با 403 قطع می‌شدن.
+          # tv تنها، پایدارترین کلاینت گزارش‌شده برای این مشکله.
+          CLIENT_ARGS="youtube:player_client=tv;formats=missing_pot"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
