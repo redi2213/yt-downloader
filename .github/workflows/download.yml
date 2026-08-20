@@ -16,7 +16,7 @@ on:
         default: 'false'
 
 env:
-  YTDLP_VERSION: '2026.07.04'
+  YTDLP_VERSION: '2026.08.19'
 
 permissions:
   contents: write
@@ -97,18 +97,19 @@ jobs:
           # aria2c حذف شد: گوگل‌ویدیو با دانلودر خارجی چون هدر/context یوتیوب رو نداره 403 می‌ده.
           # از دانلودر داخلی yt-dlp با چندنخی (-N) استفاده می‌کنیم که context درست رو حفظ می‌کنه.
           # -N از 8 به 4 کاهش یافت و retry-sleep افزایشی اضافه شد: روی فرمت‌های سنگین (4K/HFR)
-          # تعداد اتصالات موازی بالا باعث می‌شد سرور گوگل‌ویدیو وسط دانلود (حوالی ~18%) با 403 قطع کنه.
+          # تعداد اتصالات موازی بالا باعث می‌شد سرور گوگل‌ویدیو وسط دانلود (حوالی \~18%) با 403 قطع کنه.
           # --http-chunk-size 10M: طبق مستندات رسمی yt-dlp، یوتیوب هر درخواستی با
           # chunk size بزرگ‌تر از 10MB رو throttle/قطع می‌کنه. همین باعث می‌شد فرمت‌های
           # سنگین (4K/HFR) همیشه حوالی درصد مشخصی با 403 قطع بشن، چون یوتیوب داشت
           # http chunk بزرگ رو رد می‌کرد. با محدود کردنش به زیر 10MB، دیگه به اون حد نمی‌رسه.
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
-          # کلاینت‌ها: یوتیوب داره به‌مرور همه کلاینت‌ها رو مجبور به پروتکل اختصاصی SABR
-          # می‌کنه (به‌جای HTTP معمولی). کلاینت "tv" به‌تنهایی فرمت‌های سنگین (4K/HFR) رو
-          # کلاً skip می‌کنه (SABR-only) و فقط فرمت‌های پایین مثل 18=360p می‌ده.
-          # web_safari و ios هنوز فرمت‌های بالا رو با URL مستقیم HTTP می‌دن و پایدارترن؛
-          # tv به‌عنوان fallback دوم نگه داشته شده برای وقتی فرمت پایین کافیه.
-          CLIENT_ARGS="youtube:player_client=web_safari,tv,ios;formats=missing_pot"
+
+          # === تغییر اصلی (آگوست ۲۰۲۶) ===
+          # کلاینت‌های tv / tv_downgraded با کوکی لاگین‌شده ارور
+          # "The page needs to be reloaded" می‌دن (issue #17389).
+          # web_safari + web_embedded + web پایدارترن و با کوکی + PO Token کار می‌کنن.
+          # ios هم حذف شد چون با کوکی پشتیبانی نمی‌شه.
+          CLIENT_ARGS="youtube:player_client=web_safari,web_embedded,web;formats=missing_pot"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
@@ -124,7 +125,7 @@ jobs:
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "${{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/${{ github.event.inputs.format_id }}+bestaudio" \
+              -f "\( {{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/ \){{ github.event.inputs.format_id }}+bestaudio" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
@@ -145,7 +146,7 @@ jobs:
               if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
                 HDR_SUFFIX="_HDR"
               fi
-              QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
+              QUALITY="\( {HEIGHT}p \){FPS_SUFFIX}${HDR_SUFFIX}"
             fi
           fi
 
@@ -156,7 +157,7 @@ jobs:
           FILENAME=$(cat filename.txt)
           BASENAME="${FILENAME%.*}"
           EXT="${FILENAME##*.}"
-          FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
+          FINAL_NAME="\( {BASENAME}_ \){QUALITY}.${EXT}"
           mv "$FILENAME" "$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> $GITHUB_OUTPUT
 
