@@ -26,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # --- ffmpeg (cached as .deb files, installed via dpkg = fast) ---
-      # aria2c دیگه لازم نیست چون گوگل‌ویدیو با دانلودر خارجی 403 می‌ده
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
@@ -43,13 +42,13 @@ jobs:
       - name: Install ffmpeg from local debs
         run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
 
-      # --- yt-dlp (pinned version, cached — no network call when cached) ---
+      # --- yt-dlp (pinned version, cached) ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
         with:
           path: /opt/ytdlp
-          key: ytdlp-${{ env.YTDLP_VERSION }}-v2
+          key: ytdlp-${{ env.YTDLP_VERSION }}-v3
 
       - name: Install yt-dlp (cache miss only)
         if: steps.cache-ytdlp.outputs.cache-hit != 'true'
@@ -87,28 +86,18 @@ jobs:
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      # --- Download (runs directly on the runner) ---
+      # --- Download ---
       - name: Download
         id: dl
         shell: bash
         run: |
           set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
-          # aria2c حذف شد: گوگل‌ویدیو با دانلودر خارجی چون هدر/context یوتیوب رو نداره 403 می‌ده.
-          # از دانلودر داخلی yt-dlp با چندنخی (-N) استفاده می‌کنیم که context درست رو حفظ می‌کنه.
-          # -N از 8 به 4 کاهش یافت و retry-sleep افزایشی اضافه شد: روی فرمت‌های سنگین (4K/HFR)
-          # تعداد اتصالات موازی بالا باعث می‌شد سرور گوگل‌ویدیو وسط دانلود (حوالی \~18%) با 403 قطع کنه.
-          # --http-chunk-size 10M: طبق مستندات رسمی yt-dlp، یوتیوب هر درخواستی با
-          # chunk size بزرگ‌تر از 10MB رو throttle/قطع می‌کنه. همین باعث می‌شد فرمت‌های
-          # سنگین (4K/HFR) همیشه حوالی درصد مشخصی با 403 قطع بشن، چون یوتیوب داشت
-          # http chunk بزرگ رو رد می‌کرد. با محدود کردنش به زیر 10MB، دیگه به اون حد نمی‌رسه.
+
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
 
-          # === تغییر اصلی (آگوست ۲۰۲۶) ===
-          # کلاینت‌های tv / tv_downgraded با کوکی لاگین‌شده ارور
-          # "The page needs to be reloaded" می‌دن (issue #17389).
-          # web_safari + web_embedded + web پایدارترن و با کوکی + PO Token کار می‌کنن.
-          # ios هم حذف شد چون با کوکی پشتیبانی نمی‌شه.
+          # کلاینت‌های tv/tv_downgraded با کوکی الان خراب‌اند (issue #17389)
+          # web_safari + web_embedded + web پایدارتر هستند
           CLIENT_ARGS="youtube:player_client=web_safari,web_embedded,web;formats=missing_pot"
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
