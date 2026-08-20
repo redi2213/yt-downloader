@@ -127,13 +127,13 @@ jobs:
               FPS_SUFFIX=""
               if [ "$FPS" != "NA" ] && [ -n "$FPS" ]; then
                 FPS_INT=$(echo "$FPS" | cut -d. -f1)
-                FPS_SUFFIX="_$FPS_INT"fps
+                FPS_SUFFIX="_${FPS_INT}fps"
               fi
               HDR_SUFFIX=""
               if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
                 HDR_SUFFIX="_HDR"
               fi
-              QUALITY="$HEIGHT"p"$FPS_SUFFIX$HDR_SUFFIX"
+              QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
             fi
           fi
 
@@ -144,10 +144,10 @@ jobs:
 
           FILENAME=$(cat filename.txt)
 
-          # Avoid ${} brace expansions that get corrupted on copy-paste
-          BASENAME=$(echo "\( FILENAME" | sed 's/\.[^.]* \)//')
-          EXT=$(echo "$FILENAME" | sed 's/.*\.//')
-          FINAL_NAME="$BASENAME"_"$QUALITY"."$EXT"
+          # Split filename into base + extension without sed (avoids brace/escaping corruption)
+          EXT="${FILENAME##*.}"
+          BASENAME="${FILENAME%.*}"
+          FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
 
           mv "$FILENAME" "$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
