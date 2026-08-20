@@ -92,7 +92,7 @@ jobs:
           OUTTMPL="%(title).120s.%(ext)s"
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
 
-          # tv/tv_downgraded clients are broken with cookies (yt-dlp issue 17389)
+          # tv/tv_downgraded clients broken with cookies (yt-dlp issue 17389)
           CLIENT_ARGS="youtube:player_client=web_safari,web_embedded,web;formats=missing_pot"
 
           if [ "$AUDIO_ONLY" = "true" ]; then
@@ -127,13 +127,13 @@ jobs:
               FPS_SUFFIX=""
               if [ "$FPS" != "NA" ] && [ -n "$FPS" ]; then
                 FPS_INT=$(echo "$FPS" | cut -d. -f1)
-                FPS_SUFFIX="_${FPS_INT}fps"
+                FPS_SUFFIX="_$FPS_INT"fps
               fi
               HDR_SUFFIX=""
               if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
                 HDR_SUFFIX="_HDR"
               fi
-              QUALITY="\( {HEIGHT}p \){FPS_SUFFIX}${HDR_SUFFIX}"
+              QUALITY="$HEIGHT"p"$FPS_SUFFIX$HDR_SUFFIX"
             fi
           fi
 
@@ -143,11 +143,18 @@ jobs:
           fi
 
           FILENAME=$(cat filename.txt)
-          BASENAME="${FILENAME%.*}"
-          EXT="${FILENAME##*.}"
-          FINAL_NAME="\( {BASENAME}_ \){QUALITY}.${EXT}"
+
+          # Avoid ${} brace expansions that get corrupted on copy-paste
+          BASENAME=$(echo "\( FILENAME" | sed 's/\.[^.]* \)//')
+          EXT=$(echo "$FILENAME" | sed 's/.*\.//')
+          FINAL_NAME="$BASENAME"_"$QUALITY"."$EXT"
+
           mv "$FILENAME" "$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
+
+          echo "=== Final file ==="
+          ls -lh "$FINAL_NAME"
+          echo "filename output: $FINAL_NAME"
 
       - name: Clean up cookies
         if: always()
