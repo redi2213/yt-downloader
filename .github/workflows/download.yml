@@ -92,7 +92,7 @@ jobs:
           OUTTMPL="%(title).120s.%(ext)s"
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
 
-          # tv clients broken with cookies (yt-dlp#17389)
+          # tv/tv_downgraded clients are broken with cookies (yt-dlp issue 17389)
           CLIENT_ARGS="youtube:player_client=web_safari,web_embedded,web;formats=missing_pot"
 
           if [ "$AUDIO_ONLY" = "true" ]; then
@@ -106,8 +106,7 @@ jobs:
               "$VIDEO_URL"
             QUALITY="audio"
           else
-            # Format string built from env var (safer against copy corruption)
-            FORMAT_SPEC="\( {FORMAT_ID}+bestaudio[acodec^=mp4a]/ \){FORMAT_ID}+bestaudio"
+            FORMAT_SPEC="$FORMAT_ID+bestaudio[acodec^=mp4a]/$FORMAT_ID+bestaudio"
 
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
@@ -127,7 +126,8 @@ jobs:
             else
               FPS_SUFFIX=""
               if [ "$FPS" != "NA" ] && [ -n "$FPS" ]; then
-                FPS_SUFFIX="_${FPS%.*}fps"
+                FPS_INT=$(echo "$FPS" | cut -d. -f1)
+                FPS_SUFFIX="_${FPS_INT}fps"
               fi
               HDR_SUFFIX=""
               if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
