@@ -7,7 +7,7 @@ on:
         description: 'YouTube URL'
         required: true
       format_id:
-        description: 'Format id (e.g. 337) or bestaudio for audio-only'
+        description: 'Format id (e.g. 337) or bestvideo+bestaudio'
         required: true
         default: 'bestvideo+bestaudio'
       audio_only:
@@ -17,6 +17,9 @@ on:
 
 env:
   YTDLP_VERSION: '2026.08.19'
+  VIDEO_URL: ${{ github.event.inputs.video_url }}
+  FORMAT_ID: ${{ github.event.inputs.format_id }}
+  AUDIO_ONLY: ${{ github.event.inputs.audio_only }}
 
 permissions:
   contents: write
@@ -25,7 +28,6 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      # --- ffmpeg (cached as .deb files, installed via dpkg = fast) ---
       - name: Cache apt debs
         id: cache-apt
         uses: actions/cache@v4
@@ -42,7 +44,6 @@ jobs:
       - name: Install ffmpeg from local debs
         run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
 
-      # --- yt-dlp (pinned version, cached) ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
@@ -62,11 +63,9 @@ jobs:
           chmod +x /opt/ytdlp-bin/yt-dlp
           echo "/opt/ytdlp-bin" >> $GITHUB_PATH
 
-      # --- Deno (used by yt-dlp's n-challenge solver) ---
       - name: Install Deno
         uses: denoland/setup-deno@v2
 
-      # --- PO Token provider ---
       - name: Start PO Token provider server
         run: |
           docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
@@ -78,29 +77,25 @@ jobs:
             sleep 1
           done
 
-      - name: Install PO Token plugin (cache miss only, same cache as yt-dlp)
+      - name: Install PO Token plugin (cache miss only)
         if: steps.cache-ytdlp.outputs.cache-hit != 'true'
         run: pip install --target /opt/ytdlp -U bgutil-ytdlp-pot-provider
 
-      # --- Cookies ---
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      # --- Download ---
       - name: Download
         id: dl
         shell: bash
         run: |
           set -euo pipefail
           OUTTMPL="%(title).120s.%(ext)s"
-
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
 
-          # کلاینت‌های tv/tv_downgraded با کوکی الان خراب‌اند (issue #17389)
-          # web_safari + web_embedded + web پایدارتر هستند
+          # tv clients broken with cookies (yt-dlp#17389)
           CLIENT_ARGS="youtube:player_client=web_safari,web_embedded,web;formats=missing_pot"
 
-          if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
+          if [ "$AUDIO_ONLY" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
@@ -108,18 +103,21 @@ jobs:
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
-              "${{ github.event.inputs.video_url }}"
+              "$VIDEO_URL"
             QUALITY="audio"
           else
+            # Format string built from env var (safer against copy corruption)
+            FORMAT_SPEC="\( {FORMAT_ID}+bestaudio[acodec^=mp4a]/ \){FORMAT_ID}+bestaudio"
+
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "\( {{ github.event.inputs.format_id }}+bestaudio[acodec^=mp4a]/ \){{ github.event.inputs.format_id }}+bestaudio" \
+              -f "$FORMAT_SPEC" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
               --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
-              "${{ github.event.inputs.video_url }}"
+              "$VIDEO_URL"
 
             METADATA=$(cat metadata.txt)
             IFS='|' read -r HEIGHT HDR FPS <<< "$METADATA"
@@ -143,12 +141,13 @@ jobs:
             echo "::error::yt-dlp did not produce an output file (filename.txt is empty/missing)."
             exit 1
           fi
+
           FILENAME=$(cat filename.txt)
           BASENAME="${FILENAME%.*}"
           EXT="${FILENAME##*.}"
           FINAL_NAME="\( {BASENAME}_ \){QUALITY}.${EXT}"
           mv "$FILENAME" "$FINAL_NAME"
-          echo "filename=$FINAL_NAME" >> $GITHUB_OUTPUT
+          echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Clean up cookies
         if: always()
