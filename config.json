@@ -1,0 +1,44 @@
+{
+  "config_version": 1,
+  "actions": [
+    {
+      "id": "youtube_download",
+      "title": "دانلود از یوتیوب",
+      "icon": "youtube",
+      "enabled": true,
+      "input_type": "url",
+      "input_hint": "لینک ویدیو یوتیوب را وارد کنید",
+      "workflow": "download-anything.yml",
+      "workflow_inputs": {
+        "video_url": "{input}",
+        "output_mode": "upload_release"
+      }
+    },
+    {
+      "id": "tiktok_download",
+      "title": "دانلود از تیک‌تاک",
+      "icon": "tiktok",
+      "enabled": true,
+      "input_type": "url",
+      "input_hint": "لینک ویدیو تیک‌تاک را وارد کنید",
+      "workflow": "download-anything.yml",
+      "workflow_inputs": {
+        "video_url": "{input}",
+        "output_mode": "upload_release"
+      }
+    },
+    {
+      "id": "mediafire_download",
+      "title": "دانلود از مدیافایر",
+      "icon": "mediafire",
+      "enabled": true,
+      "input_type": "url",
+      "input_hint": "لینک مدیافایر را وارد کنید",
+      "workflow": "download-anything.yml",
+      "workflow_inputs": {
+        "video_url": "{input}",
+        "output_mode": "upload_release"
+      }
+    }
+  ]
+}
