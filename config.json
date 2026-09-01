@@ -1,13 +1,13 @@
 {
-  "config_version": 2,
+  "config_version": 3,
   "actions": [
     {
       "id": "youtube_generic",
-      "title": "دانلود از یوتیوب (Anything)",
+      "title": "Download from YouTube (Anything)",
       "icon": "youtube",
       "enabled": true,
       "input_type": "url",
-      "input_hint": "لینک ویدیو یوتیوب را وارد کنید",
+      "input_hint": "Enter the YouTube video link",
       "workflow": "download-anything.yml",
       "workflow_inputs": {
         "url": "{input}",
@@ -18,11 +18,11 @@
     },
     {
       "id": "tiktok_download",
-      "title": "دانلود از تیک‌تاک",
+      "title": "Download from TikTok",
       "icon": "tiktok",
       "enabled": true,
       "input_type": "url",
-      "input_hint": "لینک ویدیو تیک‌تاک را وارد کنید",
+      "input_hint": "Enter the TikTok video link",
       "workflow": "download-anything.yml",
       "workflow_inputs": {
         "url": "{input}",
@@ -33,11 +33,11 @@
     },
     {
       "id": "mediafire_download",
-      "title": "دانلود از مدیافایر",
+      "title": "Download from Mediafire",
       "icon": "mediafire",
       "enabled": true,
       "input_type": "url",
-      "input_hint": "لینک مدیافایر را وارد کنید",
+      "input_hint": "Enter the Mediafire link",
       "workflow": "download-anything.yml",
       "workflow_inputs": {
         "url": "{input}",
