@@ -52,6 +52,10 @@ def build(nav):
     upload_btn.bind(on_press=lambda i: nav.show_upload_screen())
     nav.add(upload_btn)
 
+    dynamic_actions_btn = Button(text="Download Anything", size_hint_y=None, height=48)
+    dynamic_actions_btn.bind(on_press=lambda i: nav.show_dynamic_actions())
+    nav.add(dynamic_actions_btn)
+
     history_btn = Button(text="Download history", size_hint_y=None, height=48)
     history_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(history_btn)
@@ -109,3 +113,4 @@ def _on_fetch_playlist(nav, token_input, url_input):
     if token_input is not None:
         token_service.save_token(token_input.text.strip())
     nav.handle_fetch_playlist(url_input.text)
+

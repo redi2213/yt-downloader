@@ -15,6 +15,7 @@ from core.jobs.job_manager import JobManager
 from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service
+from services import remote_config_service, generic_action_service
 
 
 class Navigator:
@@ -196,6 +197,31 @@ class Navigator:
         from screens import upload as upload_screen
         upload_screen.build(self)
 
+    # -- dynamic/remote-config actions --------------------------------------
+    def show_dynamic_actions(self):
+        from screens import actions_dynamic
+        actions_dynamic.build_loading(self)
+        remote_config_service.start_load_actions(
+            on_complete=lambda res: self.schedule(lambda: self._after_load_actions(res)))
+
+    def _after_load_actions(self, res):
+        from screens import actions_dynamic
+        actions_dynamic.build(self, res.get("actions", []))
+
+    def show_action_input(self, action):
+        from screens import actions_dynamic
+        actions_dynamic.build_input(self, action)
+
+    def start_dynamic_action(self, action, user_input):
+        user_input = user_input.strip()
+        if not user_input:
+            self.set_status("Enter a link")
+            return
+        job = generic_action_service.create_action_job(self.job_manager, action, user_input)
+        self.show_working("Starting workflow...", job=job)
+        on_status, on_complete = self._status_and_complete_callbacks()
+        generic_action_service.run_action_job(self.job_manager, job, on_status=on_status, on_complete=on_complete)
+
     def show_playlist_quality_picker(self, urls):
         from screens import playlist as playlist_screen
         playlist_screen.build_quality_picker(self, urls)
@@ -292,3 +318,4 @@ class Navigator:
             self.show_job_history()
         else:
             self.show_result(res.get("error"))
+
