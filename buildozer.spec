@@ -1,6 +1,6 @@
 [app]
-title = YT Bridge Git
-package.name = ytdownloader
+title = YT Bridge 4
+package.name = ytbridge_v4
 package.domain = org.redi2213
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
