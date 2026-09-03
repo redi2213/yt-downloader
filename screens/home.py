@@ -55,6 +55,9 @@ def build(nav):
     dynamic_actions_btn = Button(text="Download Anything", size_hint_y=None, height=48)
     dynamic_actions_btn.bind(on_press=lambda i: nav.show_dynamic_actions())
     nav.add(dynamic_actions_btn)
+    github_signin_btn = Button(text="Sign in with GitHub", size_hint_y=None, height=48)
+    github_signin_btn.bind(on_press=lambda i: nav.show_github_signin())
+    nav.add(github_signin_btn)
 
     history_btn = Button(text="Download history", size_hint_y=None, height=48)
     history_btn.bind(on_press=lambda i: nav.show_live_history())
