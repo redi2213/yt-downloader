@@ -149,11 +149,7 @@ jobs:
           # softprops/action-gh-release fail to set the label after upload -
           # that failure was corrupting the final download link even though
           # the file itself uploaded fine.
-          FILENAME=$(python3 -c "
-import sys
-name = sys.argv[1]
-sys.stdout.write(''.join(ch for ch in name if len(ch.encode('utf-16-le')) <= 2))
-" "$FILENAME")
+          FILENAME=$(python3 -c "import sys; name = sys.argv[1]; sys.stdout.write(''.join(ch for ch in name if len(ch.encode('utf-16-le')) <= 2))" "$FILENAME")
 
           # Split filename into base + extension without sed (avoids brace/escaping corruption)
           EXT="${FILENAME##*.}"
