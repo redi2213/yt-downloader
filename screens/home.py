@@ -48,6 +48,10 @@ def build(nav):
     playlist_btn.bind(on_press=lambda i: _on_fetch_playlist(nav, token_input, url_input))
     nav.add(playlist_btn)
 
+    quick_download_btn = Button(text="Quick Download (skip quality check)", size_hint_y=None, height=48)
+    quick_download_btn.bind(on_press=lambda i: nav.show_quick_download())
+    nav.add(quick_download_btn)
+
     upload_btn = Button(text="Upload a file (any link)", size_hint_y=None, height=48)
     upload_btn.bind(on_press=lambda i: nav.show_upload_screen())
     nav.add(upload_btn)
@@ -116,4 +120,4 @@ def _on_fetch_playlist(nav, token_input, url_input):
     if token_input is not None:
         token_service.save_token(token_input.text.strip())
     nav.handle_fetch_playlist(url_input.text)
-
+    
