@@ -98,7 +98,7 @@ jobs:
           if [ "$AUDIO_ONLY" = "true" ]; then
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
-              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
+              --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
               -f "bestaudio[acodec^=mp4a]/bestaudio" \
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
@@ -110,7 +110,7 @@ jobs:
 
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
-              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
+              --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
               -f "$FORMAT_SPEC" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
