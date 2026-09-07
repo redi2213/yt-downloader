@@ -144,12 +144,23 @@ jobs:
 
           FILENAME=$(cat filename.txt)
 
+          # Strip 4-byte Unicode (most emoji) from the filename. GitHub's
+          # release-asset "label" field rejects 4-byte Unicode, which makes
+          # softprops/action-gh-release fail to set the label after upload -
+          # that failure was corrupting the final download link even though
+          # the file itself uploaded fine.
+          FILENAME=$(python3 -c "
+import sys
+name = sys.argv[1]
+sys.stdout.write(''.join(ch for ch in name if len(ch.encode('utf-16-le')) <= 2))
+" "$FILENAME")
+
           # Split filename into base + extension without sed (avoids brace/escaping corruption)
           EXT="${FILENAME##*.}"
           BASENAME="${FILENAME%.*}"
           FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
 
-          mv "$FILENAME" "$FINAL_NAME"
+          mv "$(cat filename.txt)" "$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
           echo "=== Final file ==="
