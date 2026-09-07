@@ -326,6 +326,10 @@ class Navigator:
         from screens import upload as upload_screen
         upload_screen.build(self)
 
+    def show_quick_download(self):
+        from screens import quick_download
+        quick_download.build(self)
+
     # -- GitHub sign-in (device flow) ----------------------------------------
     def show_github_signin(self):
         from screens import github_signin
@@ -584,4 +588,4 @@ class Navigator:
         else:
             self.show_result(
                 res.get("error")
-            )
+        )
