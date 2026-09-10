@@ -387,17 +387,27 @@ class Navigator:
             action
         )
 
-    def start_dynamic_action(self, action, user_input):
-        user_input = user_input.strip()
-
-        if not user_input:
-            self.set_status("Enter a link")
-            return
+    def start_dynamic_action(self, action, field_values):
+        # field_values: dict of {field_key: value}. Text fields need
+        # trimming and a non-empty check; choice fields (already a resolved
+        # value, e.g. a format_id string) are left as-is.
+        fields = action.get("fields") or [{"key": "input", "type": "text"}]
+        cleaned = {}
+        for field in fields:
+            key = field["key"]
+            value = field_values.get(key)
+            if field.get("type", "text") == "text":
+                value = (value or "").strip()
+                if not value:
+                    label = field.get("label") or "this field"
+                    self.set_status(f"Enter {label.lower()}" if field.get("label") else "Enter a link")
+                    return
+            cleaned[key] = value
 
         job = generic_action_service.create_action_job(
             self.job_manager,
             action,
-            user_input
+            cleaned
         )
 
         self.show_working(
@@ -589,3 +599,4 @@ class Navigator:
             self.show_result(
                 res.get("error")
         )
+        
