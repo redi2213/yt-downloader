@@ -17,7 +17,13 @@ from core.models.job import Job, JOB_TYPE_DOWNLOAD
 from services.notify_service import notify
 
 
-def create_action_job(job_manager: JobManager, action: dict, user_input: str) -> Job:
+def create_action_job(job_manager: JobManager, action: dict, user_input) -> Job:
+    """user_input is a dict of {field_key: value} for actions using the new
+    multi-"fields" config format, e.g. {"url": "...", "format_id": "bestvideo"}.
+    A plain string is also accepted for backward compatibility with old-style
+    single-input actions and is normalized to {"input": user_input}."""
+    if isinstance(user_input, str):
+        user_input = {"input": user_input}
     job = Job(job_id=uuid.uuid4().hex[:12], type=JOB_TYPE_DOWNLOAD, input=user_input)
     job.extra["action"] = action
     job_manager.start(job)
@@ -38,12 +44,20 @@ def start_action(job_manager: JobManager, action: dict, user_input: str,
     return job
 
 
-def _resolve_inputs(action: dict, user_input: str) -> dict:
-    """Substitutes the {input} placeholder in every workflow_inputs value
-    with what the user actually typed."""
+def _resolve_inputs(action: dict, field_values: dict) -> dict:
+    """Substitutes every {field_key} placeholder in workflow_inputs values
+    with the corresponding value from field_values, e.g. {"url": "..."}
+    resolves "{url}" in a workflow_inputs template. field_values also
+    contains "input" for old-style single-field actions, so "{input}"
+    keeps working unchanged."""
     template = action.get("workflow_inputs", {})
-    return {key: (value.replace("{input}", user_input) if isinstance(value, str) else value)
-            for key, value in template.items()}
+    resolved = {}
+    for key, value in template.items():
+        if isinstance(value, str):
+            for field_key, field_value in field_values.items():
+                value = value.replace(f"{{{field_key}}}", str(field_value))
+        resolved[key] = value
+    return resolved
 
 
 def _action_thread(job_manager, job, on_status, on_complete):
@@ -141,3 +155,4 @@ def _safe_cancel(run_id):
         workflows.cancel_run(run_id)
     except Exception:
         pass
+        
