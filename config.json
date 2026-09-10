@@ -45,6 +45,21 @@
         "format_id": "bv*+ba/best",
         "audio_only": "false"
       }
+    },
+    {
+      "id": "aparat_download",
+      "title": "Download from Aparat",
+      "icon": "aparat",
+      "enabled": true,
+      "input_type": "url",
+      "input_hint": "Enter the Aparat video link",
+      "workflow": "download-anything.yml",
+      "workflow_inputs": {
+        "url": "{input}",
+        "mode": "upload_release",
+        "format_id": "bv*+ba/best",
+        "audio_only": "false"
+      }
     }
   ]
 }
