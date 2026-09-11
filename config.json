@@ -60,6 +60,18 @@
         "format_id": "bv*+ba/best",
         "audio_only": "false"
       }
+    },
+    {
+      "id": "telegram_download",
+      "title": "Download from Telegram",
+      "icon": "telegram",
+      "enabled": true,
+      "input_type": "url",
+      "input_hint": "Enter the Telegram message link",
+      "workflow": "telegram-download.yml",
+      "workflow_inputs": {
+        "telegram_url": "{input}"
+      }
     }
   ]
 }
