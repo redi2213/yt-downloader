@@ -2,6 +2,8 @@
 for the user to visit, then polls in the background until they approve on
 github.com. Once approved, the token is already saved (by auth_service)
 and we just navigate back home."""
+import webbrowser
+
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 
@@ -24,13 +26,16 @@ def build_waiting(nav, user_code, verification_uri):
     """Shown once we have a code - tells the user where to go and what to
     type, while auth_service keeps polling in the background."""
     nav.clear()
-    nav.add(Label(text="Go to:", size_hint_y=None, height=40))
-    nav.add(common.wrapped_label(verification_uri))
-
     nav.add(Label(text="And enter this code:", size_hint_y=None, height=40))
     code_label = Label(text=user_code, size_hint_y=None, height=60,
                         font_size="28sp", bold=True)
     nav.add(code_label)
+
+    open_btn = Button(text="Open GitHub in browser", size_hint_y=None, height=56)
+    open_btn.bind(on_press=lambda i: webbrowser.open(verification_uri))
+    nav.add(open_btn)
+
+    nav.add(common.wrapped_label(verification_uri))
 
     status_label = Label(text="Waiting for approval...", size_hint_y=None, height=40)
     nav.add(status_label)
