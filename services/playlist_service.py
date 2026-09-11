@@ -19,6 +19,45 @@ _YOUTUBE_URL_RE = re.compile(
 )
 
 
+def start_playlist_quick(job_manager: JobManager, playlist_url: str, target_height: int, want_hdr: bool,
+                          audio_only: bool = False, on_status=None, on_complete=None) -> Job:
+    """Combo flow for the "This is a playlist" quick-quality buttons: reads
+    the playlist's video links, then immediately starts downloading every
+    one of them at the given quality - no intermediate "pick a quality for
+    these N videos" screen, since the quality was already chosen up front.
+
+    Returns the JOB_TYPE_PLAYLIST_DOWNLOAD job immediately so the caller can
+    show a working screen against it right away; the link-reading step runs
+    first in the background and the download step is chained after it."""
+    job = create_playlist_download_job(job_manager, urls=[])
+    run_in_background(
+        _playlist_quick_thread, job_manager, job, playlist_url,
+        target_height, want_hdr, audio_only, on_status, on_complete
+    )
+    return job
+
+
+def _playlist_quick_thread(job_manager, job, playlist_url, target_height, want_hdr, audio_only,
+                            on_status, on_complete):
+    try:
+        _emit(on_status, "Reading playlist...")
+        urls = get_playlist_links(playlist_url)
+        if job.cancel_requested:
+            return  # job already marked done by the caller's cancel action
+        if not urls:
+            job_manager.complete(job, ok=False, error="No videos found in playlist")
+            _emit_complete(on_complete, job)
+            return
+        job.extra["urls"] = urls
+        job.extra["total"] = len(urls)
+    except Exception as e:
+        job_manager.complete(job, ok=False, error=f"Error: {str(e)[:60]}")
+        _emit_complete(on_complete, job)
+        return
+
+    _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, audio_only, on_status, on_complete)
+
+
 def create_playlist_links_job(job_manager: JobManager, playlist_url: str) -> Job:
     job = Job(job_id=_new_job_id(), type=JOB_TYPE_PLAYLIST_LINKS, input=playlist_url)
     job_manager.start(job)
@@ -78,41 +117,44 @@ def create_playlist_download_job(job_manager: JobManager, urls) -> Job:
 
 
 def run_playlist_download_job(job_manager: JobManager, job: Job, urls, target_height: int, want_hdr: bool,
-                               on_status=None, on_complete=None) -> None:
+                               audio_only: bool = False, on_status=None, on_complete=None) -> None:
     run_in_background(_playlist_download_thread, job_manager, job, urls, target_height, want_hdr,
-                       on_status, on_complete)
+                       audio_only, on_status, on_complete)
 
 
 def start_playlist_download(job_manager: JobManager, urls, target_height: int, want_hdr: bool,
-                             on_status=None, on_complete=None) -> Job:
+                             audio_only: bool = False, on_status=None, on_complete=None) -> Job:
     """Convenience wrapper combining create+run. Prefer the split
     create/run functions when the caller needs to build UI for the job
     before the background thread can report any status."""
     job = create_playlist_download_job(job_manager, urls)
     run_playlist_download_job(job_manager, job, urls, target_height, want_hdr,
-                               on_status=on_status, on_complete=on_complete)
+                               audio_only=audio_only, on_status=on_status, on_complete=on_complete)
     return job
 
 
-def process_one_video(url: str, target_height: int, want_hdr: bool):
+def process_one_video(url: str, target_height: int, want_hdr: bool, audio_only: bool = False):
     """Runs the full format-pick + download pipeline for a single video.
     Returns (url, link_or_None, error_message_or_None)."""
     try:
-        dispatch_time = workflows.dispatch_workflow("list-formats.yml", {"video_url": url})
-        run_id = workflows.get_run_id_after("list-formats.yml", dispatch_time)
-        if run_id is None:
-            return url, None, "could not detect list-formats run"
-        if workflows.wait_for_run(run_id) != "success":
-            return url, None, "list-formats run failed"
-        log_text = gh_logs.get_run_log_text(run_id)
-        formats = gh_logs.parse_formats(log_text)
-        picked = pick_format(formats, target_height, want_hdr)
-        if not picked:
-            return url, None, "no matching format"
-        fmt_id, _label = picked
+        if audio_only:
+            fmt_id = "bestaudio"
+        else:
+            dispatch_time = workflows.dispatch_workflow("list-formats.yml", {"video_url": url})
+            run_id = workflows.get_run_id_after("list-formats.yml", dispatch_time)
+            if run_id is None:
+                return url, None, "could not detect list-formats run"
+            if workflows.wait_for_run(run_id) != "success":
+                return url, None, "list-formats run failed"
+            log_text = gh_logs.get_run_log_text(run_id)
+            formats = gh_logs.parse_formats(log_text)
+            picked = pick_format(formats, target_height, want_hdr)
+            if not picked:
+                return url, None, "no matching format"
+            fmt_id, _label = picked
 
         dl_dispatch_time = workflows.dispatch_workflow(
-            "download.yml", {"video_url": url, "format_id": fmt_id, "audio_only": "false"}
+            "download.yml", {"video_url": url, "format_id": fmt_id, "audio_only": "true" if audio_only else "false"}
         )
         dl_run_id = workflows.get_run_id_after("download.yml", dl_dispatch_time)
         if dl_run_id is None:
@@ -130,7 +172,7 @@ def process_one_video(url: str, target_height: int, want_hdr: bool):
         return url, None, str(e)[:80]
 
 
-def _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, on_status, on_complete):
+def _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, audio_only, on_status, on_complete):
     results = []
     errors = []
     total = len(urls)
@@ -148,7 +190,7 @@ def _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, o
     # each video's work is a separate GitHub Actions run anyway.
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOBS) as pool:
         futures = {
-            pool.submit(process_one_video, url, target_height, want_hdr): url
+            pool.submit(process_one_video, url, target_height, want_hdr, audio_only): url
             for url in urls
         }
         for future in as_completed(futures):
