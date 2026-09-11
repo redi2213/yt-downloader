@@ -12,7 +12,6 @@ Two independent link boxes:
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
-from kivy.uix.togglebutton import ToggleButton
 
 from screens.common import back_button
 
@@ -49,15 +48,8 @@ def build(nav):
     )
     nav.add(single_url_input)
 
-    audio_toggle = ToggleButton(
-        text=f"Audio only (MP3): {'ON' if nav.audio_only else 'OFF'}",
-        size_hint_y=None, height=48,
-    )
-    audio_toggle.bind(on_press=lambda i: _toggle_audio(nav, audio_toggle))
-    nav.add(audio_toggle)
-
     fetch_btn = Button(text="Get qualities (single video)", size_hint_y=None, height=56)
-    fetch_btn.bind(on_press=lambda i: nav.handle_fetch_single(single_url_input.text, nav.audio_only))
+    fetch_btn.bind(on_press=lambda i: nav.handle_fetch_single(single_url_input.text, False))
     nav.add(fetch_btn)
 
     nav.add(Label(text="Quick Download", size_hint_y=None, height=32))
@@ -92,11 +84,6 @@ def build(nav):
     status_label = Label(text="", size_hint_y=None, height=40)
     nav.add(status_label)
     nav.set_status_label(status_label)
-
-
-def _toggle_audio(nav, instance):
-    nav.audio_only = not nav.audio_only
-    instance.text = f"Audio only (MP3): {'ON' if nav.audio_only else 'OFF'}"
 
 
 def _start_quick_single(nav, url_input, format_id):
