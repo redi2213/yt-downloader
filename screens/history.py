@@ -14,7 +14,7 @@ def build_loading(nav):
 
 def build(nav, items):
     nav.clear()
-    nav.add(Label(text=f"Download history ({len(items)} found)", size_hint_y=None, height=40))
+    nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=40))
     if not items:
         nav.add(Label(text="No downloads yet", size_hint_y=None, height=40))
     else:

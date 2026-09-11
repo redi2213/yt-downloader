@@ -44,6 +44,10 @@ def build(nav, actions):
     nav.clear()
     nav.add(Label(text="Download Anything", size_hint_y=None, height=48))
 
+    upload_btn = Button(text="Upload a file (any link)", size_hint_y=None, height=48)
+    upload_btn.bind(on_press=lambda i: nav.show_upload_screen())
+    nav.add(upload_btn)
+
     if not actions:
         nav.add(Label(text="No actions available right now.", size_hint_y=None, height=48))
     else:

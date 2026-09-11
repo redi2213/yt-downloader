@@ -72,6 +72,10 @@ class Navigator:
         from screens import about
         about.build(self)
 
+    def show_settings(self):
+        from screens import settings
+        settings.build(self)
+
     # -- job lifecycle -------------------------------------------------------
     def cancel_job(self, job):
         job_service.cancel(self.job_manager, job)
@@ -320,6 +324,31 @@ class Navigator:
             self,
             url,
             formats
+        )
+
+    def show_youtube_download(self):
+        from screens import youtube_download
+        youtube_download.build(self)
+
+    def start_playlist_from_link(self, playlist_url, target_height, want_hdr, audio_only):
+        """Used by the "This is a playlist" quick-quality buttons: reads the
+        playlist and starts downloading every video at the chosen quality
+        in one step, with no intermediate quality-picker screen."""
+        on_status, on_complete = self._status_and_complete_callbacks()
+
+        job = playlist_service.start_playlist_quick(
+            self.job_manager,
+            playlist_url,
+            target_height,
+            want_hdr,
+            audio_only=audio_only,
+            on_status=on_status,
+            on_complete=on_complete
+        )
+
+        self.show_working(
+            "Reading playlist...",
+            job=job
         )
 
     def show_upload_screen(self):

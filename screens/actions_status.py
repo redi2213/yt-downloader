@@ -4,8 +4,27 @@ from kivy.uix.label import Label
 from screens.common import content_width, wrapped_label_height
 
 
+def _add_job_status_section(nav):
+    """The 'current job' and 'recent jobs' shortcuts that used to live on
+    the home screen - shown here since this screen is now the general
+    "what's happening with my work" hub."""
+    current_job = nav.job_manager.current_job
+    if current_job is not None:
+        label_text = "Check on last job" if not current_job.is_done else "View last result"
+        check_btn = Button(text=label_text, size_hint_y=None, height=48)
+        check_btn.bind(on_press=lambda i: nav.resume_job_screen())
+        nav.add(check_btn)
+
+    history_count = len(nav.job_manager.history)
+    if history_count:
+        recent_btn = Button(text=f"Recent jobs ({history_count})", size_hint_y=None, height=48)
+        recent_btn.bind(on_press=lambda i: nav.show_job_history())
+        nav.add(recent_btn)
+
+
 def build_loading(nav):
     nav.clear()
+    _add_job_status_section(nav)
     nav.add(Label(text="Recent GitHub Actions runs", size_hint_y=None, height=40))
     nav.add(Label(text="Loading...", size_hint_y=None, height=40))
     back_btn = Button(text="Back", size_hint_y=None, height=48)
@@ -15,6 +34,7 @@ def build_loading(nav):
 
 def build(nav, runs):
     nav.clear()
+    _add_job_status_section(nav)
     nav.add(Label(text="Recent GitHub Actions runs", size_hint_y=None, height=40))
     if not runs:
         nav.add(Label(text="No runs found", size_hint_y=None, height=40))
