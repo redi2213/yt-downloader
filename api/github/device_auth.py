@@ -9,12 +9,22 @@ Flow:
   1. request_device_code() -> device_code, user_code, verification_uri
   2. Show user_code + verification_uri to the user
   3. poll_for_token(device_code) -> access_token once the user has approved
+
+SSL note: Android builds (python-for-android) don't expose the OS's CA
+certificate store the way desktop Python does, so urllib's default SSL
+context can't verify github.com's certificate and raises
+CERTIFICATE_VERIFY_FAILED. We build an explicit SSL context using
+certifi's bundled CA file (already a buildozer.spec requirement) instead
+of relying on the platform default - same fix as api/github/remote_config.py.
 """
 import json
+import ssl
 import time
 import urllib.request
 import urllib.parse
 import urllib.error
+
+import certifi
 
 CLIENT_ID = "Iv23liUqs3TdHaUcIYEz"
 
@@ -22,6 +32,10 @@ DEVICE_CODE_URL = "https://github.com/login/device/code"
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 
 _TIMEOUT_SECONDS = 10
+
+# Built once at import time - cheap, and avoids rebuilding the SSLContext
+# on every request/poll.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 
 
 def request_device_code() -> dict:
@@ -35,7 +49,7 @@ def request_device_code() -> dict:
         DEVICE_CODE_URL, data=data,
         headers={"Accept": "application/json", "User-Agent": "YTBridge-App"},
     )
-    with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS, context=_SSL_CONTEXT) as response:
         return json.loads(response.read())
 
 
@@ -71,7 +85,7 @@ def poll_once(device_code: str) -> str:
         TOKEN_URL, data=data,
         headers={"Accept": "application/json", "User-Agent": "YTBridge-App"},
     )
-    with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS, context=_SSL_CONTEXT) as response:
         result = json.loads(response.read())
 
     if "access_token" in result:
