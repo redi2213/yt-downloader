@@ -5,7 +5,7 @@ so it can be imported from core, api, services, or screens without risk of
 circular imports.
 """
 
-APP_VERSION = "1.3"
+APP_VERSION = "2"
 
 # --- GitHub backend -----------------------------------------------------
 REPO_OWNER = "redi2213"
