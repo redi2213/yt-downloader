@@ -51,15 +51,32 @@ jobs:
       - name: Find downloaded file
         id: find_file
         run: |
-          FILE=$(find "$HOME/tg-download" -type f | head -n 1)
+          RAW_FILE=$(find "$HOME/tg-download" -type f | head -n 1)
 
-          if [ -z "$FILE" ]; then
+          if [ -z "$RAW_FILE" ]; then
             echo "No downloaded file found."
             exit 1
           fi
 
-          echo "FILE=$FILE" >> "$GITHUB_OUTPUT"
-          echo "Found: $FILE"
+          echo "Found: $RAW_FILE"
+
+          DIR=$(dirname "$RAW_FILE")
+          BASENAME=$(basename "$RAW_FILE")
+
+          # tdl names files like "2758336301_170_asbab.zahmat-E12-360p.mp4"
+          # (telegram numeric message/file id prefix). Strip a leading
+          # "<digits>_<digits>_" or "<digits>_" prefix, keep the rest as-is.
+          CLEAN_NAME=$(echo "$BASENAME" | sed -E 's/^[0-9]+(_[0-9]+)?_//')
+
+          if [ -z "$CLEAN_NAME" ]; then
+            CLEAN_NAME="$BASENAME"
+          fi
+
+          CLEAN_PATH="$DIR/$CLEAN_NAME"
+          mv "$RAW_FILE" "$CLEAN_PATH"
+
+          echo "Renamed to: $CLEAN_PATH"
+          echo "FILE=$CLEAN_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         env:
