@@ -69,6 +69,24 @@ jobs:
 
           echo "PornHub cookies loaded."
 
+      - name: Test PornHub access
+        if: contains(inputs.url, 'pornhub.com')
+        env:
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Testing PornHub access"
+          echo "======================================"
+
+          yt-dlp \
+            --impersonate chrome \
+            --cookies cookies.txt \
+            --verbose \
+            --no-warnings \
+            "$INPUT_URL"
+
       - name: Get direct links
         env:
           INPUT_URL: ${{ inputs.url }}
@@ -138,6 +156,32 @@ jobs:
           chmod 600 cookies.txt
 
           echo "PornHub cookies loaded."
+
+      # ==========================================
+      # PORNHUB DEBUG TEST
+      # ==========================================
+
+      - name: Test PornHub access
+        if: contains(inputs.url, 'pornhub.com')
+        env:
+          INPUT_URL: ${{ inputs.url }}
+        run: |
+          set -e
+
+          echo "======================================"
+          echo "Testing PornHub access"
+          echo "======================================"
+
+          yt-dlp \
+            --impersonate chrome \
+            --cookies cookies.txt \
+            --verbose \
+            --no-warnings \
+            "$INPUT_URL"
+
+      # ==========================================
+      # DOWNLOAD
+      # ==========================================
 
       - name: Download video
         id: dl
@@ -259,6 +303,7 @@ jobs:
           echo "$RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
+
           echo "### 📁 File" >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.dl.outputs.filename }}" >> "$GITHUB_STEP_SUMMARY"
 
