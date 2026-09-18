@@ -37,10 +37,6 @@ permissions:
 
 jobs:
 
-  # ==========================================
-  # DIRECT LINK
-  # ==========================================
-
   resolve:
     if: inputs.mode == 'direct_link'
     runs-on: ubuntu-latest
@@ -69,7 +65,7 @@ jobs:
 
           echo "PornHub cookies loaded."
 
-      - name: Test PornHub access
+      - name: Inspect PornHub response
         if: contains(inputs.url, 'pornhub.com')
         env:
           INPUT_URL: ${{ inputs.url }}
@@ -77,15 +73,24 @@ jobs:
           set -e
 
           echo "======================================"
-          echo "Testing PornHub access"
+          echo "PornHub HTTP test"
           echo "======================================"
 
-          yt-dlp \
-            --impersonate chrome \
-            --cookies cookies.txt \
-            --verbose \
-            --no-warnings \
+          curl \
+            -L \
+            -sS \
+            -o /tmp/ph_page.html \
+            -w "HTTP=%{http_code}\nFINAL_URL=%{url_effective}\nREDIRECTS=%{num_redirects}\n" \
+            -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36" \
             "$INPUT_URL"
+
+          echo ""
+          echo "Page size:"
+          wc -c /tmp/ph_page.html
+
+          echo ""
+          echo "First 500 characters:"
+          head -c 500 /tmp/ph_page.html || true
 
       - name: Get direct links
         env:
@@ -101,8 +106,8 @@ jobs:
           if echo "$INPUT_URL" | grep -qi "pornhub.com"; then
 
             yt-dlp \
-              --impersonate chrome \
               --cookies cookies.txt \
+              --impersonate chrome \
               -f "best[height<=$QUALITY]" \
               -g \
               --no-warnings \
@@ -121,10 +126,6 @@ jobs:
 
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-
-  # ==========================================
-  # DOWNLOAD + GITHUB RELEASE
-  # ==========================================
 
   upload:
     if: inputs.mode == 'upload_release'
@@ -157,11 +158,7 @@ jobs:
 
           echo "PornHub cookies loaded."
 
-      # ==========================================
-      # PORNHUB DEBUG TEST
-      # ==========================================
-
-      - name: Test PornHub access
+      - name: Inspect PornHub response
         if: contains(inputs.url, 'pornhub.com')
         env:
           INPUT_URL: ${{ inputs.url }}
@@ -169,19 +166,24 @@ jobs:
           set -e
 
           echo "======================================"
-          echo "Testing PornHub access"
+          echo "PornHub HTTP test"
           echo "======================================"
 
-          yt-dlp \
-            --impersonate chrome \
-            --cookies cookies.txt \
-            --verbose \
-            --no-warnings \
+          curl \
+            -L \
+            -sS \
+            -o /tmp/ph_page.html \
+            -w "HTTP=%{http_code}\nFINAL_URL=%{url_effective}\nREDIRECTS=%{num_redirects}\n" \
+            -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36" \
             "$INPUT_URL"
 
-      # ==========================================
-      # DOWNLOAD
-      # ==========================================
+          echo ""
+          echo "Page size:"
+          wc -c /tmp/ph_page.html
+
+          echo ""
+          echo "First 500 characters:"
+          head -c 500 /tmp/ph_page.html || true
 
       - name: Download video
         id: dl
@@ -197,8 +199,6 @@ jobs:
           if echo "$INPUT_URL" | grep -qi "pornhub.com"; then
             COOKIE_ARGS="--cookies cookies.txt"
             echo "PornHub mode: cookies enabled"
-          else
-            echo "Normal mode: no cookies"
           fi
 
           if [ "$AUDIO_ONLY" = "true" ]; then
@@ -252,10 +252,6 @@ jobs:
           echo "======================================"
 
 
-      # ==========================================
-      # ARTIFACT
-      # ==========================================
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -263,10 +259,6 @@ jobs:
           path: ${{ steps.dl.outputs.filename }}
           retention-days: 2
 
-
-      # ==========================================
-      # GITHUB RELEASE
-      # ==========================================
 
       - name: Create GitHub Release
         id: release
@@ -288,22 +280,15 @@ jobs:
             ${{ inputs.audio_only }}
 
 
-      # ==========================================
-      # FINAL LINK
-      # ==========================================
-
       - name: Show final download link
         env:
           RELEASE_URL: ${{ steps.release.outputs.url }}
         run: |
           echo "## ✅ Download completed" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-
           echo "### 🔗 GitHub Release" >> "$GITHUB_STEP_SUMMARY"
           echo "$RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
-
           echo "" >> "$GITHUB_STEP_SUMMARY"
-
           echo "### 📁 File" >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.dl.outputs.filename }}" >> "$GITHUB_STEP_SUMMARY"
 
