@@ -37,6 +37,10 @@ permissions:
 
 jobs:
 
+  # ==========================================
+  # DIRECT LINK
+  # ==========================================
+
   resolve:
     if: inputs.mode == 'direct_link'
     runs-on: ubuntu-latest
@@ -49,51 +53,60 @@ jobs:
           python -m pip install "curl_cffi>=0.10"
 
       - name: Prepare PornHub cookies
+        if: contains(inputs.url, 'pornhub.com')
         env:
           PH_COOKIES: ${{ secrets.PH_COOKIES }}
         run: |
-          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
-            if [ -z "$PH_COOKIES" ]; then
-              echo "PH_COOKIES secret is missing"
-              exit 1
-            fi
+          set -e
 
-            printf '%s' "$PH_COOKIES" > cookies.txt
-            chmod 600 cookies.txt
-
-            echo "PornHub cookies loaded."
-          else
-            echo "Non-PornHub URL. Cookies not needed."
+          if [ -z "$PH_COOKIES" ]; then
+            echo "PH_COOKIES secret is empty."
+            exit 1
           fi
 
+          printf '%s\n' "$PH_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
+
+          echo "PornHub cookies loaded."
+
       - name: Get direct links
+        env:
+          INPUT_URL: ${{ inputs.url }}
+          QUALITY: ${{ inputs.quality }}
         run: |
+          set -e
+
           echo "## Direct Links" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
+          if echo "$INPUT_URL" | grep -qi "pornhub.com"; then
 
             yt-dlp \
               --impersonate chrome \
               --cookies cookies.txt \
-              -f "best[height<=${{ inputs.quality }}]" \
+              -f "best[height<=$QUALITY]" \
               -g \
               --no-warnings \
-              "${{ inputs.url }}" | tee -a "$GITHUB_STEP_SUMMARY"
+              "$INPUT_URL" | tee -a "$GITHUB_STEP_SUMMARY"
 
           else
 
             yt-dlp \
               --impersonate chrome \
-              -f "best[height<=${{ inputs.quality }}]" \
+              -f "best[height<=$QUALITY]" \
               -g \
               --no-warnings \
-              "${{ inputs.url }}" | tee -a "$GITHUB_STEP_SUMMARY"
+              "$INPUT_URL" | tee -a "$GITHUB_STEP_SUMMARY"
 
           fi
 
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+
+  # ==========================================
+  # DOWNLOAD + GITHUB RELEASE
+  # ==========================================
 
   upload:
     if: inputs.mode == 'upload_release'
@@ -110,67 +123,94 @@ jobs:
           python -m pip install "curl_cffi>=0.10"
 
       - name: Prepare PornHub cookies
+        if: contains(inputs.url, 'pornhub.com')
         env:
           PH_COOKIES: ${{ secrets.PH_COOKIES }}
         run: |
-          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
-            if [ -z "$PH_COOKIES" ]; then
-              echo "PH_COOKIES secret is missing"
-              exit 1
-            fi
+          set -e
 
-            printf '%s' "$PH_COOKIES" > cookies.txt
-            chmod 600 cookies.txt
-
-            echo "PornHub cookies loaded."
-          else
-            echo "Non-PornHub URL. Cookies not needed."
+          if [ -z "$PH_COOKIES" ]; then
+            echo "PH_COOKIES secret is empty."
+            exit 1
           fi
+
+          printf '%s\n' "$PH_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
+
+          echo "PornHub cookies loaded."
 
       - name: Download video
         id: dl
+        env:
+          INPUT_URL: ${{ inputs.url }}
+          QUALITY: ${{ inputs.quality }}
+          AUDIO_ONLY: ${{ inputs.audio_only }}
         run: |
           set -e
 
-          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
-            COOKIE_ARG="--cookies cookies.txt"
+          COOKIE_ARGS=""
+
+          if echo "$INPUT_URL" | grep -qi "pornhub.com"; then
+            COOKIE_ARGS="--cookies cookies.txt"
+            echo "PornHub mode: cookies enabled"
           else
-            COOKIE_ARG=""
+            echo "Normal mode: no cookies"
           fi
 
-          if [ "${{ inputs.audio_only }}" = "true" ]; then
+          if [ "$AUDIO_ONLY" = "true" ]; then
 
             yt-dlp \
               --impersonate chrome \
-              $COOKIE_ARG \
+              $COOKIE_ARGS \
               -f "bestaudio/best" \
               -x \
               --audio-format mp3 \
               --no-warnings \
+              --restrict-filenames \
               -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
-              "${{ inputs.url }}"
+              "$INPUT_URL"
 
           else
 
             yt-dlp \
               --impersonate chrome \
-              $COOKIE_ARG \
-              -f "best[height<=${{ inputs.quality }}]" \
+              $COOKIE_ARGS \
+              -f "best[height<=$QUALITY]" \
               --merge-output-format mp4 \
               --no-warnings \
+              --restrict-filenames \
               -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
-              "${{ inputs.url }}"
+              "$INPUT_URL"
 
           fi
 
           FILENAME=$(cat filename.txt)
 
+          if [ -z "$FILENAME" ]; then
+            echo "Could not determine downloaded filename."
+            exit 1
+          fi
+
+          if [ ! -f "$FILENAME" ]; then
+            echo "Downloaded file not found:"
+            echo "$FILENAME"
+            exit 1
+          fi
+
           echo "filename=$FILENAME" >> "$GITHUB_OUTPUT"
 
+          echo ""
+          echo "======================================"
           echo "Downloaded successfully:"
           echo "$FILENAME"
+          echo "======================================"
+
+
+      # ==========================================
+      # ARTIFACT
+      # ==========================================
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -179,7 +219,13 @@ jobs:
           path: ${{ steps.dl.outputs.filename }}
           retention-days: 2
 
-      - name: Create Release
+
+      # ==========================================
+      # GITHUB RELEASE
+      # ==========================================
+
+      - name: Create GitHub Release
+        id: release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: download-${{ github.run_id }}
@@ -196,3 +242,28 @@ jobs:
 
             Audio only:
             ${{ inputs.audio_only }}
+
+
+      # ==========================================
+      # FINAL LINK
+      # ==========================================
+
+      - name: Show final download link
+        env:
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+        run: |
+          echo "## ✅ Download completed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "### 🔗 GitHub Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "$RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 📁 File" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.dl.outputs.filename }}" >> "$GITHUB_STEP_SUMMARY"
+
+          echo ""
+          echo "======================================"
+          echo "FINAL RELEASE LINK:"
+          echo "$RELEASE_URL"
+          echo "======================================"
