@@ -4,27 +4,28 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'Any link yt-dlp supports'
+        description: 'لینک ویدیو (هر سایتی که yt-dlp ساپورت کنه)'
         required: true
       mode:
-        description: 'direct_link or upload_release'
+        description: 'direct_link = فقط لینک مستقیم | upload_release = دانلود و آپلود'
         required: true
-        default: 'upload_release'
+        default: 'direct_link'
         type: choice
         options:
           - direct_link
           - upload_release
-      format_id:
-        description: '(upload_release only) format id, or leave default for best'
+      quality:
+        description: 'حداکثر کیفیت (مثلاً 720 یا 1080)'
         required: false
-        default: 'bv*+ba/best'
+        default: '720'
       audio_only:
-        description: '(upload_release only) true for audio-only MP3'
+        description: 'فقط صوت (MP3)'
         required: false
         default: 'false'
+        type: boolean
 
 env:
-  YTDLP_VERSION: '2026.07.04'
+  YTDLP_VERSION: '2026.08.19'
 
 permissions:
   contents: write
@@ -34,94 +35,72 @@ jobs:
     if: github.event.inputs.mode == 'direct_link'
     runs-on: ubuntu-latest
     steps:
-      - name: Install yt-dlp + curl_cffi
+      - name: Install yt-dlp
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install "yt-dlp[default,curl-cffi]==${{ env.YTDLP_VERSION }}"
+          pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
+          pip install "curl_cffi>=0.10"
 
-      - name: Write cookies file
-        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
-
-      - name: Resolve direct link(s)
+      - name: Get direct links
         run: |
+          echo "## Direct Links" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          yt-dlp --cookies cookies.txt \
-            --impersonate chrome \
-            -f "bv*+ba/best" -g \
+          
+          yt-dlp -f "best[height<=${{ github.event.inputs.quality }}]" \
+            -g --no-warnings \
             "${{ github.event.inputs.url }}" | tee -a $GITHUB_STEP_SUMMARY
+          
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Clean up cookies
-        if: always()
-        run: rm -f cookies.txt
 
   upload:
     if: github.event.inputs.mode == 'upload_release'
     runs-on: ubuntu-latest
     steps:
-      - name: Install ffmpeg + aria2
+      - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg aria2
+          sudo apt-get install -y ffmpeg aria2
+          pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
+          pip install "curl_cffi>=0.10"
 
-      - name: Install yt-dlp + curl_cffi
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install "yt-dlp[default,curl-cffi]==${{ env.YTDLP_VERSION }}"
-
-      - name: Write cookies file
-        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
-
-      - name: Download
+      - name: Download video
         id: dl
-        shell: bash
         run: |
-          set -euo pipefail
-          OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS=(--downloader aria2c --downloader-args "aria2c:-x 16 -s 16 -k 4M --file-allocation=none" -N 8 --retries 10 --fragment-retries 10 --socket-timeout 30)
-
+          set -e
+          
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
-            yt-dlp --cookies cookies.txt \
-              --impersonate chrome \
-              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "bestaudio/best" \
+            yt-dlp -f "bestaudio/best" \
               -x --audio-format mp3 \
-              -o "$OUTTMPL" \
+              --no-warnings \
+              -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
               "${{ github.event.inputs.url }}"
           else
-            yt-dlp --cookies cookies.txt \
-              --impersonate chrome \
-              --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "${{ github.event.inputs.format_id }}" \
-              --merge-output-format mkv \
-              -o "$OUTTMPL" \
+            yt-dlp -f "best[height<=${{ github.event.inputs.quality }}]" \
+              --merge-output-format mp4 \
+              --no-warnings \
+              -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
               "${{ github.event.inputs.url }}"
           fi
-
-          if [ ! -s filename.txt ]; then
-            echo "::error::yt-dlp did not produce an output file (filename.txt is empty/missing)."
-            exit 1
-          fi
+          
           FILENAME=$(cat filename.txt)
           echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          echo "Downloaded: $FILENAME"
 
-      - name: Clean up cookies
-        if: always()
-        run: rm -f cookies.txt filename.txt
-
-      - name: Upload artifact
+      - name: Upload as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: downloaded-file
           path: ${{ steps.dl.outputs.filename }}
-          retention-days: 1
+          retention-days: 2
 
-      - name: Create Release with direct link
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: run-${{ github.run_id }}
+          tag_name: download-${{ github.run_id }}
           files: ${{ steps.dl.outputs.filename }}
           prerelease: true
-          name: "Download run-${{ github.run_id }}"
+          name: "Download ${{ github.run_id }}"
+          body: |
+            دانلود شده از:
+            `${{ github.event.inputs.url }}`
