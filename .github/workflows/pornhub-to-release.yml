@@ -23,82 +23,118 @@ jobs:
 
     steps:
 
+      # ==========================================
+      # Install
+      # ==========================================
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg python3 python3-requests
+          sudo apt-get install -y ffmpeg curl python3
 
-      - name: Download Pornhub video
+          echo "FFmpeg:"
+          ffmpeg -version | head -1
+
+          echo "Curl:"
+          curl --version | head -1
+
+      # ==========================================
+      # Fetch Pornhub page
+      # ==========================================
+
+      - name: Fetch Pornhub page
         env:
           INPUT_URL: ${{ inputs.link }}
+        run: |
+          set -e
+
+          UA="Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+
+          echo "Fetching:"
+          echo "$INPUT_URL"
+          echo
+
+          curl \
+            --location \
+            --max-time 30 \
+            --retry 2 \
+            --retry-delay 2 \
+            --compressed \
+            --user-agent "$UA" \
+            --referer "https://www.pornhub.com/" \
+            --header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+            --header "Accept-Language: en-US,en;q=0.9" \
+            --header "Sec-Fetch-Dest: document" \
+            --header "Sec-Fetch-Mode: navigate" \
+            --header "Sec-Fetch-Site: same-origin" \
+            --header "Sec-Fetch-User: ?1" \
+            --dump-header /tmp/headers.txt \
+            --output /tmp/pornhub.html \
+            "$INPUT_URL"
+
+          echo
+          echo "===== RESPONSE ====="
+
+          wc -c /tmp/pornhub.html
+
+          echo
+          echo "===== HEADERS ====="
+
+          cat /tmp/headers.txt
+
+          echo
+          echo "===== TITLE ====="
+
+          grep -oi '<title[^>]*>[^<]*' /tmp/pornhub.html | head -1 || true
+
+          echo
+          echo "===== URL CHECK ====="
+
+          if grep -qi "master.m3u8" /tmp/pornhub.html; then
+            echo "HLS master playlist found."
+          else
+            echo "WARNING: master.m3u8 not found."
+          fi
+
+      # ==========================================
+      # Extract stream
+      # ==========================================
+
+      - name: Extract video stream
+        env:
           QUALITY: ${{ inputs.quality }}
         run: |
           set -e
 
           python3 <<'PY'
+
           import os
           import re
           import html
-          import subprocess
           import sys
           from urllib.parse import unquote
-          import requests
 
-          url = os.environ["INPUT_URL"]
-          wanted = os.environ.get("QUALITY", "best").lower().strip()
+          page_file = "/tmp/pornhub.html"
 
-          # Accept 240 as 240p
+          with open(
+              page_file,
+              "r",
+              encoding="utf-8",
+              errors="ignore"
+          ) as f:
+              page = f.read()
+
+          wanted = os.environ.get(
+              "QUALITY",
+              "best"
+          ).lower().strip()
+
           if wanted.isdigit():
               wanted += "p"
 
-          UA = (
-              "Mozilla/5.0 (Linux; Android 13) "
-              "AppleWebKit/537.36 "
-              "(KHTML, like Gecko) "
-              "Chrome/140.0.0.0 "
-              "Mobile Safari/537.36"
-          )
-
-          REFERER = "https://www.pornhub.com/"
-
-          headers = {
-              "User-Agent": UA,
-              "Referer": REFERER,
-              "Accept": (
-                  "text/html,application/xhtml+xml,"
-                  "application/xml;q=0.9,image/avif,"
-                  "image/webp,*/*;q=0.8"
-              ),
-              "Accept-Language": "en-US,en;q=0.9",
-              "Connection": "keep-alive",
-          }
-
-          print("Fetching Pornhub page...")
-
-          session = requests.Session()
-
-          response = session.get(
-              url,
-              headers=headers,
-              timeout=30,
-              allow_redirects=True
-          )
-
-          print("HTTP:", response.status_code)
-          print("Final URL:", response.url)
-          print("Page size:", len(response.text))
-
-          response.raise_for_status()
-
-          page = response.text
-
-          # Save page for debugging if extraction fails
-          with open("/tmp/pornhub_page.html", "w", encoding="utf-8") as f:
-              f.write(page)
-
-          # -------------------------
+          # ======================================
           # Title
-          # -------------------------
+          # ======================================
 
           title_match = re.search(
               r"<title[^>]*>(.*?)</title>",
@@ -107,12 +143,18 @@ jobs:
           )
 
           title = (
-              html.unescape(title_match.group(1)).strip()
+              html.unescape(
+                  title_match.group(1)
+              ).strip()
               if title_match
               else "Pornhub Video"
           )
 
-          title = re.sub(r"\s+", " ", title)
+          title = re.sub(
+              r"\s+",
+              " ",
+              title
+          )
 
           title = re.sub(
               r"\s*-\s*Pornhub\.com\s*$",
@@ -121,129 +163,205 @@ jobs:
               flags=re.I
           )
 
-          print("")
-          print("Title:", title)
+          print("Title:")
+          print(title)
 
-          # -------------------------
-          # Decode escaped HTML/JSON
-          # -------------------------
+          # ======================================
+          # Decode escaped JSON
+          # ======================================
 
           decoded = page
 
-          decoded = decoded.replace("\\/", "/")
-          decoded = decoded.replace("\\u002F", "/")
-          decoded = decoded.replace("\\u002f", "/")
-          decoded = decoded.replace("\\u0026", "&")
-          decoded = html.unescape(decoded)
+          for _ in range(2):
 
-          # -------------------------
-          # Find HLS master URLs
-          # -------------------------
+              decoded = decoded.replace(
+                  "\\/",
+                  "/"
+              )
+
+              decoded = decoded.replace(
+                  "\\u002F",
+                  "/"
+              )
+
+              decoded = decoded.replace(
+                  "\\u002f",
+                  "/"
+              )
+
+              decoded = decoded.replace(
+                  "\\u0026",
+                  "&"
+              )
+
+              decoded = html.unescape(
+                  decoded
+              )
+
+          # ======================================
+          # Extract master.m3u8 URLs
+          # ======================================
 
           patterns = [
 
-              r'https?://[^"\']+?master\.m3u8[^"\']*',
+              r'"videoUrl"\s*:\s*"([^"]*master\.m3u8[^"]*)"',
 
-              r'https?:\\/\\/[^"\']+?master\.m3u8[^"\']*',
 
-              r'"videoUrl"\s*:\s*"([^"]+master\.m3u8[^"]*)"',
+              r'https?://[^"\s<>]+master\.m3u8[^"\s<>]*',
+
+
+              r'https?:\\/\\/[^"\s<>]+master\.m3u8[^"\s<>]*',
+
           ]
 
           found = []
 
           for pattern in patterns:
-              for match in re.findall(
+
+              matches = re.findall(
                   pattern,
                   decoded,
                   re.I
-              ):
+              )
 
-                  if isinstance(match, tuple):
-                      match = match[0]
+              for item in matches:
 
-                  match = match.replace("\\/", "/")
-                  match = match.replace("\\u0026", "&")
-                  match = html.unescape(match)
+                  if isinstance(item, tuple):
+                      item = item[0]
 
-                  if "master.m3u8" in match:
-                      found.append(match)
+                  item = item.replace(
+                      "\\/",
+                      "/"
+                  )
+
+                  item = item.replace(
+                      "\\u0026",
+                      "&"
+                  )
+
+                  item = html.unescape(
+                      item
+                  )
+
+                  item = unquote(
+                      item
+                  )
+
+                  if (
+                      "master.m3u8"
+                      in item
+                  ):
+                      found.append(item)
 
           # Remove duplicates
-          found = list(dict.fromkeys(found))
+
+          found = list(
+              dict.fromkeys(found)
+          )
+
+          # ======================================
+          # Detect qualities
+          # ======================================
 
           qualities = {}
 
           for item in found:
 
-              qm = re.search(
+              match = re.search(
                   r"/(\d{3,4})P[_/]",
                   item,
                   re.I
               )
 
-              if not qm:
-                  qm = re.search(
+              if not match:
+
+                  match = re.search(
                       r"(\d{3,4})P",
                       item,
                       re.I
                   )
 
-              if qm:
-                  q = qm.group(1) + "p"
-                  qualities[q] = item
+              if match:
 
-          # -------------------------
-          # Debug if extraction fails
-          # -------------------------
+                  quality = (
+                      match.group(1)
+                      + "p"
+                  )
+
+                  qualities[quality] = item
+
+          # ======================================
+          # Failure diagnostics
+          # ======================================
 
           if not qualities:
 
               print("")
-              print("ERROR: No HLS streams found.")
+              print(
+                  "ERROR: No HLS streams found."
+              )
 
-              # Look for evidence that page contains HLS
+              print("")
+              print("Diagnostics:")
+
               for keyword in [
                   "master.m3u8",
                   "videoUrl",
                   "hls",
                   "1080P",
-                  "720P"
+                  "720P",
+                  "480P",
+                  "240P",
               ]:
+
                   print(
                       f"{keyword}:",
-                      keyword.lower() in decoded.lower()
+                      keyword.lower()
+                      in decoded.lower()
                   )
 
               print("")
-              print("First 500 characters:")
-              print(decoded[:500])
+              print(
+                  "Page size:",
+                  len(page)
+              )
+
+              print("")
+              print(
+                  "This usually means Pornhub "
+                  "redirected the Runner or "
+                  "returned a different page."
+              )
 
               sys.exit(1)
 
-          # -------------------------
-          # Available qualities
-          # -------------------------
+          # ======================================
+          # Show qualities
+          # ======================================
 
           print("")
-          print("Available qualities:")
+          print(
+              "Available qualities:"
+          )
 
-          for q in sorted(
+          ordered = sorted(
               qualities,
-              key=lambda x: int(x[:-1]),
+              key=lambda x: int(
+                  x[:-1]
+              ),
               reverse=True
-          ):
+          )
+
+          for q in ordered:
               print(" ", q)
 
-          # -------------------------
+          # ======================================
           # Select quality
-          # -------------------------
+          # ======================================
 
           if wanted == "best":
 
-              selected = max(
-                  qualities,
-                  key=lambda x: int(x[:-1])
-              )
+              selected = ordered[0]
 
           else:
 
@@ -251,19 +369,13 @@ jobs:
 
                   print("")
                   print(
-                      f"ERROR: Quality {wanted} "
-                      f"is not available."
+                      "ERROR: Requested quality "
+                      f"{wanted} is not available."
                   )
 
                   print(
                       "Available:",
-                      ", ".join(
-                          sorted(
-                              qualities,
-                              key=lambda x: int(x[:-1]),
-                              reverse=True
-                          )
-                      )
+                      ", ".join(ordered)
                   )
 
                   sys.exit(1)
@@ -273,12 +385,21 @@ jobs:
           stream = qualities[selected]
 
           print("")
-          print("Selected:", selected)
-          print("Stream:", stream)
+          print(
+              "Selected quality:",
+              selected
+          )
 
-          # -------------------------
+          print("")
+          print(
+              "Stream URL:"
+          )
+
+          print(stream)
+
+          # ======================================
           # Safe filename
-          # -------------------------
+          # ======================================
 
           filename = re.sub(
               r'[\\/:*?"<>|]',
@@ -293,23 +414,35 @@ jobs:
           ).strip()
 
           if not filename:
+
               filename = "Pornhub Video"
 
           output = filename + ".mp4"
 
-          # -------------------------
-          # GitHub environment
-          # -------------------------
+          # ======================================
+          # Save GitHub environment
+          # ======================================
+
+          env_file = os.environ[
+              "GITHUB_ENV"
+          ]
 
           with open(
-              os.environ["GITHUB_ENV"],
-              "a"
+              env_file,
+              "a",
+              encoding="utf-8"
           ) as env:
 
               env.write(
                   "VIDEO_TITLE<<EOF\n"
-                  + title
-                  + "\nEOF\n"
+              )
+
+              env.write(
+                  title + "\n"
+              )
+
+              env.write(
+                  "EOF\n"
               )
 
               env.write(
@@ -317,81 +450,87 @@ jobs:
               )
 
               env.write(
+                  "VIDEO_STREAM<<EOF\n"
+              )
+
+              env.write(
+                  stream + "\n"
+              )
+
+              env.write(
+                  "EOF\n"
+              )
+
+              env.write(
                   "VIDEO_FILE<<EOF\n"
-                  + output
-                  + "\nEOF\n"
               )
 
-          # -------------------------
-          # FFmpeg
-          # -------------------------
-
-          cmd = [
-              "ffmpeg",
-
-              "-hide_banner",
-
-              "-user_agent",
-              UA,
-
-              "-referer",
-              REFERER,
-
-              "-i",
-              stream,
-
-              "-c",
-              "copy",
-
-              "-movflags",
-              "+faststart",
-
-              "-y",
-              output,
-          ]
-
-          print("")
-          print("Starting FFmpeg...")
-          print("")
-
-          result = subprocess.run(cmd)
-
-          if result.returncode != 0:
-              print("")
-              print("ERROR: FFmpeg failed.")
-              sys.exit(result.returncode)
-
-          if not os.path.exists(output):
-
-              print(
-                  "ERROR: Output file was not created."
+              env.write(
+                  output + "\n"
               )
 
-              sys.exit(1)
-
-          size = os.path.getsize(output)
-
-          print("")
-          print("Download completed.")
-          print("File:", output)
-          print(
-              "Size:",
-              f"{size / 1024 / 1024:.2f} MB"
-          )
+              env.write(
+                  "EOF\n"
+              )
 
           PY
+
+      # ==========================================
+      # Download with FFmpeg
+      # ==========================================
+
+      - name: Download with FFmpeg
+        env:
+          VIDEO_STREAM: ${{ env.VIDEO_STREAM }}
+          VIDEO_FILE: ${{ env.VIDEO_FILE }}
+        run: |
+          set -e
+
+          UA="Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+
+          echo "=========================================="
+          echo "FFmpeg download"
+          echo "=========================================="
+          echo
+          echo "Quality: $VIDEO_QUALITY"
+          echo "File: $VIDEO_FILE"
+          echo
+
+          ffmpeg \
+            -hide_banner \
+            -stats \
+            -user_agent "$UA" \
+            -referer "https://www.pornhub.com/" \
+            -i "$VIDEO_STREAM" \
+            -c copy \
+            -movflags +faststart \
+            -y \
+            "$VIDEO_FILE"
+
+          echo
+          echo "=========================================="
+          echo "Download finished"
+          echo "=========================================="
+
+          ls -lh "$VIDEO_FILE"
+
+          test -s "$VIDEO_FILE"
+
+      # ==========================================
+      # Create Release
+      # ==========================================
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-
           set -e
 
           TAG="ph-$(date -u +%Y%m%d-%H%M%S)"
 
           echo "Creating release..."
           echo "Tag: $TAG"
+          echo
 
           gh release create \
             "$TAG" \
@@ -400,20 +539,31 @@ jobs:
             --title "$VIDEO_TITLE ($VIDEO_QUALITY)" \
             --notes "Downloaded automatically by GitHub Actions."
 
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${VIDEO_FILE}"
+          # ======================================
+          # Direct Release Asset URL
+          # ======================================
 
-          echo ""
+          ENCODED_FILE=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$VIDEO_FILE")
+
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ENCODED_FILE}"
+
+          echo
           echo "=========================================="
           echo "DOWNLOAD COMPLETED"
           echo "=========================================="
-          echo ""
-          echo "Title:   $VIDEO_TITLE"
-          echo "Quality: $VIDEO_QUALITY"
-          echo "File:    $VIDEO_FILE"
-          echo ""
-          echo "DIRECT LINK:"
+          echo
+          echo "Title:"
+          echo "$VIDEO_TITLE"
+          echo
+          echo "Quality:"
+          echo "$VIDEO_QUALITY"
+          echo
+          echo "File:"
+          echo "$VIDEO_FILE"
+          echo
+          echo "Direct link:"
           echo "$RELEASE_URL"
-          echo ""
+          echo
           echo "=========================================="
 
           echo "RELEASE_URL=$RELEASE_URL" >> "$GITHUB_ENV"
