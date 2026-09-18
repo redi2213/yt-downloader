@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'لینک ویدیو (هر سایتی که yt-dlp ساپورت کنه)'
+        description: 'لینک ویدیو'
         required: true
       mode:
-        description: 'direct_link = فقط لینک مستقیم | upload_release = دانلود و آپلود'
+        description: 'direct_link یا upload_release'
         required: true
         default: 'direct_link'
         type: choice
@@ -15,11 +15,11 @@ on:
           - direct_link
           - upload_release
       quality:
-        description: 'حداکثر کیفیت (مثلاً 720 یا 1080)'
+        description: 'حداکثر کیفیت (مثلا 720 یا 1080)'
         required: false
         default: '720'
       audio_only:
-        description: 'فقط صوت (MP3)'
+        description: 'فقط صوت'
         required: false
         default: 'false'
         type: boolean
@@ -35,7 +35,7 @@ jobs:
     if: github.event.inputs.mode == 'direct_link'
     runs-on: ubuntu-latest
     steps:
-      - name: Install yt-dlp
+      - name: Install yt-dlp + curl_cffi
         run: |
           pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
           pip install "curl_cffi>=0.10"
@@ -44,11 +44,13 @@ jobs:
         run: |
           echo "## Direct Links" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          
-          yt-dlp -f "best[height<=${{ github.event.inputs.quality }}]" \
+
+          yt-dlp \
+            --impersonate chrome \
+            -f "best[height<=${{ github.event.inputs.quality }}]" \
             -g --no-warnings \
             "${{ github.event.inputs.url }}" | tee -a $GITHUB_STEP_SUMMARY
-          
+
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   upload:
@@ -66,28 +68,32 @@ jobs:
         id: dl
         run: |
           set -e
-          
+
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
-            yt-dlp -f "bestaudio/best" \
+            yt-dlp \
+              --impersonate chrome \
+              -f "bestaudio/best" \
               -x --audio-format mp3 \
               --no-warnings \
               -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
               "${{ github.event.inputs.url }}"
           else
-            yt-dlp -f "best[height<=${{ github.event.inputs.quality }}]" \
+            yt-dlp \
+              --impersonate chrome \
+              -f "best[height<=${{ github.event.inputs.quality }}]" \
               --merge-output-format mp4 \
               --no-warnings \
               -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
               "${{ github.event.inputs.url }}"
           fi
-          
+
           FILENAME=$(cat filename.txt)
           echo "filename=$FILENAME" >> $GITHUB_OUTPUT
           echo "Downloaded: $FILENAME"
 
-      - name: Upload as Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: downloaded-file
