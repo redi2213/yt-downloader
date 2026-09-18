@@ -6,22 +6,27 @@ on:
       url:
         description: 'لینک ویدیو'
         required: true
+        type: string
+
       mode:
-        description: 'direct_link یا upload_release'
+        description: 'نوع خروجی'
         required: true
         default: 'direct_link'
         type: choice
         options:
           - direct_link
           - upload_release
+
       quality:
         description: 'حداکثر کیفیت (مثلا 720 یا 1080)'
         required: false
         default: '720'
+        type: string
+
       audio_only:
         description: 'فقط صوت'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 env:
@@ -31,67 +36,110 @@ permissions:
   contents: write
 
 jobs:
+
+  # =========================================================
+  # DIRECT LINK
+  # =========================================================
   resolve:
-    if: github.event.inputs.mode == 'direct_link'
+    if: inputs.mode == 'direct_link'
     runs-on: ubuntu-latest
+
     steps:
+
       - name: Install yt-dlp + curl_cffi
         run: |
-          pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
-          pip install "curl_cffi>=0.10"
+          python -m pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
+          python -m pip install "curl_cffi>=0.10"
+
+      - name: Restore PornHub cookies
+        env:
+          PH_COOKIES: ${{ secrets.PH_COOKIES }}
+        run: |
+          printf '%s' "$PH_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
+
+          echo "Cookie file restored."
 
       - name: Get direct links
         run: |
-          echo "## Direct Links" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "## Direct Links" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
           yt-dlp \
+            --cookies cookies.txt \
             --impersonate chrome \
-            -f "best[height<=${{ github.event.inputs.quality }}]" \
-            -g --no-warnings \
-            "${{ github.event.inputs.url }}" | tee -a $GITHUB_STEP_SUMMARY
+            -f "best[height<=${{ inputs.quality }}]" \
+            -g \
+            --no-warnings \
+            "${{ inputs.url }}" | tee -a "$GITHUB_STEP_SUMMARY"
 
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+
+  # =========================================================
+  # DOWNLOAD + RELEASE
+  # =========================================================
   upload:
-    if: github.event.inputs.mode == 'upload_release'
+    if: inputs.mode == 'upload_release'
     runs-on: ubuntu-latest
+
     steps:
+
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg aria2
-          pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
-          pip install "curl_cffi>=0.10"
+
+          python -m pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
+          python -m pip install "curl_cffi>=0.10"
+
+      - name: Restore PornHub cookies
+        env:
+          PH_COOKIES: ${{ secrets.PH_COOKIES }}
+        run: |
+          printf '%s' "$PH_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
+
+          echo "Cookie file restored."
 
       - name: Download video
         id: dl
         run: |
           set -e
 
-          if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
+          if [ "${{ inputs.audio_only }}" = "true" ]; then
+
             yt-dlp \
+              --cookies cookies.txt \
               --impersonate chrome \
               -f "bestaudio/best" \
-              -x --audio-format mp3 \
+              -x \
+              --audio-format mp3 \
               --no-warnings \
               -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
-              "${{ github.event.inputs.url }}"
+              "${{ inputs.url }}"
+
           else
+
             yt-dlp \
+              --cookies cookies.txt \
               --impersonate chrome \
-              -f "best[height<=${{ github.event.inputs.quality }}]" \
+              -f "best[height<=${{ inputs.quality }}]" \
               --merge-output-format mp4 \
               --no-warnings \
               -o "%(title).100s.%(ext)s" \
               --print-to-file after_move:filepath filename.txt \
-              "${{ github.event.inputs.url }}"
+              "${{ inputs.url }}"
+
           fi
 
           FILENAME=$(cat filename.txt)
-          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
-          echo "Downloaded: $FILENAME"
+
+          echo "filename=$FILENAME" >> "$GITHUB_OUTPUT"
+
+          echo "Downloaded successfully:"
+          echo "$FILENAME"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -109,4 +157,11 @@ jobs:
           name: "Download ${{ github.run_id }}"
           body: |
             دانلود شده از:
-            `${{ github.event.inputs.url }}`
+
+            ${{ inputs.url }}
+
+            کیفیت:
+            ${{ inputs.quality }}
+
+            Audio only:
+            ${{ inputs.audio_only }}
