@@ -18,7 +18,7 @@ on:
           - upload_release
 
       quality:
-        description: 'حداکثر کیفیت (مثلا 720 یا 1080)'
+        description: 'حداکثر کیفیت'
         required: false
         default: '720'
         type: string
@@ -37,28 +37,16 @@ permissions:
 
 jobs:
 
-  # =========================================================
-  # DIRECT LINK
-  # =========================================================
   resolve:
     if: inputs.mode == 'direct_link'
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Install yt-dlp + curl_cffi
+      - name: Install yt-dlp
         run: |
           python -m pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
           python -m pip install "curl_cffi>=0.10"
-
-      - name: Restore PornHub cookies
-        env:
-          PH_COOKIES: ${{ secrets.PH_COOKIES }}
-        run: |
-          printf '%s' "$PH_COOKIES" > cookies.txt
-          chmod 600 cookies.txt
-
-          echo "Cookie file restored."
 
       - name: Get direct links
         run: |
@@ -66,7 +54,6 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
           yt-dlp \
-            --cookies cookies.txt \
             --impersonate chrome \
             -f "best[height<=${{ inputs.quality }}]" \
             -g \
@@ -76,9 +63,6 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
 
-  # =========================================================
-  # DOWNLOAD + RELEASE
-  # =========================================================
   upload:
     if: inputs.mode == 'upload_release'
     runs-on: ubuntu-latest
@@ -93,15 +77,6 @@ jobs:
           python -m pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
           python -m pip install "curl_cffi>=0.10"
 
-      - name: Restore PornHub cookies
-        env:
-          PH_COOKIES: ${{ secrets.PH_COOKIES }}
-        run: |
-          printf '%s' "$PH_COOKIES" > cookies.txt
-          chmod 600 cookies.txt
-
-          echo "Cookie file restored."
-
       - name: Download video
         id: dl
         run: |
@@ -110,7 +85,6 @@ jobs:
           if [ "${{ inputs.audio_only }}" = "true" ]; then
 
             yt-dlp \
-              --cookies cookies.txt \
               --impersonate chrome \
               -f "bestaudio/best" \
               -x \
@@ -123,7 +97,6 @@ jobs:
           else
 
             yt-dlp \
-              --cookies cookies.txt \
               --impersonate chrome \
               -f "best[height<=${{ inputs.quality }}]" \
               --merge-output-format mp4 \
