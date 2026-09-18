@@ -28,7 +28,7 @@ jobs:
     steps:
 
       # ==========================================
-      # 1. Install dependencies
+      # 1. Install
       # ==========================================
 
       - name: Install dependencies
@@ -36,13 +36,8 @@ jobs:
           set -e
 
           sudo apt-get update
+          sudo apt-get install -y ffmpeg curl python3
 
-          sudo apt-get install -y \
-            ffmpeg \
-            curl \
-            python3
-
-          echo
           echo "FFmpeg:"
           ffmpeg -version | head -1
 
@@ -52,10 +47,10 @@ jobs:
 
 
       # ==========================================
-      # 2. Fetch Pornhub page with session cookies
+      # 2. Create Pornhub session
       # ==========================================
 
-      - name: Fetch Pornhub page
+      - name: Create Pornhub session
         run: |
           set -e
 
@@ -63,19 +58,14 @@ jobs:
 
           rm -f /tmp/cookies.txt
           rm -f /tmp/home.html
-          rm -f /tmp/pornhub.html
           rm -f /tmp/home_headers.txt
-          rm -f /tmp/video_headers.txt
 
           echo "=========================================="
-          echo "STEP 1: GET HOMEPAGE"
+          echo "CREATING SESSION"
           echo "=========================================="
-
-          echo
-          echo "URL:"
-          echo "https://www.pornhub.com/"
 
           curl \
+            --http2 \
             --max-time 30 \
             --retry 2 \
             --retry-delay 2 \
@@ -94,19 +84,43 @@ jobs:
           wc -c /tmp/home.html
 
           echo
-          echo "Homepage cookies:"
-          cat /tmp/cookies.txt || true
+          echo "Homepage headers:"
+          cat /tmp/home_headers.txt
 
           echo
+          echo "Cookies:"
+          cat /tmp/cookies.txt
+
+          if [ ! -s /tmp/home.html ]; then
+            echo
+            echo "ERROR: Homepage download is empty."
+            exit 1
+          fi
+
+
+      # ==========================================
+      # 3. Fetch video page WITHOUT auto redirect
+      # ==========================================
+
+      - name: Fetch video page
+        run: |
+          set -e
+
+          UA="Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
+
+          rm -f /tmp/pornhub.html
+          rm -f /tmp/video_headers.txt
+
           echo "=========================================="
-          echo "STEP 2: GET VIDEO PAGE"
+          echo "FETCHING VIDEO PAGE"
           echo "=========================================="
 
           echo
-          echo "Video URL:"
+          echo "Requested URL:"
           echo "$INPUT_URL"
 
-          curl \
+          HTTP_CODE=$(curl \
+            --http2 \
             --max-time 30 \
             --retry 2 \
             --retry-delay 2 \
@@ -124,23 +138,26 @@ jobs:
             --cookie-jar /tmp/cookies.txt \
             --dump-header /tmp/video_headers.txt \
             --output /tmp/pornhub.html \
-            "$INPUT_URL"
+            --write-out "%{http_code}" \
+            "$INPUT_URL")
+
+          echo
+          echo "HTTP CODE:"
+          echo "$HTTP_CODE"
 
           echo
           echo "=========================================="
-          echo "VIDEO RESPONSE"
-          echo "=========================================="
-
-          echo
-          echo "Page size:"
-          wc -c /tmp/pornhub.html
-
-          echo
-          echo "=========================================="
-          echo "HEADERS"
+          echo "VIDEO HEADERS"
           echo "=========================================="
 
           cat /tmp/video_headers.txt
+
+          echo
+          echo "=========================================="
+          echo "PAGE SIZE"
+          echo "=========================================="
+
+          wc -c /tmp/pornhub.html
 
           echo
           echo "=========================================="
@@ -153,36 +170,53 @@ jobs:
 
           echo
           echo "=========================================="
+          echo "LOCATION"
+          echo "=========================================="
+
+          grep -i "^location:" \
+            /tmp/video_headers.txt ||
+            echo "No Location header"
+
+          echo
+          echo "=========================================="
           echo "HLS CHECK"
           echo "=========================================="
 
           if grep -qi "master.m3u8" /tmp/pornhub.html; then
-            echo "HLS master playlist FOUND."
+            echo "master.m3u8 FOUND"
           else
-            echo "WARNING: master.m3u8 NOT found."
+            echo "master.m3u8 NOT FOUND"
           fi
 
           echo
           echo "=========================================="
-          echo "VIEWKEY CHECK"
+          echo "VIDEO URL CHECK"
           echo "=========================================="
 
-          VIEWKEY=$(echo "$INPUT_URL" | sed -n 's/.*viewkey=\([^&]*\).*/\1/p')
+          if grep -qi "videoUrl" /tmp/pornhub.html; then
+            echo "videoUrl FOUND"
+          else
+            echo "videoUrl NOT FOUND"
+          fi
 
-          echo "Requested viewkey:"
-          echo "$VIEWKEY"
+          if [ ! -s /tmp/pornhub.html ]; then
+            echo
+            echo "ERROR: Video page is EMPTY."
+            echo
+            echo "Cookies:"
+            cat /tmp/cookies.txt
+            exit 1
+          fi
 
-          if [ -n "$VIEWKEY" ]; then
-            if grep -q "$VIEWKEY" /tmp/pornhub.html; then
-              echo "Viewkey FOUND in page."
-            else
-              echo "Viewkey NOT found in page."
-            fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo
+            echo "ERROR: Video page returned HTTP $HTTP_CODE"
+            exit 1
           fi
 
 
       # ==========================================
-      # 3. Extract HLS streams
+      # 4. Extract HLS
       # ==========================================
 
       - name: Extract HLS streams
@@ -195,7 +229,6 @@ jobs:
           import re
           import html
           import sys
-          from urllib.parse import unquote
 
           page_file = "/tmp/pornhub.html"
 
@@ -206,6 +239,12 @@ jobs:
               errors="ignore"
           ) as f:
               page = f.read()
+
+          print("Page size:", len(page))
+
+          if not page:
+              print("ERROR: Empty page")
+              sys.exit(1)
 
           wanted = os.environ.get(
               "QUALITY",
@@ -246,6 +285,7 @@ jobs:
               flags=re.I
           )
 
+          print("")
           print("Title:")
           print(title)
 
@@ -255,7 +295,7 @@ jobs:
 
           decoded = page
 
-          for _ in range(3):
+          for _ in range(5):
 
               decoded = decoded.replace(
                   "\\/",
@@ -282,18 +322,18 @@ jobs:
               )
 
           # ======================================
-          # EXTRACT MASTER PLAYLISTS
+          # FIND MASTER M3U8
           # ======================================
 
           patterns = [
 
-              r'"videoUrl"\s*:\s*"([^"]*master\.m3u8[^"]*)"',
+              r'"videoUrl"\s*:\s*"([^"]*master\.m3u8[^"]*)',
 
               r'"videoUrl"\s*:\s*\\?"([^"]*master\.m3u8[^"]*)',
 
-              r'https?://[^"\s<>]+master\.m3u8[^"\s<>]*',
+              r'https?://[^"\'<>\s\\]+master\.m3u8[^"\'<>\s\\]*',
 
-              r'https?:\\/\\/[^"\s<>]+master\.m3u8[^"\s<>]*',
+              r'https?:\\/\\/[^"\'<>\s]+master\.m3u8[^"\'<>\s]*',
 
           ]
 
@@ -301,13 +341,11 @@ jobs:
 
           for pattern in patterns:
 
-              matches = re.findall(
+              for item in re.findall(
                   pattern,
                   decoded,
                   re.I
-              )
-
-              for item in matches:
+              ):
 
                   if isinstance(item, tuple):
                       item = item[0]
@@ -332,58 +370,29 @@ jobs:
                   )
 
                   if "master.m3u8" in item:
-
                       found.append(item)
 
           # ======================================
-          # ALSO SEARCH RAW PAGE
+          # UNIQUE
           # ======================================
 
-          raw_matches = re.findall(
-              r'https?://[^"\s<>\\]+master\.m3u8[^"\s<>\\]*',
-              page,
-              re.I
-          )
-
-          for item in raw_matches:
-
-              item = item.replace(
-                  "\\/",
-                  "/"
-              )
-
-              item = item.replace(
-                  "\\u0026",
-                  "&"
-              )
-
-              item = html.unescape(
-                  item
-              )
-
-              found.append(item)
-
-          # ======================================
-          # CLEAN DUPLICATES
-          # ======================================
-
-          cleaned = []
+          unique = []
 
           for item in found:
 
               item = item.strip()
 
-              if item not in cleaned:
-                  cleaned.append(item)
+              if item and item not in unique:
+                  unique.append(item)
 
-          found = cleaned
+          found = unique
 
           print("")
           print("Found master playlists:")
           print(len(found))
 
           # ======================================
-          # DETECT QUALITIES
+          # QUALITIES
           # ======================================
 
           qualities = {}
@@ -406,16 +415,9 @@ jobs:
 
               if match:
 
-                  quality = (
-                      match.group(1)
-                      + "p"
-                  )
+                  q = match.group(1) + "p"
 
-                  qualities[quality] = item
-
-          # ======================================
-          # DIAGNOSTICS
-          # ======================================
+                  qualities[q] = item
 
           if not qualities:
 
@@ -436,28 +438,22 @@ jobs:
               ]:
 
                   print(
-                      f"{keyword}:",
+                      keyword + ":",
                       keyword.lower()
                       in decoded.lower()
                   )
 
               print("")
-              print(
-                  "Page size:",
-                  len(page)
-              )
+              print("Page size:", len(page))
 
               print("")
-              print(
-                  "First 500 characters:"
-              )
-
-              print(page[:500])
+              print("First 1000 chars:")
+              print(page[:1000])
 
               sys.exit(1)
 
           # ======================================
-          # AVAILABLE QUALITIES
+          # ORDER
           # ======================================
 
           ordered = sorted(
@@ -473,46 +469,40 @@ jobs:
               print(" ", q)
 
           # ======================================
-          # SELECT QUALITY
+          # SELECT
           # ======================================
 
           if wanted == "best":
 
               selected = ordered[0]
 
-          else:
-
-              if wanted not in qualities:
-
-                  print("")
-                  print(
-                      "ERROR: Requested quality "
-                      f"{wanted} is not available."
-                  )
-
-                  print(
-                      "Available:",
-                      ", ".join(ordered)
-                  )
-
-                  sys.exit(1)
+          elif wanted in qualities:
 
               selected = wanted
+
+          else:
+
+              print("")
+              print(
+                  "ERROR: Requested quality "
+                  + wanted
+                  + " is not available."
+              )
+
+              sys.exit(1)
 
           stream = qualities[selected]
 
           print("")
-          print(
-              "Selected quality:",
-              selected
-          )
+          print("Selected quality:")
+          print(selected)
 
           print("")
           print("Stream URL:")
           print(stream)
 
           # ======================================
-          # SAFE FILENAME
+          # FILENAME
           # ======================================
 
           filename = re.sub(
@@ -547,27 +537,25 @@ jobs:
               env.write(
                   "VIDEO_TITLE<<EOF\n"
               )
-
               env.write(
                   title + "\n"
               )
-
               env.write(
                   "EOF\n"
               )
 
               env.write(
-                  f"VIDEO_QUALITY={selected}\n"
+                  "VIDEO_QUALITY="
+                  + selected
+                  + "\n"
               )
 
               env.write(
                   "VIDEO_STREAM<<EOF\n"
               )
-
               env.write(
                   stream + "\n"
               )
-
               env.write(
                   "EOF\n"
               )
@@ -575,11 +563,9 @@ jobs:
               env.write(
                   "VIDEO_FILE<<EOF\n"
               )
-
               env.write(
                   output + "\n"
               )
-
               env.write(
                   "EOF\n"
               )
@@ -588,7 +574,7 @@ jobs:
 
 
       # ==========================================
-      # 4. Download with FFmpeg
+      # 5. FFmpeg
       # ==========================================
 
       - name: Download video
@@ -598,12 +584,8 @@ jobs:
           UA="Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36"
 
           echo "=========================================="
-          echo "DOWNLOADING"
+          echo "FFMPEG DOWNLOAD"
           echo "=========================================="
-
-          echo
-          echo "Title:"
-          echo "$VIDEO_TITLE"
 
           echo
           echo "Quality:"
@@ -612,9 +594,6 @@ jobs:
           echo
           echo "Output:"
           echo "$VIDEO_FILE"
-
-          echo
-          echo "Starting FFmpeg..."
 
           ffmpeg \
             -hide_banner \
@@ -634,19 +613,15 @@ jobs:
 
           ls -lh "$VIDEO_FILE"
 
-          echo
-          echo "File information:"
-
           ffprobe \
             -hide_banner \
             "$VIDEO_FILE" 2>&1 |
-            grep -E \
-              "Duration:|Video:|Audio:" ||
-              true
+            grep -E "Duration:|Video:|Audio:" ||
+            true
 
 
       # ==========================================
-      # 5. Create GitHub Release
+      # 6. GitHub Release
       # ==========================================
 
       - name: Create GitHub Release
@@ -662,14 +637,6 @@ jobs:
           echo "CREATING RELEASE"
           echo "=========================================="
 
-          echo
-          echo "Tag:"
-          echo "$TAG"
-
-          echo
-          echo "File:"
-          echo "$VIDEO_FILE"
-
           gh release create \
             "$TAG" \
             "$VIDEO_FILE" \
@@ -677,18 +644,10 @@ jobs:
             --title "$VIDEO_TITLE ($VIDEO_QUALITY)" \
             --notes "Downloaded automatically by GitHub Actions."
 
-          # ======================================
-          # DIRECT ASSET URL
-          # ======================================
-
           ENCODED_FILE=$(python3 -c '
           import urllib.parse
           import sys
-          print(
-              urllib.parse.quote(
-                  sys.argv[1]
-              )
-          )
+          print(urllib.parse.quote(sys.argv[1]))
           ' "$VIDEO_FILE")
 
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ENCODED_FILE}"
@@ -706,11 +665,8 @@ jobs:
           echo "Release:"
           echo "https://github.com/${{ github.repository }}/releases/tag/${TAG}"
 
-          echo
-          echo "=========================================="
-
           {
-            echo "### Pornhub Download"
+            echo "## Pornhub Download"
             echo
             echo "**Title:** $VIDEO_TITLE"
             echo
