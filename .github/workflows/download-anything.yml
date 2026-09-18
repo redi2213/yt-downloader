@@ -52,14 +52,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/ytdlp
-          key: ytdlp-anything-${{ env.YTDLP_VERSION }}-v1
+          key: ytdlp-anything-${{ env.YTDLP_VERSION }}-v2
 
-      - name: Install yt-dlp (cache miss only)
+      - name: Install yt-dlp + curl_cffi (cache miss only)
         if: steps.cache-ytdlp.outputs.cache-hit != 'true'
         run: |
           pip install --target /opt/ytdlp yt-dlp==${{ env.YTDLP_VERSION }}
-          # curl_cffi enables browser impersonation, needed by some sites
-          # (e.g. Vimeo) to bypass anti-bot checks.
           pip install --target /opt/ytdlp "curl_cffi>=0.10"
 
       - name: Add yt-dlp to PATH
@@ -77,6 +75,7 @@ jobs:
         run: |
           echo '```' >> $GITHUB_STEP_SUMMARY
           yt-dlp --cookies cookies.txt \
+            --impersonate chrome \
             -f "bv*+ba/best" -g \
             "${{ github.event.inputs.url }}" | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
@@ -89,21 +88,21 @@ jobs:
     if: github.event.inputs.mode == 'upload_release'
     runs-on: ubuntu-latest
     steps:
-      # --- ffmpeg + aria2 (simple & reliable install) ---
+      # --- ffmpeg + aria2 ---
       - name: Install ffmpeg + aria2
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg aria2
 
-      # --- yt-dlp (pinned version, cached separately) ---
+      # --- yt-dlp ---
       - name: Cache yt-dlp
         id: cache-ytdlp
         uses: actions/cache@v4
         with:
           path: /opt/ytdlp
-          key: ytdlp-anything-${{ env.YTDLP_VERSION }}-v1
+          key: ytdlp-anything-${{ env.YTDLP_VERSION }}-v2
 
-      - name: Install yt-dlp (cache miss only)
+      - name: Install yt-dlp + curl_cffi (cache miss only)
         if: steps.cache-ytdlp.outputs.cache-hit != 'true'
         run: |
           pip install --target /opt/ytdlp yt-dlp==${{ env.YTDLP_VERSION }}
@@ -130,6 +129,7 @@ jobs:
 
           if [ "${{ github.event.inputs.audio_only }}" = "true" ]; then
             yt-dlp --cookies cookies.txt \
+              --impersonate chrome \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
               -f "bestaudio/best" \
               -x --audio-format mp3 \
@@ -138,6 +138,7 @@ jobs:
               "${{ github.event.inputs.url }}"
           else
             yt-dlp --cookies cookies.txt \
+              --impersonate chrome \
               --restrict-filenames "${COMMON_SPEED_FLAGS[@]}" \
               -f "${{ github.event.inputs.format_id }}" \
               --merge-output-format mkv \
