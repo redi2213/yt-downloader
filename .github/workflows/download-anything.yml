@@ -48,17 +48,49 @@ jobs:
           python -m pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
           python -m pip install "curl_cffi>=0.10"
 
+      - name: Prepare PornHub cookies
+        env:
+          PH_COOKIES: ${{ secrets.PH_COOKIES }}
+        run: |
+          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
+            if [ -z "$PH_COOKIES" ]; then
+              echo "PH_COOKIES secret is missing"
+              exit 1
+            fi
+
+            printf '%s' "$PH_COOKIES" > cookies.txt
+            chmod 600 cookies.txt
+
+            echo "PornHub cookies loaded."
+          else
+            echo "Non-PornHub URL. Cookies not needed."
+          fi
+
       - name: Get direct links
         run: |
           echo "## Direct Links" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-          yt-dlp \
-            --impersonate chrome \
-            -f "best[height<=${{ inputs.quality }}]" \
-            -g \
-            --no-warnings \
-            "${{ inputs.url }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
+
+            yt-dlp \
+              --impersonate chrome \
+              --cookies cookies.txt \
+              -f "best[height<=${{ inputs.quality }}]" \
+              -g \
+              --no-warnings \
+              "${{ inputs.url }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          else
+
+            yt-dlp \
+              --impersonate chrome \
+              -f "best[height<=${{ inputs.quality }}]" \
+              -g \
+              --no-warnings \
+              "${{ inputs.url }}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          fi
 
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
@@ -77,15 +109,40 @@ jobs:
           python -m pip install -U yt-dlp==${{ env.YTDLP_VERSION }}
           python -m pip install "curl_cffi>=0.10"
 
+      - name: Prepare PornHub cookies
+        env:
+          PH_COOKIES: ${{ secrets.PH_COOKIES }}
+        run: |
+          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
+            if [ -z "$PH_COOKIES" ]; then
+              echo "PH_COOKIES secret is missing"
+              exit 1
+            fi
+
+            printf '%s' "$PH_COOKIES" > cookies.txt
+            chmod 600 cookies.txt
+
+            echo "PornHub cookies loaded."
+          else
+            echo "Non-PornHub URL. Cookies not needed."
+          fi
+
       - name: Download video
         id: dl
         run: |
           set -e
 
+          if echo "${{ inputs.url }}" | grep -qi "pornhub.com"; then
+            COOKIE_ARG="--cookies cookies.txt"
+          else
+            COOKIE_ARG=""
+          fi
+
           if [ "${{ inputs.audio_only }}" = "true" ]; then
 
             yt-dlp \
               --impersonate chrome \
+              $COOKIE_ARG \
               -f "bestaudio/best" \
               -x \
               --audio-format mp3 \
@@ -98,6 +155,7 @@ jobs:
 
             yt-dlp \
               --impersonate chrome \
+              $COOKIE_ARG \
               -f "best[height<=${{ inputs.quality }}]" \
               --merge-output-format mp4 \
               --no-warnings \
