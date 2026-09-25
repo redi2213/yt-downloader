@@ -112,9 +112,10 @@ jobs:
             QUALITY="audio"
           else
             SORT_ARGS=()
-            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]]; then
-              # Quality-target mode: e.g. "480p" picks the closest available
-              # resolution to 480, then the smallest file size among ties.
+            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
+              # Quality-target mode: e.g. "480p" or "bestvideo[height<=480]"
+              # picks the closest available resolution to the target, then
+              # the smallest file size among ties.
               TARGET_HEIGHT="${BASH_REMATCH[1]}"
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
               SORT_ARGS=(-S "res:${TARGET_HEIGHT},+size")
