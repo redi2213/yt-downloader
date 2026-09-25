@@ -123,17 +123,25 @@ jobs:
             elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
               # Explicit format id WITH a client suffix (e.g. "134-0").
               # Pick the matching-client audio directly by exact id instead
-              # of building a regex selector (the SABR fork mishandles
-              # quoted operators inside -f at execution time).
+              # of building a regex selector.
               SUFFIX="${BASH_REMATCH[2]}"
-              AUDIO_ID=$(yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" 2>/dev/null | python3 -c "
-import json, sys
-info = json.load(sys.stdin)
-cands = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec','').startswith('mp4a') and f.get('format_id','').endswith('-$SUFFIX')]
-if not cands:
-    cands = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('format_id','').endswith('-$SUFFIX')]
-print(cands[-1]['format_id'] if cands else '')
-")
+              yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" > raw_formats.json 2>/dev/null || echo "::warning::could not dump raw JSON"
+              cat > pick_audio.py << 'PYEOF'
+          import json, os, sys
+          suffix = os.environ["SUFFIX"]
+          try:
+              with open("raw_formats.json") as fh:
+                  info = json.load(fh)
+          except Exception:
+              print("")
+              sys.exit(0)
+          fmts = info.get("formats", [])
+          cands = [f for f in fmts if f.get("vcodec") == "none" and str(f.get("acodec", "")).startswith("mp4a") and str(f.get("format_id", "")).endswith("-" + suffix)]
+          if not cands:
+              cands = [f for f in fmts if f.get("vcodec") == "none" and str(f.get("format_id", "")).endswith("-" + suffix)]
+          print(cands[-1]["format_id"] if cands else "")
+          PYEOF
+              AUDIO_ID=$(SUFFIX="$SUFFIX" python3 pick_audio.py)
               if [ -z "$AUDIO_ID" ]; then
                 echo "::error::No matching audio format found for suffix -$SUFFIX"
                 exit 1
@@ -218,7 +226,7 @@ print(cands[-1]['format_id'] if cands else '')
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py
+        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
