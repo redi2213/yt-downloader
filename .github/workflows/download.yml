@@ -7,7 +7,7 @@ on:
         description: 'YouTube URL'
         required: true
       format_id:
-        description: 'Format id from List Formats (e.g. 397-1, 247-0) or bestvideo+bestaudio'
+        description: 'Format id from List Formats (e.g. 397-1), a quality target like 480p (nearest + smallest), or bestvideo+bestaudio'
         required: true
         default: 'bestvideo+bestaudio'
       audio_only:
@@ -111,7 +111,14 @@ jobs:
               "$VIDEO_URL"
             QUALITY="audio"
           else
-            if [ "$FORMAT_ID" = "bestvideo+bestaudio" ]; then
+            SORT_ARGS=()
+            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]]; then
+              # Quality-target mode: e.g. "480p" picks the closest available
+              # resolution to 480, then the smallest file size among ties.
+              TARGET_HEIGHT="${BASH_REMATCH[1]}"
+              FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
+              SORT_ARGS=(-S "res:${TARGET_HEIGHT},+size")
+            elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ]; then
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
             else
               # Explicit format id from List Formats (e.g. 397-1, 247-0): pair it
@@ -122,6 +129,7 @@ jobs:
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
               --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
+              "${SORT_ARGS[@]}" \
               -f "$FORMAT_SPEC" \
               --merge-output-format mkv \
               -o "$OUTTMPL" \
