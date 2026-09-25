@@ -142,16 +142,17 @@ jobs:
               echo "::error::Download failed with format spec: $FORMAT_SPEC"
               echo "=== RAW format_id values yt-dlp actually uses for filtering (not the -F display table) ==="
               yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" > raw_formats.json 2>/dev/null || echo "::warning::could not dump raw JSON"
-              python3 -c "
-import json
-try:
-    with open('raw_formats.json') as fh:
-        info = json.load(fh)
-    for f in info.get('formats', []):
-        print(f.get('format_id'), '|', f.get('protocol'), '|', f.get('vcodec'), '|', f.get('acodec'), '|', f.get('format_note'), '|', 'url_present' if f.get('url') else 'NO_URL')
-except Exception as e:
-    print('failed to parse raw_formats.json:', e)
-" || true
+              cat > dump_formats.py << 'PYEOF'
+          import json
+          try:
+              with open('raw_formats.json') as fh:
+                  info = json.load(fh)
+              for f in info.get('formats', []):
+                  print(f.get('format_id'), '|', f.get('protocol'), '|', f.get('vcodec'), '|', f.get('acodec'), '|', f.get('format_note'), '|', 'url_present' if f.get('url') else 'NO_URL')
+          except Exception as e:
+              print('failed to parse raw_formats.json:', e)
+          PYEOF
+              python3 dump_formats.py || true
               exit 1
             fi
 
@@ -202,7 +203,7 @@ except Exception as e:
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json
+        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
