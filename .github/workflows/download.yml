@@ -121,9 +121,11 @@ jobs:
             elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ]; then
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
             else
-              # Explicit format id from List Formats (e.g. 397-1, 247-0): pair it
-              # with the best matching sabr audio, falling back progressively.
-              FORMAT_SPEC="$FORMAT_ID+bestaudio[protocol=sabr][acodec^=mp4a]/$FORMAT_ID+bestaudio[protocol=sabr]/$FORMAT_ID+bestaudio[acodec^=mp4a]/$FORMAT_ID+bestaudio"
+              # Explicit format id from List Formats. With formats=duplicate,
+              # a bare itag (e.g. "397") no longer exists on its own - only
+              # its client-suffixed variants do (397-0, 397-1). Match either
+              # the bare id or any -N suffixed variant of it via regex.
+              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
             fi
 
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
