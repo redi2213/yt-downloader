@@ -121,11 +121,7 @@ jobs:
             elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ]; then
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
             elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-              # Explicit format id WITH a client suffix (e.g. "134-0"). Using
-              # only the ~= (regex) operator here - this fork's format
-              # selector doesn't reliably parse the = / $= operators with
-              # quoted values, so plain equality/ends-with silently matches
-              # nothing even when the format clearly exists.
+              # Explicit format id WITH a client suffix (e.g. "134-0").
               SUFFIX="${BASH_REMATCH[2]}"
               FORMAT_SPEC="best[format_id~='^${FORMAT_ID}\$']+bestaudio[protocol=sabr][acodec^=mp4a][format_id~='-${SUFFIX}\$']/best[format_id~='^${FORMAT_ID}\$']+bestaudio[format_id~='-${SUFFIX}\$']/best[format_id~='^${FORMAT_ID}\$']+bestaudio"
             else
@@ -144,8 +140,18 @@ jobs:
                   --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
                   "$VIDEO_URL"; then
               echo "::error::Download failed with format spec: $FORMAT_SPEC"
-              echo "=== Available formats at time of failure ==="
-              yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -F "$VIDEO_URL" || true
+              echo "=== RAW format_id values yt-dlp actually uses for filtering (not the -F display table) ==="
+              yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" > raw_formats.json 2>/dev/null || echo "::warning::could not dump raw JSON"
+              python3 -c "
+import json
+try:
+    with open('raw_formats.json') as fh:
+        info = json.load(fh)
+    for f in info.get('formats', []):
+        print(f.get('format_id'), '|', f.get('protocol'), '|', f.get('vcodec'), '|', f.get('acodec'), '|', f.get('format_note'), '|', 'url_present' if f.get('url') else 'NO_URL')
+except Exception as e:
+    print('failed to parse raw_formats.json:', e)
+" || true
               exit 1
             fi
 
@@ -196,7 +202,7 @@ jobs:
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt
+        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
