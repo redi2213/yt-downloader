@@ -38,7 +38,7 @@ jobs:
         run: |
           echo '```' >> $GITHUB_STEP_SUMMARY
           yt-dlp --cookies cookies.txt --remote-components ejs:github \
-            --extractor-args "youtube:player_client=web_safari;formats=duplicate" \
+            --extractor-args "youtube:player_client=tv,web_safari,mweb;formats=duplicate" \
             -F "${{ github.event.inputs.video_url }}" | tee -a $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
