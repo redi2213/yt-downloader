@@ -122,8 +122,23 @@ jobs:
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
             elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
               # Explicit format id WITH a client suffix (e.g. "134-0").
+              # Pick the matching-client audio directly by exact id instead
+              # of building a regex selector (the SABR fork mishandles
+              # quoted operators inside -f at execution time).
               SUFFIX="${BASH_REMATCH[2]}"
-              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}\$']+bestaudio[protocol=sabr][acodec^=mp4a][format_id~='-${SUFFIX}\$']/best[format_id~='^${FORMAT_ID}\$']+bestaudio[format_id~='-${SUFFIX}\$']/best[format_id~='^${FORMAT_ID}\$']+bestaudio"
+              AUDIO_ID=$(yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" 2>/dev/null | python3 -c "
+import json, sys
+info = json.load(sys.stdin)
+cands = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec','').startswith('mp4a') and f.get('format_id','').endswith('-$SUFFIX')]
+if not cands:
+    cands = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('format_id','').endswith('-$SUFFIX')]
+print(cands[-1]['format_id'] if cands else '')
+")
+              if [ -z "$AUDIO_ID" ]; then
+                echo "::error::No matching audio format found for suffix -$SUFFIX"
+                exit 1
+              fi
+              FORMAT_SPEC="${FORMAT_ID}+${AUDIO_ID}"
             else
               # Explicit format id with no client suffix (bare itag).
               FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
