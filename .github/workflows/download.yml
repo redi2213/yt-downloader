@@ -121,14 +121,13 @@ jobs:
             elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ]; then
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
             elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-              # Explicit format id WITH a client suffix (e.g. "134-0"). The
-              # suffix marks which player client the format came from
-              # (WEB-S, MWEB, ...). SABR needs a valid PO token per client,
-              # so force the paired audio to come from the SAME client
-              # suffix - otherwise yt-dlp can pick an audio stream from a
-              # client with no valid token and the whole merge fails.
+              # Explicit format id WITH a client suffix (e.g. "134-0"). Using
+              # only the ~= (regex) operator here - this fork's format
+              # selector doesn't reliably parse the = / $= operators with
+              # quoted values, so plain equality/ends-with silently matches
+              # nothing even when the format clearly exists.
               SUFFIX="${BASH_REMATCH[2]}"
-              FORMAT_SPEC="best[format_id='${FORMAT_ID}']+bestaudio[protocol=sabr][acodec^=mp4a][format_id\$='-${SUFFIX}']/best[format_id='${FORMAT_ID}']+bestaudio[format_id\$='-${SUFFIX}']/best[format_id='${FORMAT_ID}']+bestaudio"
+              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}\$']+bestaudio[protocol=sabr][acodec^=mp4a][format_id~='-${SUFFIX}\$']/best[format_id~='^${FORMAT_ID}\$']+bestaudio[format_id~='-${SUFFIX}\$']/best[format_id~='^${FORMAT_ID}\$']+bestaudio"
             else
               # Explicit format id with no client suffix (bare itag).
               FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
