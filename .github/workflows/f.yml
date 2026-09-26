@@ -1,26 +1,26 @@
-name: Upload Filefff
+name: Upload File from FPO
 
 on:
   workflow_dispatch:
     inputs:
-      file_url:
-        description: 'Direct link to the file to download and upload'
+      video_url:
+        description: 'لینک صفحه ویدیو (مثلاً https://www.fpo.xxx/video/939669/...)'
         required: true
+      preferred_quality:
+        description: 'کیفیت مورد علاقه (720p, 1080p, 480p, original) - خالی بذار بهترین رو انتخاب کنه'
+        required: false
+        default: '720p'
+      custom_name:
+        description: 'نام دلخواه فایل (بدون پسوند)'
+        required: false
+        default: ''
       zip_it:
-        description: 'true to zip the file before uploading'
+        description: 'true برای زیپ کردن'
         required: false
         default: 'false'
-      custom_name:
-        description: 'Optional new filename (no extension). Leave blank to keep the original name.'
-        required: false
-        default: ''
       job_id:
-        description: 'Unique id used to find this run and tag the release (set by the app)'
+        description: 'شناسه یکتا برای این جاب'
         required: true
-      referer:
-        description: 'Optional Referer header (مثلاً لینک صفحه ویدیو)'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -30,122 +30,200 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 340
     name: ${{ github.event.inputs.job_id }}
+
     steps:
-      - name: Install tools
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 curl jq
+          sudo apt-get install -y python3-pip curl aria2
+          pip3 install requests beautifulsoup4 --quiet
 
-      - name: Download the file
+      - name: Scrape & Download
         id: dl
         env:
-          URL: ${{ github.event.inputs.file_url }}
-          REFERER: ${{ github.event.inputs.referer }}
+          VIDEO_URL: ${{ github.event.inputs.video_url }}
+          PREFERRED_QUALITY: ${{ github.event.inputs.preferred_quality }}
           CUSTOM_NAME: ${{ github.event.inputs.custom_name }}
           ZIP_IT: ${{ github.event.inputs.zip_it }}
         run: |
           set -euo pipefail
 
-          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+          python3 << 'EOF'
+          import requests
+          import re
+          import os
+          import sys
+          from bs4 import BeautifulSoup
+          from urllib.parse import urljoin, unquote
 
-          # اگر referer ندادن، سعی می‌کنیم از خود URL استخراج کنیم یا خالی بذاریم
-          if [ -z "$REFERER" ]; then
-            REFERER="$URL"
-          fi
+          VIDEO_URL = os.environ["VIDEO_URL"].strip()
+          PREFERRED = os.environ.get("PREFERRED_QUALITY", "720p").strip().lower()
+          CUSTOM_NAME = os.environ.get("CUSTOM_NAME", "").strip()
+          ZIP_IT = os.environ.get("ZIP_IT", "false").strip().lower() == "true"
 
-          echo "URL: $URL"
-          echo "Referer: $REFERER"
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://www.fpo.xxx/",
+          }
 
-          # سعی در گرفتن نام فایل از Content-Disposition
-          HEADERS=$(curl -sIL -A "$UA" -e "$REFERER" "$URL" || true)
-          CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename[*]\?=["'\'']\?\([^"'\''\;]*\).*/\1/p' | tr -d '\r' || true)
+          print(f"Fetching page: {VIDEO_URL}")
 
-          if [ -n "$CD_NAME" ]; then
-            ORIGINAL_NAME="$CD_NAME"
-          else
-            # سعی در استخراج نام از پارامتر file=
-            if echo "$URL" | grep -q 'file='; then
-              ORIGINAL_NAME=$(echo "$URL" | sed -n 's/.*file=\([^&]*\).*/\1/p' | sed 's/%20/ /g')
-            else
-              ORIGINAL_NAME=\( (basename " \){URL%%\?*}")
-            fi
-          fi
+          try:
+              r = requests.get(VIDEO_URL, headers=headers, timeout=30)
+              r.raise_for_status()
+          except Exception as e:
+              print(f"::error::Failed to fetch page: {e}")
+              sys.exit(1)
 
-          # پاکسازی نام فایل
-          ORIGINAL_NAME=$(echo "$ORIGINAL_NAME" | sed 's/[<>:"/\\|?*]//g' | xargs)
-          if [ -z "$ORIGINAL_NAME" ] || [ "$ORIGINAL_NAME" = "/" ] || [ "$ORIGINAL_NAME" = "remote_control.php" ]; then
-            ORIGINAL_NAME="video_$(date +%s).mp4"
-          fi
+          text = r.text
 
-          echo "Detected original filename: $ORIGINAL_NAME"
+          # استخراج همه لینک‌های mp4
+          mp4_links = re.findall(
+              r'https?://[^\s"\'<>]+\.mp4[^\s"\'<>]*',
+              text
+          )
+          # لینک‌های نسبی هم پیدا کن
+          relative = re.findall(r'["\'](/get_file/[^"\']+\.mp4[^"\']*)["\']', text)
+          for rel in relative:
+              mp4_links.append(urljoin("https://www.fpo.xxx", rel))
 
-          # دانلود با curl (قابل اعتمادتر برای این مدل لینک‌ها)
-          set +e
-          curl -L \
-            -A "$UA" \
-            -e "$REFERER" \
-            --connect-timeout 30 \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            -o "$ORIGINAL_NAME" \
-            "$URL"
-          CURL_EXIT=$?
-          set -e
+          # پاکسازی و یکتا کردن
+          clean_links = []
+          seen = set()
+          for link in mp4_links:
+              link = link.split(",")[0].strip().rstrip('",\'')
+              link = unquote(link)
+              if link not in seen and ".mp4" in link.lower():
+                  seen.add(link)
+                  clean_links.append(link)
 
-          if [ "$CURL_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
-            echo "::error::Download failed with curl (exit $CURL_EXIT). Trying aria2c as fallback..."
+          if not clean_links:
+              print("::error::No MP4 links found on the page")
+              print("Page title / first 500 chars:")
+              print(text[:500])
+              sys.exit(1)
 
-            set +e
-            aria2c \
-              -x 8 -s 8 -k 1M \
-              --connect-timeout=30 \
-              --max-tries=5 \
-              --retry-wait=5 \
-              --user-agent="$UA" \
-              --referer="$REFERER" \
-              --check-certificate=false \
-              -o "$ORIGINAL_NAME" \
-              "$URL"
-            ARIA_EXIT=$?
-            set -e
+          print(f"\nFound {len(clean_links)} MP4 link(s):")
+          for l in clean_links:
+              print(f"  - {l}")
 
-            if [ "$ARIA_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
-              echo "::error::Both curl and aria2c failed. The link is likely protected (403/hotlink protection)."
-              exit 1
-            fi
-          fi
+          def get_quality(link):
+              m = re.search(r'(\d{3,4}p)', link.lower())
+              if m:
+                  return m.group(1)
+              if "original" in link.lower():
+                  return "original"
+              return "unknown"
 
-          # Custom name
-          if [ -n "$CUSTOM_NAME" ]; then
-            EXT="${ORIGINAL_NAME##*.}"
-            if [ "$EXT" = "$ORIGINAL_NAME" ]; then
-              FINAL_NAME="$CUSTOM_NAME"
-            else
-              FINAL_NAME="\( {CUSTOM_NAME}. \){EXT}"
-            fi
-            mv "$ORIGINAL_NAME" "$FINAL_NAME"
-          else
-            FINAL_NAME="$ORIGINAL_NAME"
-          fi
+          # انتخاب کیفیت
+          qualities = {}
+          for link in clean_links:
+              q = get_quality(link)
+              if q not in qualities:
+                  qualities[q] = link
 
-          # Zip if requested
-          if [ "$ZIP_IT" = "true" ]; then
-            ZIP_NAME="${FINAL_NAME%.*}.zip"
-            zip -r "$ZIP_NAME" "$FINAL_NAME"
-            FINAL_NAME="$ZIP_NAME"
-          fi
+          print("\nAvailable qualities:", list(qualities.keys()))
 
-          mkdir -p release_asset
-          mv "$FINAL_NAME" "release_asset/$FINAL_NAME"
+          chosen = None
+          if PREFERRED and PREFERRED in qualities:
+              chosen = qualities[PREFERRED]
+              print(f"Selected preferred quality: {PREFERRED}")
+          else:
+              # اولویت: 720p > 1080p > 480p > original > اولین لینک
+              for pref in ["720p", "1080p", "480p", "360p", "original"]:
+                  if pref in qualities:
+                      chosen = qualities[pref]
+                      print(f"Auto-selected: {pref}")
+                      break
+              if not chosen:
+                  chosen = clean_links[0]
+                  print("Auto-selected first link")
 
-          echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
-          ls -lh "release_asset/$FINAL_NAME"
+          print(f"\nChosen download URL:\n{chosen}")
 
-      - name: Create Release with direct link
+          # نام فایل
+          filename = os.path.basename(chosen.split("?")[0])
+          if not filename or not filename.endswith(".mp4"):
+              filename = f"video_{int(__import__('time').time())}.mp4"
+
+          if CUSTOM_NAME:
+              ext = os.path.splitext(filename)[1] or ".mp4"
+              filename = f"{CUSTOM_NAME}{ext}"
+
+          print(f"Saving as: {filename}")
+
+          # دانلود با requests (stream)
+          dl_headers = headers.copy()
+          dl_headers["Referer"] = VIDEO_URL
+
+          print("\nDownloading...")
+          try:
+              with requests.get(chosen, headers=dl_headers, stream=True, timeout=60) as resp:
+                  resp.raise_for_status()
+                  total = int(resp.headers.get("content-length", 0))
+                  downloaded = 0
+                  with open(filename, "wb") as f:
+                      for chunk in resp.iter_content(chunk_size=1024*1024):
+                          if chunk:
+                              f.write(chunk)
+                              downloaded += len(chunk)
+                              if total:
+                                  pct = downloaded * 100 // total
+                                  print(f"\rProgress: {pct}% ({downloaded//1024//1024} MB)", end="", flush=True)
+              print("\nDownload finished.")
+          except Exception as e:
+              print(f"::error::Download failed: {e}")
+              sys.exit(1)
+
+          if not os.path.exists(filename) or os.path.getsize(filename) < 1000:
+              print("::error::Downloaded file is empty or too small")
+              sys.exit(1)
+
+          size_mb = os.path.getsize(filename) / 1024 / 1024
+          print(f"File size: {size_mb:.1f} MB")
+
+          final_name = filename
+          if ZIP_IT:
+              import zipfile
+              zip_name = os.path.splitext(filename)[0] + ".zip"
+              with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as zf:
+                  zf.write(filename)
+              os.remove(filename)
+              final_name = zip_name
+              print(f"Zipped as: {final_name}")
+
+          os.makedirs("release_asset", exist_ok=True)
+          os.rename(final_name, f"release_asset/{final_name}")
+
+          # خروجی برای GitHub Actions
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"filename={final_name}\n")
+
+          print(f"\nReady: release_asset/{final_name}")
+          EOF
+
+      - name: Create Release
+        id: release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: job-${{ github.event.inputs.job_id }}
           files: release_asset/*
           prerelease: true
           name: "Upload ${{ steps.dl.outputs.filename }}"
+          body: |
+            Video from: ${{ github.event.inputs.video_url }}
+            File: `${{ steps.dl.outputs.filename }}`
+
+      - name: Print final download link
+        run: |
+          echo "=========================================="
+          echo "✅ Upload completed successfully!"
+          echo ""
+          echo "Release page:"
+          echo "https://github.com/\( {{ github.repository }}/releases/tag/job- \){{ github.event.inputs.job_id }}"
+          echo ""
+          echo "Direct asset link (may need auth if private repo):"
+          echo "https://github.com/\( {{ github.repository }}/releases/download/job- \){{ github.event.inputs.job_id }}/${{ steps.dl.outputs.filename }}"
+          echo "=========================================="
