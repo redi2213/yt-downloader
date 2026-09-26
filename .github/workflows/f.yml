@@ -1,4 +1,4 @@
-name: Upload File from FPO
+name: Uplo
 
 on:
   workflow_dispatch:
