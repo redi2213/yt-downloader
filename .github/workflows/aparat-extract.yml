@@ -1,0 +1,44 @@
+name: Aparat Link Extractor
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Aparat video or playlist link'
+        required: true
+        type: string
+      quality:
+        description: 'Quality to extract (e.g. 480p). Leave empty to just list available qualities.'
+        required: false
+        type: string
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run extractor
+        id: run
+        run: |
+          python aparat_extract.py \
+            --url "${{ inputs.url }}" \
+            --quality "${{ inputs.quality }}" \
+            --outfile Aparat.txt
+
+      - name: Upload result as artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aparat-links
+          path: Aparat.txt
+          if-no-files-found: error
