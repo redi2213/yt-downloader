@@ -1,0 +1,93 @@
+name: Aparat to GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      aparat_url:
+        description: "Aparat video, playlist or channel link"
+        required: true
+        type: string
+      quality:
+        description: "best, 1080p, 720p, 480p, 360p, 240p or 144p"
+        required: false
+        default: "best"
+        type: string
+      output:
+        description: "upload_separate, upload_zip or links"
+        required: false
+        default: "upload_separate"
+        type: string
+      channel_limit:
+        description: "Channel links only, e.g. count:10 or days:7"
+        required: false
+        default: "count:5"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  aparat:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Fetch from Aparat
+        env:
+          APARAT_URL: ${{ inputs.aparat_url }}
+          QUALITY: ${{ inputs.quality }}
+          OUTPUT: ${{ inputs.output }}
+          CHANNEL_LIMIT: ${{ inputs.channel_limit }}
+        run: |
+          OUT="$RUNNER_TEMP/aparat-out"
+          NOTES="$RUNNER_TEMP/aparat-notes.md"
+
+          python scripts/aparat_workflow.py \
+            --url "$APARAT_URL" \
+            --quality "$QUALITY" \
+            --output "$OUTPUT" \
+            --limit "$CHANNEL_LIMIT" \
+            --outdir "$OUT" \
+            --notes "$NOTES"
+
+          echo "Files to upload:"
+          ls -la "$OUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUT="$RUNNER_TEMP/aparat-out"
+          NOTES="$RUNNER_TEMP/aparat-notes.md"
+          TAG="run-${{ github.run_id }}"
+
+          gh release create "$TAG" "$OUT"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Aparat Download $(date '+%Y-%m-%d %H:%M:%S')" \
+            --notes-file "$NOTES"
+
+          echo "======================================"
+          echo "Release created:"
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          echo "======================================"
+
+      - name: Show direct asset URLs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="run-${{ github.run_id }}"
+
+          gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY"
