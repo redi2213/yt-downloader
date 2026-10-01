@@ -1,5 +1,5 @@
 {
-  "config_version": 3,
+  "config_version": 4,
   "actions": [
     {
       "id": "youtube_generic",
@@ -51,14 +51,112 @@
       "title": "Download from Aparat",
       "icon": "aparat",
       "enabled": true,
-      "input_type": "url",
-      "input_hint": "Enter the Aparat video link",
-      "workflow": "download-anything.yml",
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Aparat link",
+          "hint": "Video, playlist or channel link"
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Best",
+              "value": "best"
+            },
+            {
+              "label": "1080p",
+              "value": "1080p"
+            },
+            {
+              "label": "720p",
+              "value": "720p"
+            },
+            {
+              "label": "480p",
+              "value": "480p"
+            },
+            {
+              "label": "360p",
+              "value": "360p"
+            },
+            {
+              "label": "240p",
+              "value": "240p"
+            },
+            {
+              "label": "144p",
+              "value": "144p"
+            }
+          ],
+          "default": "best"
+        },
+        {
+          "key": "output",
+          "type": "choice",
+          "label": "Output",
+          "choices": [
+            {
+              "label": "Upload files",
+              "value": "upload_separate"
+            },
+            {
+              "label": "Upload as one zip",
+              "value": "upload_zip"
+            },
+            {
+              "label": "Links only",
+              "value": "links"
+            }
+          ],
+          "default": "upload_separate"
+        },
+        {
+          "key": "channel_limit",
+          "type": "choice",
+          "label": "Channel: how many",
+          "choices": [
+            {
+              "label": "Last 5 videos",
+              "value": "count:5"
+            },
+            {
+              "label": "Last 10 videos",
+              "value": "count:10"
+            },
+            {
+              "label": "Last 20 videos",
+              "value": "count:20"
+            },
+            {
+              "label": "Last 50 videos",
+              "value": "count:50"
+            },
+            {
+              "label": "Last 1 day",
+              "value": "days:1"
+            },
+            {
+              "label": "Last 7 days",
+              "value": "days:7"
+            },
+            {
+              "label": "Last 30 days",
+              "value": "days:30"
+            }
+          ],
+          "default": "count:5"
+        }
+      ],
+      "workflow": "aparat-download.yml",
       "workflow_inputs": {
-        "url": "{input}",
-        "mode": "upload_release",
-        "format_id": "bv*+ba/best",
-        "audio_only": "false"
+        "aparat_url": "{url}",
+        "quality": "{quality}",
+        "output": "{output}",
+        "channel_limit": "{channel_limit}"
       }
     },
     {
