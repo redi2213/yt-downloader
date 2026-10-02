@@ -206,6 +206,14 @@ jobs:
             echo "=== Files in working dir ==="
             ls -la
 
+            echo "=== Probing leftover parts (diagnostics) ==="
+            for f in *.f*.mkv *.f*.mp4 *.f*.webm; do
+              [ -f "$f" ] || continue
+              echo "--- $f"
+              echo "first bytes: $(head -c 16 "$f" | od -An -tx1 | tr -s ' ')"
+              ffprobe -hide_banner -v warning -show_entries stream=index,codec_type,codec_name:format=duration,format_name -of default=nw=1 "$f" 2>&1 | head -n 20 || true
+            done
+
             # 1) Is there a finished (non-part) media file?
             MERGED=$(ls -t -- *.mkv *.mp4 *.webm 2>/dev/null | grep -Ev '\.f[0-9A-Za-z_-]+\.(mkv|mp4|webm)$' | head -n1 || true)
 
