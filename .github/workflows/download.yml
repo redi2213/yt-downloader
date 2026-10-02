@@ -50,7 +50,7 @@ jobs:
           path: /opt/ytdlp
           # Bump the -v suffix to force a fresh pull of the SABR branch (it's still
           # under active development on coletdjnz/yt-dlp-dev, unmerged as of now)
-          key: ytdlp-sabr-branch-v1
+          key: ytdlp-sabr-branch-v2
 
       - name: Install yt-dlp SABR branch (cache miss only)
         if: steps.cache-ytdlp.outputs.cache-hit != 'true'
@@ -119,7 +119,9 @@ jobs:
               TARGET_HEIGHT="${BASH_REMATCH[1]}"
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
               SORT_ARGS=(-S "res:${TARGET_HEIGHT},+size")
-            elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ]; then
+            elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ] || [ "$FORMAT_ID" = "bestvideo" ] || [ "$FORMAT_ID" = "best" ]; then
+              # "best" / "bestvideo" (sent by the app's Best button) are treated
+              # the same as bestvideo+bestaudio.
               FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
             elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
               # Explicit format id WITH a client suffix (e.g. "134-0").
