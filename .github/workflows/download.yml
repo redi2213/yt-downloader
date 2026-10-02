@@ -200,18 +200,45 @@ jobs:
 
           SRC=$(cat filename.txt)
           if [ ! -f "$SRC" ]; then
-            # yt-dlp reported a path that doesn't exist (seen with titles containing
-            # special characters). Show what's actually on disk and fall back to the
-            # newest media file in the working dir (fresh runner, so only our download).
+            # yt-dlp reported a merged file that doesn't exist: the video/audio
+            # merge step didn't run and the separate parts (*.fXXX-N.mkv) are left.
             echo "::warning::Reported output file not found: $SRC"
             echo "=== Files in working dir ==="
             ls -la
-            SRC=$(ls -t -- *.mkv *.mp4 *.webm *.mp3 *.m4a 2>/dev/null | head -n1 || true)
-            if [ -z "$SRC" ]; then
-              echo "::error::No output file found after download."
-              exit 1
+
+            # 1) Is there a finished (non-part) media file?
+            MERGED=$(ls -t -- *.mkv *.mp4 *.webm 2>/dev/null | grep -Ev '\.f[0-9A-Za-z_-]+\.(mkv|mp4|webm)$' | head -n1 || true)
+
+            if [ -n "$MERGED" ]; then
+              SRC="$MERGED"
+              echo "Using finished file: $SRC"
+            else
+              # 2) Merge the leftover video + audio parts ourselves.
+              VPART=""; APART=""
+              while IFS= read -r f; do
+                [ -n "$f" ] || continue
+                if [ -n "$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of csv=p=0 "$f" 2>/dev/null || true)" ]; then
+                  VPART="$f"
+                else
+                  APART="$f"
+                fi
+              done < <(ls -t -- *.f*.mkv *.f*.mp4 *.f*.webm 2>/dev/null || true)
+
+              if [ -z "$VPART" ] || [ -z "$APART" ]; then
+                echo "::error::Could not find both a video part and an audio part to merge (video='$VPART' audio='$APART')."
+                exit 1
+              fi
+
+              echo "Video part: $VPART"
+              echo "Audio part: $APART"
+              echo "Video duration: $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VPART" || true)"
+              echo "Audio duration: $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$APART" || true)"
+
+              SRC="${VPART%.f*}.mkv"
+              ffmpeg -hide_banner -loglevel error -y -i "$VPART" -i "$APART" -map 0:v:0 -map 1:a:0 -c copy "$SRC"
+              rm -f "$VPART" "$APART"
+              echo "Merged manually into: $SRC"
             fi
-            echo "Using fallback file: $SRC"
           fi
           FILENAME="$SRC"
 
