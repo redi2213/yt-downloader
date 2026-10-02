@@ -198,7 +198,22 @@ jobs:
             exit 1
           fi
 
-          FILENAME=$(cat filename.txt)
+          SRC=$(cat filename.txt)
+          if [ ! -f "$SRC" ]; then
+            # yt-dlp reported a path that doesn't exist (seen with titles containing
+            # special characters). Show what's actually on disk and fall back to the
+            # newest media file in the working dir (fresh runner, so only our download).
+            echo "::warning::Reported output file not found: $SRC"
+            echo "=== Files in working dir ==="
+            ls -la
+            SRC=$(ls -t -- *.mkv *.mp4 *.webm *.mp3 *.m4a 2>/dev/null | head -n1 || true)
+            if [ -z "$SRC" ]; then
+              echo "::error::No output file found after download."
+              exit 1
+            fi
+            echo "Using fallback file: $SRC"
+          fi
+          FILENAME="$SRC"
 
           # Strip 4-byte Unicode (most emoji) from the filename. GitHub's
           # release-asset "label" field rejects 4-byte Unicode, which makes
@@ -212,7 +227,7 @@ jobs:
           BASENAME="${FILENAME%.*}"
           FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
 
-          mv "$(cat filename.txt)" "$FINAL_NAME"
+          mv "$SRC" "$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
           echo "=== Final file ==="
