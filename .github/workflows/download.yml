@@ -27,13 +27,13 @@ jobs:
   download:
     runs-on: ubuntu-24.04
     steps:
-      # Caches ffmpeg + its dependencies correctly (handles the apt dir permissions
-      # that broke the old manual cache). Bump `version` to force a fresh install.
-      - name: Install ffmpeg (cached)
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: ffmpeg
-          version: 1.0
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          # Fail fast if ffmpeg/ffprobe can't even start (e.g. missing shared libs)
+          ffmpeg -version | head -n1
+          ffprobe -version | head -n1
 
       - name: Cache yt-dlp (SABR branch)
         id: cache-ytdlp
