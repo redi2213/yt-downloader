@@ -125,26 +125,73 @@ jobs:
             QUALITY="audio"
           else
             SORT_ARGS=()
-            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
-              # Quality-target mode: e.g. "480p" or "bestvideo[height<=480]"
-              # picks the closest available resolution to the target, then
-              # the smallest file size among ties.
-              TARGET_HEIGHT="${BASH_REMATCH[1]}"
-              FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
-              SORT_ARGS=(-S "res:${TARGET_HEIGHT},+size")
-            elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ] || [ "$FORMAT_ID" = "bestvideo" ] || [ "$FORMAT_ID" = "best" ]; then
-              # "best" / "bestvideo" (sent by the app's Best button) are treated
-              # the same as bestvideo+bestaudio.
-              FORMAT_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
-            elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-              # Explicit format id WITH a client suffix (e.g. "134-0").
-              # Pick the matching-client audio directly by exact id instead
-              # of building a regex selector.
-              SUFFIX="${BASH_REMATCH[2]}"
+            FALLBACK_SPEC=""
+            AUDIO_TIER="n/a"
+            # Safe audio fallback used for a one-time retry if the download fails:
+            # plain highest AAC, no special rules.
+            SAFE_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
+
+            # ---- Audio rule (by chosen video height) ---------------------------
+            #   >= 1080p (and "best")  -> highest-bitrate surround (AC-3 / E-AC-3,
+            #                             AC-3 wins a tie: better player support);
+            #                             if none, highest-bitrate Opus; if none,
+            #                             highest-bitrate AAC
+            #   720p                   -> highest-bitrate AAC
+            #   < 720p                 -> lowest AAC (itag 599, HE-AAC ~31k)
+            # Only plain "<itag>-<n>" sabr ids are eligible, so the DRC / "AI-voice
+            # boosted" variants (-drc-N / -vb) are never used. For the top tier the
+            # choice is made in Python from the format list (pick_audio.py) because
+            # it compares AC-3 vs E-AC-3 bitrates; the selector chains below are
+            # the fallback when that list can't be read.
+            audio_alternatives() {  # $1 = low | mid | high
+              case "$1" in
+                high)
+                  printf '%s\n' \
+                    "bestaudio[protocol=sabr][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr]" ;;
+                mid)
+                  printf '%s\n' \
+                    "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr]" ;;
+                *)
+                  printf '%s\n' \
+                    "bestaudio[protocol=sabr][format_id~='^599-[0-9]+$']" \
+                    "worstaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr]" ;;
+              esac
+            }
+            build_spec() {  # $1 = tier -> full -f spec
+              local spec="" a
+              while IFS= read -r a; do
+                spec+="${spec:+/}bestvideo[protocol=sabr]+${a}"
+              done < <(audio_alternatives "$1")
+              spec+="/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
+              printf '%s' "$spec"
+            }
+            tier_for_height() {  # $1 = height
+              if [ "$1" -ge 1080 ]; then echo high; elif [ "$1" -ge 720 ]; then echo mid; else echo low; fi
+            }
+            dump_raw_formats() {
               yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" > raw_formats.json 2>/dev/null || echo "::warning::could not dump raw JSON"
-              cat > pick_audio.py << 'PYEOF'
-          import json, os, sys
-          suffix = os.environ["SUFFIX"]
+            }
+            # Top tier for quality-target / best modes: pick the audio id from the
+            # format list and put it first, keeping the selector chain as fallback.
+            apply_top_tier_audio() {  # $1 = target height (99999 for best)
+              local aid
+              dump_raw_formats
+              aid=$(TARGET_HEIGHT="$1" python3 pick_audio.py || true)
+              if [ -n "$aid" ]; then
+                FORMAT_SPEC="bestvideo[protocol=sabr]+${aid}/${FORMAT_SPEC}"
+              else
+                echo "::warning::could not pick audio from the format list; using the selector-based audio rule"
+              fi
+            }
+
+            cat > pick_audio.py << 'PYEOF'
+          import json, os, re, sys
+          fid = os.environ.get("FORMAT_ID", "")
+          th = os.environ.get("TARGET_HEIGHT", "")
           try:
               with open("raw_formats.json") as fh:
                   info = json.load(fh)
@@ -152,35 +199,126 @@ jobs:
               print("")
               sys.exit(0)
           fmts = info.get("formats", [])
-          cands = [f for f in fmts if f.get("vcodec") == "none" and str(f.get("acodec", "")).startswith("mp4a") and str(f.get("format_id", "")).endswith("-" + suffix)]
-          if not cands:
-              cands = [f for f in fmts if f.get("vcodec") == "none" and str(f.get("format_id", "")).endswith("-" + suffix)]
-          print(cands[-1]["format_id"] if cands else "")
+          if th.isdigit():
+              height = int(th)
+          else:
+              vid = next((f for f in fmts if f.get("format_id") == fid), None)
+              height = (vid or {}).get("height") or 0
+          suffix = fid.rsplit("-", 1)[-1] if re.fullmatch(r"\d+-\d+", fid) else ""
+
+          def cands(pred):
+              return [f for f in fmts
+                      if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
+                      and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))
+                      and pred(f)]
+
+          def is_surround(f):
+              return f.get("acodec") in ("ac-3", "ec-3")
+
+          def is_opus(f):
+              return f.get("acodec") == "opus"
+
+          def is_aac(f):
+              return str(f.get("acodec", "")).startswith("mp4a")
+
+          def same(f):
+              # prefer the video's own client suffix when everything else ties
+              return bool(suffix) and str(f["format_id"]).endswith("-" + suffix)
+
+          def choose(cs, highest=True):
+              if not cs:
+                  return None
+              if highest:
+                  return max(cs, key=lambda f: (f.get("abr") or 0, same(f)))["format_id"]
+              return min(cs, key=lambda f: (f.get("abr") or 0, not same(f)))["format_id"]
+
+          if height >= 1080:
+              sur = cands(is_surround)
+              if sur:
+                  # highest bitrate; on a tie AC-3 beats E-AC-3 (better support)
+                  choice = max(sur, key=lambda f: (f.get("abr") or 0, f.get("acodec") == "ac-3", same(f)))["format_id"]
+              else:
+                  choice = choose(cands(is_opus)) or choose(cands(is_aac))
+          elif height >= 720:
+              choice = choose(cands(is_aac))
+          else:
+              choice = choose(cands(is_aac), highest=False)
+          if not choice:
+              choice = choose(cands(lambda f: True), highest=(height >= 720))
+          ch = next((f for f in fmts if f.get("format_id") == choice), {})
+          print("height=%s audio=%s (%s, %sk)" % (height, choice, ch.get("acodec"), ch.get("abr")), file=sys.stderr)
+          print(choice or "")
           PYEOF
-              AUDIO_ID=$(SUFFIX="$SUFFIX" python3 pick_audio.py)
+
+            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
+              # Quality-target mode: e.g. "480p" or "bestvideo[height<=480]"
+              # picks the closest available resolution to the target, then
+              # the smallest file size among ties. "abr" comes before +size so
+              # the audio rule gets the highest-bitrate match (video has no abr,
+              # so it only affects audio).
+              TARGET_HEIGHT="${BASH_REMATCH[1]}"
+              AUDIO_TIER=$(tier_for_height "$TARGET_HEIGHT")
+              SORT_ARGS=(-S "res:${TARGET_HEIGHT},abr,+size")
+              FORMAT_SPEC=$(build_spec "$AUDIO_TIER")
+              if [ "$AUDIO_TIER" = "high" ]; then apply_top_tier_audio "$TARGET_HEIGHT"; fi
+              FALLBACK_SPEC="$SAFE_SPEC"
+            elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ] || [ "$FORMAT_ID" = "bestvideo" ] || [ "$FORMAT_ID" = "best" ]; then
+              # "best" / "bestvideo" (sent by the app's Best button) are treated
+              # the same as bestvideo+bestaudio -> top tier audio.
+              AUDIO_TIER="high"
+              SORT_ARGS=(-S "abr")
+              FORMAT_SPEC=$(build_spec "$AUDIO_TIER")
+              apply_top_tier_audio 99999
+              FALLBACK_SPEC="$SAFE_SPEC"
+            elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+              # Explicit format id WITH a client suffix (e.g. "134-0").
+              # The audio id is chosen from the video's height (rule above),
+              # preferring the same client suffix, sabr only.
+              dump_raw_formats
+              AUDIO_ID=$(python3 pick_audio.py)
               if [ -z "$AUDIO_ID" ]; then
-                echo "::error::No matching audio format found for suffix -$SUFFIX"
+                echo "::error::No matching audio format found for $FORMAT_ID"
                 exit 1
               fi
               FORMAT_SPEC="${FORMAT_ID}+${AUDIO_ID}"
+              FALLBACK_SPEC="${FORMAT_ID}+bestaudio[protocol=sabr][acodec^=mp4a]/${FORMAT_ID}+bestaudio"
             else
               # Explicit format id with no client suffix (bare itag).
               FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
             fi
+            echo "Audio tier: $AUDIO_TIER"
+            echo "Format spec: $FORMAT_SPEC"
 
-            if ! yt-dlp --cookies cookies.txt --remote-components ejs:github \
-                  --extractor-args "$CLIENT_ARGS" \
-                  --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
-                  "${SORT_ARGS[@]}" \
-                  -f "$FORMAT_SPEC" \
-                  --merge-output-format mkv \
-                  -o "$OUTTMPL" \
-                  --print-to-file after_move:filepath filename.txt \
-                  --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
-                  "$VIDEO_URL"; then
+            run_dl() {  # $1 = -f spec
+              yt-dlp --cookies cookies.txt --remote-components ejs:github \
+                --extractor-args "$CLIENT_ARGS" \
+                --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
+                "${SORT_ARGS[@]}" \
+                -f "$1" \
+                --merge-output-format mkv \
+                -o "$OUTTMPL" \
+                --print-to-file after_move:filepath filename.txt \
+                --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
+                "$VIDEO_URL"
+            }
+
+            DL_OK=1
+            if ! run_dl "$FORMAT_SPEC"; then
+              if [ -n "$FALLBACK_SPEC" ] && [ "$FALLBACK_SPEC" != "$FORMAT_SPEC" ]; then
+                echo "::warning::Download failed with: $FORMAT_SPEC"
+                echo "::warning::Retrying once with the safe audio fallback: $FALLBACK_SPEC"
+                rm -f filename.txt metadata.txt
+                FORMAT_SPEC="$FALLBACK_SPEC"
+                run_dl "$FORMAT_SPEC" || DL_OK=0
+              else
+                DL_OK=0
+              fi
+            fi
+
+            if [ "$DL_OK" != "1" ]; then
               echo "::error::Download failed with format spec: $FORMAT_SPEC"
               echo "=== RAW format_id values yt-dlp actually uses for filtering (not the -F display table) ==="
-              yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" > raw_formats.json 2>/dev/null || echo "::warning::could not dump raw JSON"
+              dump_raw_formats
               cat > dump_formats.py << 'PYEOF'
           import json
           try:

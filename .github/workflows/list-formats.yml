@@ -9,8 +9,30 @@ on:
 
 jobs:
   list:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
+      # Same cache key/path as the Download workflow, so yt-dlp + the PO Token
+      # plugin are restored instead of reinstalled on every run. Bump the -v
+      # suffix in BOTH workflows together to force a fresh install.
+      - name: Cache yt-dlp (SABR branch)
+        id: cache-ytdlp
+        uses: actions/cache@v4
+        with:
+          path: /opt/ytdlp
+          key: ytdlp-sabr-branch-v2
+
+      - name: Install yt-dlp SABR branch (cache miss only)
+        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
+        run: pip install --target /opt/ytdlp "yt-dlp[default] @ git+https://github.com/coletdjnz/yt-dlp-dev@feat/youtube/sabr"
+
+      - name: Add yt-dlp to PATH
+        run: |
+          echo "PYTHONPATH=/opt/ytdlp" >> $GITHUB_ENV
+          mkdir -p /opt/ytdlp-bin
+          printf '#!/usr/bin/env bash\nPYTHONPATH=/opt/ytdlp python3 -m yt_dlp "$@"\n' > /opt/ytdlp-bin/yt-dlp
+          chmod +x /opt/ytdlp-bin/yt-dlp
+          echo "/opt/ytdlp-bin" >> $GITHUB_PATH
+
       - name: Install Deno
         uses: denoland/setup-deno@v2
 
@@ -25,17 +47,16 @@ jobs:
             sleep 1
           done
 
-      - name: Install yt-dlp (SABR branch) and PO Token plugin
-        run: |
-          pip install --force-reinstall "yt-dlp[default] @ git+https://github.com/coletdjnz/yt-dlp-dev@feat/youtube/sabr"
-          pip install -U bgutil-ytdlp-pot-provider
-          yt-dlp --version
+      - name: Install PO Token plugin (cache miss only)
+        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
+        run: pip install --target /opt/ytdlp -U bgutil-ytdlp-pot-provider
 
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
       - name: List formats
         run: |
+          yt-dlp --version
           echo '```' >> $GITHUB_STEP_SUMMARY
           yt-dlp --cookies cookies.txt --remote-components ejs:github \
             --extractor-args "youtube:player_client=tv,web_safari,mweb;formats=duplicate" \
