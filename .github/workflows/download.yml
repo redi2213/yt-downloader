@@ -27,13 +27,34 @@ jobs:
   download:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install ffmpeg
+      - name: Cache ffmpeg (static build)
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: /opt/ffmpeg-bin
+          # Bump the -v suffix to force a fresh download of the static ffmpeg build.
+          key: ffmpeg-static-ytdlp-v1
+
+      - name: Install ffmpeg static build (cache miss only)
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          # Fail fast if ffmpeg/ffprobe can't even start (e.g. missing shared libs)
-          ffmpeg -version | head -n1
-          ffprobe -version | head -n1
+          set -euo pipefail
+          sudo mkdir -p /opt/ffmpeg-bin
+          sudo chown "$USER" /opt/ffmpeg-bin
+          curl -fsSL --retry 5 --retry-delay 3 -o /tmp/ffmpeg.tar.xz \
+            "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+          mkdir -p /tmp/ffx
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffx --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          find /tmp/ffx -type f \( -name ffmpeg -o -name ffprobe \) -exec cp {} /opt/ffmpeg-bin/ \;
+          chmod +x /opt/ffmpeg-bin/ffmpeg /opt/ffmpeg-bin/ffprobe
+          rm -rf /tmp/ffx /tmp/ffmpeg.tar.xz
+
+      - name: Add ffmpeg to PATH and verify
+        run: |
+          echo "/opt/ffmpeg-bin" >> "$GITHUB_PATH"
+          # Fail fast if ffmpeg/ffprobe can't even start
+          /opt/ffmpeg-bin/ffmpeg -version | head -n1
+          /opt/ffmpeg-bin/ffprobe -version | head -n1
 
       - name: Cache yt-dlp (SABR branch)
         id: cache-ytdlp
