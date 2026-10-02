@@ -114,8 +114,10 @@ jobs:
           import re, sys
           pat = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%\s+of")
           tag = re.compile(r"\(([0-9A-Za-z_-]+)\)\s*$")
+          summ = re.compile(r"%\s+of\s+\S+\s+in\s+\d")
           last = {}
-          for line in sys.stdin:
+
+          def emit(line):
               m = pat.search(line)
               if m:
                   pct = float(m.group(1))
@@ -123,12 +125,27 @@ jobs:
                   key = t.group(1) if t else line.split("[download]")[0]
                   bucket = int(pct // 10)
                   # always keep the final "100% of X in 00:00:45 at ..." summary
-                  summary = re.search(r"%\s+of\s+\S+\s+in\s+\d", line)
-                  if not summary and last.get(key) == bucket:
-                      continue
+                  if not summ.search(line) and last.get(key) == bucket:
+                      return
                   last[key] = bucket
-              sys.stdout.write(line)
+              sys.stdout.write(line + "\n")
               sys.stdout.flush()
+
+          # yt-dlp separates progress updates with carriage returns (\r), not
+          # newlines, so split the raw byte stream on both.
+          buf = b""
+          while True:
+              chunk = sys.stdin.buffer.read1(65536)
+              if not chunk:
+                  break
+              buf += chunk
+              parts = re.split(rb"[\r\n]", buf)
+              buf = parts.pop()
+              for part in parts:
+                  if part.strip():
+                      emit(part.decode("utf-8", "replace"))
+          if buf.strip():
+              emit(buf.decode("utf-8", "replace"))
           PYEOF
 
           # SABR is YouTube's current mandatory streaming path for hi-res formats;
