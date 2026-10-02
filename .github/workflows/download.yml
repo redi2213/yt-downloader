@@ -106,6 +106,31 @@ jobs:
           OUTTMPL="%(title).120s.%(ext)s"
           COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
 
+          # Keeps the log readable: yt-dlp prints a progress line for every
+          # fragment (tens of thousands of lines). This filter lets every other
+          # line through and shows download progress only when it crosses a new
+          # 10% step (plus the final 100% summary).
+          cat > filter_progress.py << 'PYEOF'
+          import re, sys
+          pat = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%\s+of")
+          tag = re.compile(r"\(([0-9A-Za-z_-]+)\)\s*$")
+          last = {}
+          for line in sys.stdin:
+              m = pat.search(line)
+              if m:
+                  pct = float(m.group(1))
+                  t = tag.search(line)
+                  key = t.group(1) if t else line.split("[download]")[0]
+                  bucket = int(pct // 10)
+                  # always keep the final "100% of X in 00:00:45 at ..." summary
+                  summary = re.search(r"%\s+of\s+\S+\s+in\s+\d", line)
+                  if not summary and last.get(key) == bucket:
+                      continue
+                  last[key] = bucket
+              sys.stdout.write(line)
+              sys.stdout.flush()
+          PYEOF
+
           # SABR is YouTube's current mandatory streaming path for hi-res formats;
           # formats=duplicate surfaces both the legacy https/dash entries (mostly
           # broken/missing URLs now) and the working sabr entries side by side.
@@ -121,7 +146,7 @@ jobs:
               -x --audio-format mp3 \
               -o "$OUTTMPL" \
               --print-to-file after_move:filepath filename.txt \
-              "$VIDEO_URL"
+              "$VIDEO_URL" 2>&1 | python3 -u filter_progress.py
             QUALITY="audio"
           else
             SORT_ARGS=()
@@ -299,7 +324,7 @@ jobs:
                 -o "$OUTTMPL" \
                 --print-to-file after_move:filepath filename.txt \
                 --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
-                "$VIDEO_URL"
+                "$VIDEO_URL" 2>&1 | python3 -u filter_progress.py
             }
 
             DL_OK=1
@@ -430,7 +455,7 @@ jobs:
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py
+        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
