@@ -25,23 +25,15 @@ permissions:
 
 jobs:
   download:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Cache apt debs
-        id: cache-apt
-        uses: actions/cache@v4
+      # Caches ffmpeg + its dependencies correctly (handles the apt dir permissions
+      # that broke the old manual cache). Bump `version` to force a fresh install.
+      - name: Install ffmpeg (cached)
+        uses: awalsh128/cache-apt-pkgs-action@v1
         with:
-          path: /var/cache/apt/archives
-          key: apt-debs-ffmpeg-v3
-
-      - name: Download apt packages (cache miss only)
-        if: steps.cache-apt.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --download-only ffmpeg
-
-      - name: Install ffmpeg from local debs
-        run: sudo dpkg -i /var/cache/apt/archives/*.deb || sudo apt-get install -f -y
+          packages: ffmpeg
+          version: 1.0
 
       - name: Cache yt-dlp (SABR branch)
         id: cache-ytdlp
