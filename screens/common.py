@@ -43,7 +43,7 @@ def wrapped_label(text, height=None, halign="left", valign="top"):
 
 
 def build_working_screen(nav, message, back_text="Back (job keeps running)",
-                          on_cancel=None, extra_buttons=None):
+                          on_cancel=None, extra_buttons=None, job=None):
     """The screen shown while a background job runs. "Back" just navigates
     home - the job keeps running regardless, and writes its result into the
     job manager so 'check on last job' can pick it up later. If on_cancel is
@@ -52,6 +52,11 @@ def build_working_screen(nav, message, back_text="Back (job keeps running)",
     label = Label(text=message, size_hint_y=None, height=60)
     nav.add(label)
     nav.set_status_label(label)
+
+    if job is not None:
+        github_btn = Button(text="Open run on GitHub", size_hint_y=None, height=48)
+        github_btn.bind(on_press=lambda i: nav.open_job_on_github(job))
+        nav.add(github_btn)
 
     back_btn = Button(text=back_text, size_hint_y=None, height=48)
     back_btn.bind(on_press=lambda i: nav.show_home())

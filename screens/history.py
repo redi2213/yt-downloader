@@ -1,10 +1,25 @@
 from kivy.core.clipboard import Clipboard
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from screens.common import back_button, wrapped_label, wrapped_label_height
+from core import android_actions
+from screens.common import (
+    back_button, content_width, wrapped_label, wrapped_label_height,
+)
+
+_CHECK_WIDTH = 44
+
+
+def _title_height(text):
+    """Like wrapped_label_height, but for a label that shares its row with a
+    checkbox (so it is a little narrower)."""
+    chars_per_line = max(10, int((content_width() - _CHECK_WIDTH - 8) / 15))
+    lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line)
+                for line in text.split("\n"))
+    return lines * 40 + 12
 
 
 def build_loading(nav):
@@ -15,9 +30,72 @@ def build_loading(nav):
 def build(nav, items):
     nav.clear()
     nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=40))
+
+    checks = []  # (item, CheckBox) for every row, in display order
+    info = Label(text="", size_hint_y=None, height=32)
+
+    def selected_items():
+        return [it for it, cb in checks if cb.active]
+
+    def update_info(*_args):
+        info.text = f"Selected: {len(selected_items())} of {len(items)}"
+
+    def need_selection():
+        sel = selected_items()
+        if not sel:
+            info.text = "Select some files first"
+        return sel
+
+    def copy_selected(_inst):
+        sel = need_selection()
+        if sel:
+            Clipboard.copy("\n".join(it["link"] for it in sel))
+            info.text = f"Copied {len(sel)} link(s)"
+
+    def share_selected(_inst):
+        sel = need_selection()
+        if sel:
+            shared = android_actions.share_text("\n".join(it["link"] for it in sel))
+            info.text = (f"Sharing {len(sel)} link(s)" if shared
+                         else f"Share not available - copied {len(sel)} link(s)")
+
+    def delete_selected(_inst):
+        sel = need_selection()
+        if sel:
+            nav.show_bulk_delete_confirm(sel, scope="selected")
+
+    def set_all(value):
+        for _it, cb in checks:
+            cb.active = value
+        update_info()
+
     if not items:
         nav.add(Label(text="No downloads yet", size_hint_y=None, height=40))
     else:
+        select_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
+        select_all_btn = Button(text="Select all")
+        select_all_btn.bind(on_press=lambda i: set_all(True))
+        clear_btn = Button(text="Clear")
+        clear_btn.bind(on_press=lambda i: set_all(False))
+        select_row.add_widget(select_all_btn)
+        select_row.add_widget(clear_btn)
+        nav.add(select_row)
+
+        update_info()
+        nav.add(info)
+
+        action_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=4)
+        copy_sel_btn = Button(text="Copy links")
+        copy_sel_btn.bind(on_press=copy_selected)
+        share_sel_btn = Button(text="Share")
+        share_sel_btn.bind(on_press=share_selected)
+        delete_sel_btn = Button(text="Delete selected")
+        delete_sel_btn.bind(on_press=delete_selected)
+        action_row.add_widget(copy_sel_btn)
+        action_row.add_widget(share_sel_btn)
+        action_row.add_widget(delete_sel_btn)
+        nav.add(action_row)
+
         bulk_delete_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None, height=48)
         bulk_delete_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm(items))
         nav.add(bulk_delete_btn)
@@ -26,10 +104,19 @@ def build(nav, items):
         size_mb = item.get("size", 0) / (1024 * 1024)
         size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
         title_text = f"{item['date']}\n{item['title']}{size_text}"
-        title_height = wrapped_label_height(title_text)
+        title_height = _title_height(title_text)
         row_height = title_height + 44 + 6 + 12  # title + link_row + spacing + padding
         row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=6, padding=(0, 6))
-        row.add_widget(wrapped_label(title_text, height=title_height))
+
+        title_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=title_height, spacing=4)
+        check = CheckBox(size_hint_x=None, width=_CHECK_WIDTH)
+        check.bind(active=update_info)
+        checks.append((item, check))
+        title_label = wrapped_label(title_text, height=title_height)
+        title_label.text_size = (content_width() - _CHECK_WIDTH - 8, None)
+        title_row.add_widget(check)
+        title_row.add_widget(title_label)
+        row.add_widget(title_row)
 
         link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
         box = TextInput(text=item["link"], readonly=True, multiline=False, size_hint_x=0.55)
@@ -63,15 +150,18 @@ def build_delete_confirm(nav, item):
     nav.add(cancel_btn)
 
 
-def build_bulk_delete_confirm(nav, items):
+def build_bulk_delete_confirm(nav, items, scope="shown"):
     nav.clear()
-    nav.add(Label(text=f"Delete all {len(items)} releases shown?\nThis cannot be undone.",
-                   size_hint_y=None, height=80))
-    confirm_btn = Button(text=f"Yes, delete all {len(items)}", size_hint_y=None, height=48)
-    confirm_btn.bind(on_press=lambda i: nav.do_bulk_delete(items))
+    selected = scope == "selected"
+    question = (f"Delete the {len(items)} selected release(s)?" if selected
+                else f"Delete all {len(items)} releases shown?")
+    nav.add(Label(text=f"{question}\nThis cannot be undone.", size_hint_y=None, height=80))
+    confirm_text = f"Yes, delete {len(items)}" if selected else f"Yes, delete all {len(items)}"
+    confirm_btn = Button(text=confirm_text, size_hint_y=None, height=48)
+    confirm_btn.bind(on_press=lambda i: nav.do_bulk_delete(items, scope=scope))
     nav.add(confirm_btn)
     cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-    cancel_btn.bind(on_press=lambda i: nav.show_job_history())
+    cancel_btn.bind(on_press=lambda i: nav.show_live_history() if selected else nav.show_job_history())
     nav.add(cancel_btn)
 
 

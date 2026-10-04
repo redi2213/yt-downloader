@@ -49,9 +49,15 @@ def build(nav):
                                halign="left", valign="top", text_size=(width, None))
         row.add_widget(kind_label)
         row.add_widget(outcome_label)
-        view_btn = Button(text="View", size_hint_y=None, height=40)
+        buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=40, spacing=4)
+        view_btn = Button(text="View")
         view_btn.bind(on_press=lambda i, j=job: nav.view_job_from_history(j))
-        row.add_widget(view_btn)
+        buttons.add_widget(view_btn)
+        if job.run_id:
+            github_btn = Button(text="GitHub", size_hint_x=0.35)
+            github_btn.bind(on_press=lambda i, j=job: nav.open_job_on_github(j))
+            buttons.add_widget(github_btn)
+        row.add_widget(buttons)
         nav.add(row)
 
     nav.add(back_button(nav))

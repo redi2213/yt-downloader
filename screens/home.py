@@ -10,6 +10,12 @@ from kivy.uix.label import Label
 def build(nav):
     nav.clear()
 
+    running = nav.job_manager.active_jobs
+    if running:
+        running_btn = Button(text=f"Running jobs ({len(running)})", size_hint_y=None, height=52)
+        running_btn.bind(on_press=lambda i: nav.show_running_jobs())
+        nav.add(running_btn)
+
     youtube_btn = Button(text="YouTube Download", size_hint_y=None, height=52)
     youtube_btn.bind(on_press=lambda i: nav.show_youtube_download())
     nav.add(youtube_btn)

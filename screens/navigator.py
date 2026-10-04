@@ -57,7 +57,8 @@ class Navigator:
             message,
             back_text=back_text,
             on_cancel=on_cancel,
-            extra_buttons=extra_buttons
+            extra_buttons=extra_buttons,
+            job=job
         )
 
     def show_result(self, message, link=None, retry=None, retry_message="Working..."):
@@ -77,6 +78,35 @@ class Navigator:
     def show_settings(self):
         from screens import settings
         settings.build(self)
+
+    # -- opening runs on GitHub / running jobs ----------------------------------
+    def open_run_on_github(self, run_id):
+        """Opens the run's GitHub Actions page (live logs) in the browser."""
+        from core import android_actions
+        from core.config import run_url
+        url = run_url(run_id)
+        if not android_actions.open_url(url):
+            from kivy.core.clipboard import Clipboard
+            Clipboard.copy(url)
+            self.set_status("Could not open the browser - link copied")
+
+    def open_job_on_github(self, job):
+        if not getattr(job, "run_id", None):
+            self.set_status("The run has not started yet - try again in a few seconds")
+            return
+        self.open_run_on_github(job.run_id)
+
+    def show_running_jobs(self):
+        from screens import running_jobs
+        running_jobs.build(self)
+
+    def show_job_steps(self, job):
+        """Step-by-step view of a job's run (the same screen as Check GitHub
+        Actions status); Back returns to the running jobs list."""
+        if not getattr(job, "run_id", None):
+            self.set_status("The run has not started yet - try again in a few seconds")
+            return
+        self.show_run_detail({"run_id": job.run_id, "workflow": job.type, "origin": "running"})
 
     # -- job lifecycle -------------------------------------------------------
     def cancel_job(self, job):
@@ -150,8 +180,20 @@ class Navigator:
 
         self.route_finished_job(job)
 
-    def _status_and_complete_callbacks(self):
-        on_status = lambda text: self.set_status(text)
+    def _relay_status(self, job, text):
+        """Several jobs can run at once. A job's status line may only be
+        shown while that job is the one on screen - otherwise its text would
+        overwrite another job's screen."""
+        if job is not None and self.job_manager.current_job is not job:
+            return
+        self.set_status(text)
+
+    def _status_and_complete_callbacks(self, job=None, job_ref=None):
+        """``job_ref`` is a dict whose "job" entry is filled in later, for
+        flows where the service creates the job itself."""
+        def on_status(text):
+            target = job_ref.get("job") if job_ref is not None else job
+            self._relay_status(target, text)
         on_complete = lambda job: self.schedule(
             lambda: self._handle_job_complete(job)
         )
@@ -159,11 +201,11 @@ class Navigator:
 
     # -- starting jobs --------------------------------------------------------
     def start_fetch_formats(self, url):
-        on_status, on_complete = self._status_and_complete_callbacks()
         job = download_service.create_fetch_formats_job(
             self.job_manager,
             url
         )
+        on_status, on_complete = self._status_and_complete_callbacks(job)
         self.show_working("Fetching qualities...", job=job)
         download_service.run_fetch_formats_job(
             self.job_manager,
@@ -197,7 +239,7 @@ class Navigator:
             extra_buttons=extra_buttons
         )
 
-        on_status, on_complete = self._status_and_complete_callbacks()
+        on_status, on_complete = self._status_and_complete_callbacks(job)
 
         download_service.run_download_job(
             self.job_manager,
@@ -235,7 +277,7 @@ class Navigator:
             job=job
         )
 
-        on_status, on_complete = self._status_and_complete_callbacks()
+        on_status, on_complete = self._status_and_complete_callbacks(job)
 
         upload_service.run_upload_job(
             self.job_manager,
@@ -270,7 +312,7 @@ class Navigator:
             job=job
         )
 
-        on_status, on_complete = self._status_and_complete_callbacks()
+        on_status, on_complete = self._status_and_complete_callbacks(job)
 
         playlist_service.run_playlist_links_job(
             self.job_manager,
@@ -307,7 +349,7 @@ class Navigator:
             extra_buttons=extra_buttons
         )
 
-        on_status, on_complete = self._status_and_complete_callbacks()
+        on_status, on_complete = self._status_and_complete_callbacks(job)
 
         playlist_service.run_playlist_download_job(
             self.job_manager,
@@ -336,7 +378,8 @@ class Navigator:
         """Used by the "This is a playlist" quick-quality buttons: reads the
         playlist and starts downloading every video at the chosen quality
         in one step, with no intermediate quality-picker screen."""
-        on_status, on_complete = self._status_and_complete_callbacks()
+        job_ref = {}
+        on_status, on_complete = self._status_and_complete_callbacks(job_ref=job_ref)
 
         job = playlist_service.start_playlist_quick(
             self.job_manager,
@@ -347,6 +390,7 @@ class Navigator:
             on_status=on_status,
             on_complete=on_complete
         )
+        job_ref["job"] = job
 
         self.show_working(
             "Reading playlist...",
@@ -495,7 +539,7 @@ class Navigator:
             job=job
         )
 
-        on_status, on_complete = self._status_and_complete_callbacks()
+        on_status, on_complete = self._status_and_complete_callbacks(job)
 
         generic_action_service.run_action_job(
             self.job_manager,
@@ -543,8 +587,15 @@ class Navigator:
             runs
         )
 
+    def back_from_run_detail(self, origin="status"):
+        if origin == "running":
+            self.show_running_jobs()
+        else:
+            self.show_actions_status()
+
     def show_run_detail(self, run):
         from screens import actions_status as actions_screen
+        origin = run.get("origin", "status")
 
         actions_screen.build_run_detail_loading(
             self,
@@ -556,17 +607,19 @@ class Navigator:
             on_complete=lambda steps: self.schedule(
                 lambda: self.render_run_detail(
                     run["run_id"],
-                    steps
+                    steps,
+                    origin
                 )
             )
         )
 
-    def render_run_detail(self, run_id, steps):
+    def render_run_detail(self, run_id, steps, origin="status"):
         from screens import actions_status as actions_screen
         actions_screen.build_run_detail(
             self,
             run_id,
-            steps
+            steps,
+            origin=origin
         )
 
     # -- job history -------------------------------------------------------
@@ -600,11 +653,12 @@ class Navigator:
             item
         )
 
-    def show_bulk_delete_confirm(self, items):
+    def show_bulk_delete_confirm(self, items, scope="shown"):
         from screens import history as history_screen
         history_screen.build_bulk_delete_confirm(
             self,
-            items
+            items,
+            scope=scope
         )
 
     def show_rename_prompt(self, item):
@@ -626,7 +680,7 @@ class Navigator:
             )
         )
 
-    def do_bulk_delete(self, items):
+    def do_bulk_delete(self, items, scope="shown"):
         from screens import history as history_screen
 
         history_screen.build_bulk_deleting(
@@ -638,7 +692,8 @@ class Navigator:
             items,
             on_status=lambda text: self.set_status(text),
             on_complete=lambda res: self.schedule(
-                lambda: self.show_job_history()
+                lambda: (self.show_live_history() if scope == "selected"
+                         else self.show_job_history())
             )
         )
 
