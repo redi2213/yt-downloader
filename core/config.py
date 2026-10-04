@@ -13,6 +13,12 @@ REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 
 
+def run_url(run_id) -> str:
+    """The GitHub Actions page of a run (live logs and steps), for opening
+    in the browser."""
+    return f"https://github.com/{REPO_OWNER}/{REPO_NAME}/actions/runs/{run_id}"
+
+
 def _load_github_branch() -> str:
     """Determines which branch this build's APK should target for ALL
     workflow dispatches (list-formats, list-playlist, download, upload-file,
