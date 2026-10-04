@@ -97,7 +97,8 @@ jobs:
 
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
-- name: Download
+
+      - name: Download
         id: dl
         shell: bash
         run: |
@@ -173,8 +174,6 @@ jobs:
             SAFE_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
 
             # ---- Audio rule (by chosen video height) ---------------------------
-            #   Persian audio (language fa) always wins when the video has it;
-            #   the rules below then apply inside the Persian tracks only.
             #   >= 1080p (and "best")  -> highest-bitrate surround (AC-3 / E-AC-3,
             #                             AC-3 wins a tie: better player support);
             #                             if none, highest-bitrate Opus; if none,
@@ -304,7 +303,8 @@ jobs:
           print("height=%s audio=%s (%s, %sk)" % (height, choice, ch.get("acodec"), ch.get("abr")), file=sys.stderr)
           print(choice or "")
           PYEOF
-if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
+
+            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
               # Quality-target mode: e.g. "480p" or "bestvideo[height<=480]"
               # picks the closest available resolution to the target, then
               # the smallest file size among ties. "abr" comes before +size so
