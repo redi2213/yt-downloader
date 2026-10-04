@@ -16,9 +16,19 @@ class JobManager:
         self.current_job: Optional[Job] = None
         self.history: List[Job] = []
         self._max_history = max_history
+        # Every job started and not yet finished - several can run at once
+        # (e.g. two links sent one after another).
+        self._started: List[Job] = []
+
+    @property
+    def active_jobs(self) -> List[Job]:
+        """Jobs that are still running, oldest first."""
+        return [j for j in self._started if not j.is_done]
 
     def start(self, job: Job) -> Job:
         """Registers a newly created job as the current job."""
+        if all(j is not job for j in self._started):
+            self._started.append(job)
         self.current_job = job
         return job
 
@@ -32,6 +42,7 @@ class JobManager:
         job.retry = retry
         job.result = {"ok": ok, "error": error, **(result_data or {})}
         job.touch()
+        self._forget_started(job)
         self._record_history(job)
         return job
 
@@ -41,6 +52,7 @@ class JobManager:
         job.error = message
         job.result = {"ok": False, "error": message}
         job.touch()
+        self._forget_started(job)
         self._record_history(job)
         return job
 
@@ -48,6 +60,9 @@ class JobManager:
         """Makes ``job`` (typically one picked from history) the current job."""
         self.current_job = job
         return job
+
+    def _forget_started(self, job: Job):
+        self._started = [j for j in self._started if j is not job]
 
     def _record_history(self, job: Job):
         # Avoid double-recording the same job object if it's already there.
