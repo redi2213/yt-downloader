@@ -1,5 +1,5 @@
 {
-  "config_version": 4,
+  "config_version": 5,
   "actions": [
     {
       "id": "youtube_generic",
@@ -21,6 +21,9 @@
       "title": "Download from TikTok",
       "icon": "tiktok",
       "enabled": true,
+      "domains": [
+        "tiktok.com"
+      ],
       "input_type": "url",
       "input_hint": "Enter the TikTok video link",
       "workflow": "download-anything.yml",
@@ -36,6 +39,9 @@
       "title": "Download from Mediafire",
       "icon": "mediafire",
       "enabled": true,
+      "domains": [
+        "mediafire.com"
+      ],
       "input_type": "url",
       "input_hint": "Enter the Mediafire link",
       "workflow": "download-anything.yml",
@@ -51,6 +57,9 @@
       "title": "Download from Aparat",
       "icon": "aparat",
       "enabled": true,
+      "domains": [
+        "aparat.com"
+      ],
       "fields": [
         {
           "key": "url",
@@ -164,6 +173,11 @@
       "title": "Download from Telegram",
       "icon": "telegram",
       "enabled": true,
+      "domains": [
+        "t.me",
+        "telegram.me",
+        "telegram.dog"
+      ],
       "input_type": "url",
       "input_hint": "Enter the Telegram message link",
       "workflow": "telegram-download.yml",
