@@ -180,13 +180,9 @@ jobs:
             #                             highest-bitrate AAC
             #   720p                   -> highest-bitrate AAC
             #   < 720p                 -> lowest AAC (itag 599, HE-AAC ~31k)
-            # Only plain "
-<itag>-
-    <n>" sabr ids are eligible, so the DRC / "AI-voice
-            # boosted" variants (-drc-N / -vb) are never used. For the top tier the
-            # choice is made in Python from the format list (pick_audio.py) because
-            # it compares AC-3 vs E-AC-3 bitrates; the selector chains below are
-            # the fallback when that list can't be read.
+            # Only plain "<itag>-<n>" SABR IDs are eligible; DRC and AI voice-boosted
+            # variants (-drc-N / -vb) are never used. For the top tier, Python chooses
+            # between AC-3 and E-AC-3 by bitrate; the selector chains below are fallback.
             audio_alternatives() {  # $1 = low | mid | high
               case "$1" in
                 high)
@@ -417,4 +413,6 @@ jobs:
           SRC=$(cat filename.txt)
           if [ ! -f "$SRC" ]; then
             # yt-dlp reported a merged file that doesn't exist: the video/audio
-            # merge step didn't run and 
+            # merge step didn't run and the separate parts (*.fXXX-N.mkv) are left.
+            echo "::warning::Reported output file not found: $SRC"
+            echo "=== 
