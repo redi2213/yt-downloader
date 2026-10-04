@@ -1,4 +1,5 @@
 name: List Playlist
+run-name: List playlist ${{ inputs.playlist_url }} [${{ inputs.job_id }}]
 
 on:
   workflow_dispatch:
@@ -6,6 +7,11 @@ on:
       playlist_url:
         description: 'YouTube playlist URL'
         required: true
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   list:

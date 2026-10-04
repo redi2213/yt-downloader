@@ -1,4 +1,5 @@
 name: List Formats
+run-name: List formats ${{ inputs.video_url }} [${{ inputs.job_id }}]
 
 on:
   workflow_dispatch:
@@ -6,6 +7,11 @@ on:
       video_url:
         description: 'YouTube URL'
         required: true
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   list:
@@ -54,103 +60,14 @@ jobs:
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
 
-      - name: List formats (deduplicated, Persian audio preferred)
-        shell: bash
+      - name: List formats
         run: |
-          set -euo pipefail
           yt-dlp --version
+          echo '```' >> $GITHUB_STEP_SUMMARY
           yt-dlp --cookies cookies.txt --remote-components ejs:github \
             --extractor-args "youtube:player_client=tv,web_safari,mweb;formats=duplicate" \
-            -F "${{ github.event.inputs.video_url }}" > formats_raw.txt 2>&1
-
-          cat > filter_formats.py <<'PYEOF'
-          import re
-          from pathlib import Path
-
-          lines = Path('formats_raw.txt').read_text(errors='replace').splitlines()
-          proto_re = re.compile(r'\b(sabr|dash|https)\s*\|', re.I)
-          codec_re = re.compile(r'\b(?:avc1|vp9|vp09|av01|hev1|hvc1|avc|vp8|theora)(?:[.][A-Za-z0-9]+)*', re.I)
-          quality_re = re.compile(r'\b(\d{3,4}x\d{3,4}|\d{3,4}p\d*)\b', re.I)
-          fps_re = re.compile(r'\b(\d{2,3})\s*fps\b', re.I)
-          audio_re = re.compile(r'\baudio only\b', re.I)
-          video_re = re.compile(r'\bvideo only\b', re.I)
-          lang_fa_re = re.compile(r'(?i)(?:\bfa(?:-[A-Z]{2})?\b|\bPersian\b|فارسی)')
-          abr_re = re.compile(r'\b(\d+(?:\.\d+)?)k\b', re.I)
-
-          rows = []
-          all_row_indices = set()
-          for i, line in enumerate(lines):
-              parts = line.split()
-              if not parts or not re.match(r'^\d', parts[0]):
-                  continue
-              if not (audio_re.search(line) or video_re.search(line)):
-                  continue
-              all_row_indices.add(i)
-              proto = proto_re.search(line)
-              protocol = proto.group(1).lower() if proto else ''
-              fmt_id = parts[0]
-              is_fa = bool(lang_fa_re.search(line))
-              if audio_re.search(line):
-                  codec = 'aac' if re.search(r'\bmp4a\b', line) else ('opus' if re.search(r'\bopus\b', line, re.I) else (re.search(r'\b(ac-3|ec-3)\b', line, re.I).group(1).lower() if re.search(r'\b(ac-3|ec-3)\b', line, re.I) else 'other'))
-                  abr = abr_re.search(line)
-                  special = 'drc' if '-drc-' in fmt_id else ('voiceboost' if '-vb' in fmt_id else 'plain')
-                  key = ('audio', codec, abr.group(1) if abr else '', special, is_fa)
-              else:
-                  q = quality_re.search(line)
-                  c = codec_re.search(line)
-                  if not q or not c:
-                      # Don't discard an unfamiliar video codec or unusual format row.
-                      key = ('video-unclassified', fmt_id)
-                  else:
-                      fps = fps_re.search(line)
-                      if not fps:
-                          fps = re.search(re.escape(q.group(1)) + r'\s+(\d{2,3})\b', line, re.I)
-                      hdr = bool(re.search(r'\bHDR\b|\bHLG\b|\bPQ\b|\bDV\b|Dolby Vision', line, re.I))
-                      # Keep distinct codec profiles/bit depths (e.g. VP9.2 and AV1 10-bit),
-                      # HDR state, resolution, and frame rate; only collapse client/protocol duplicates.
-                      key = ('video', q.group(1).lower(), fps.group(1) if fps else '', c.group(0).lower(), hdr)
-              rows.append({'i': i, 'line': line, 'id': fmt_id, 'protocol': protocol, 'audio': bool(audio_re.search(line)), 'fa': is_fa, 'key': key})
-
-          # If YouTube exposes Persian audio, hide other languages from the
-          # listing. logs.py then sees Persian rows without needing an APK rebuild.
-          has_fa = any(r['audio'] and r['fa'] for r in rows)
-          if has_fa:
-              rows = [r for r in rows if not r['audio'] or r['fa']]
-
-          chosen = {}
-          passthrough = []
-          for r in rows:
-              if r['key'][0] == 'video-unclassified':
-                  passthrough.append(r)
-                  continue
-              old = chosen.get(r['key'])
-              # Prefer SABR entries because the download workflow uses SABR for
-              # high-resolution YouTube formats; otherwise retain first-seen row.
-              score = (r['protocol'] == 'sabr', r['protocol'] == 'https', r['protocol'] == 'dash')
-              old_score = (old['protocol'] == 'sabr', old['protocol'] == 'https', old['protocol'] == 'dash') if old else None
-              if old is None or score > old_score:
-                  chosen[r['key']] = r
-
-          keep_ids = {r['i'] for r in chosen.values()} | {r['i'] for r in passthrough}
-          # Keep yt-dlp's heading/table headers, but only print the selected rows.
-          output = []
-          for i, line in enumerate(lines):
-              if i in all_row_indices:
-                  if i in keep_ids:
-                      output.append(line)
-              else:
-                  output.append(line)
-          print('Persian audio priority: ' + ('Persian tracks only (when detected)' if has_fa else 'no Persian track detected; kept available audio'))
-          print('Formats before filtering: %d' % len(rows))
-          print('Formats after filtering: %d' % len(keep_ids))
-          print('')
-          print('\n'.join(output))
-          PYEOF
-
-          python3 filter_formats.py | tee formats_filtered.txt
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat formats_filtered.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+            -F "${{ github.event.inputs.video_url }}" | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Clean up cookies
         if: always()
