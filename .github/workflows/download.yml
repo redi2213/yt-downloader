@@ -154,7 +154,7 @@ jobs:
           CLIENT_ARGS="youtube:player_client=tv,web_safari,mweb;formats=duplicate"
 
           if [ "$AUDIO_ONLY" = "true" ]; then
-            FORMAT_SPEC="bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[acodec^=mp4a]/bestaudio"
+            FORMAT_SPEC="bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/bestaudio[protocol=sabr][language^=fa]/bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[language^=fa][acodec^=mp4a]/bestaudio[language^=fa]/bestaudio[acodec^=mp4a]/bestaudio"
 
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
@@ -171,7 +171,7 @@ jobs:
             AUDIO_TIER="n/a"
             # Safe audio fallback used for a one-time retry if the download fails:
             # plain highest AAC, no special rules.
-            SAFE_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
+            SAFE_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr][language^=fa]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo+bestaudio[language^=fa][acodec^=mp4a]/bestvideo+bestaudio[language^=fa]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
 
             # ---- Audio rule (by chosen video height) ---------------------------
             #   >= 1080p (and "best")  -> highest-bitrate surround (AC-3 / E-AC-3,
@@ -180,7 +180,9 @@ jobs:
             #                             highest-bitrate AAC
             #   720p                   -> highest-bitrate AAC
             #   < 720p                 -> lowest AAC (itag 599, HE-AAC ~31k)
-            # Only plain "<itag>-<n>" sabr ids are eligible, so the DRC / "AI-voice
+            # Only plain "
+<itag>-
+    <n>" sabr ids are eligible, so the DRC / "AI-voice
             # boosted" variants (-drc-N / -vb) are never used. For the top tier the
             # choice is made in Python from the format list (pick_audio.py) because
             # it compares AC-3 vs E-AC-3 bitrates; the selector chains below are
@@ -189,15 +191,23 @@ jobs:
               case "$1" in
                 high)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr][language^=fa][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
                 mid)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
                 *)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^599-[0-9]+$']" \
+                    "worstaudio[protocol=sabr][language^=fa][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][format_id~='^599-[0-9]+$']" \
                     "worstaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
@@ -249,10 +259,15 @@ jobs:
           suffix = fid.rsplit("-", 1)[-1] if re.fullmatch(r"\d+-\d+", fid) else ""
 
           def cands(pred):
-              return [f for f in fmts
+              rows = [f for f in fmts
                       if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
-                      and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))
-                      and pred(f)]
+                      and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))]
+              # Prefer Persian globally before applying codec/bitrate rules, so
+              # an English surround track cannot outrank an available Persian AAC/Opus track.
+              fa = [f for f in rows if str(f.get("language") or "").lower().startswith("fa")]
+              if fa:
+                  rows = fa
+              return [f for f in rows if pred(f)]
 
           def is_surround(f):
               return f.get("acodec") in ("ac-3", "ec-3")
@@ -323,10 +338,10 @@ jobs:
                 exit 1
               fi
               FORMAT_SPEC="${FORMAT_ID}+${AUDIO_ID}"
-              FALLBACK_SPEC="${FORMAT_ID}+bestaudio[protocol=sabr][acodec^=mp4a]/${FORMAT_ID}+bestaudio"
+              FALLBACK_SPEC="${FORMAT_ID}+bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/${FORMAT_ID}+bestaudio[protocol=sabr][language^=fa]/${FORMAT_ID}+bestaudio[protocol=sabr][acodec^=mp4a]/${FORMAT_ID}+bestaudio"
             else
               # Explicit format id with no client suffix (bare itag).
-              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
+              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][language^=fa]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
             fi
             echo "Audio tier: $AUDIO_TIER"
             echo "Format spec: $FORMAT_SPEC"
@@ -402,89 +417,4 @@ jobs:
           SRC=$(cat filename.txt)
           if [ ! -f "$SRC" ]; then
             # yt-dlp reported a merged file that doesn't exist: the video/audio
-            # merge step didn't run and the separate parts (*.fXXX-N.mkv) are left.
-            echo "::warning::Reported output file not found: $SRC"
-            echo "=== Files in working dir ==="
-            ls -la
-
-            echo "=== Probing leftover parts (diagnostics) ==="
-            for f in *.f*.mkv *.f*.mp4 *.f*.webm; do
-              [ -f "$f" ] || continue
-              echo "--- $f"
-              echo "first bytes: $(head -c 16 "$f" | od -An -tx1 | tr -s ' ')"
-              ffprobe -hide_banner -v warning -show_entries stream=index,codec_type,codec_name:format=duration,format_name -of default=nw=1 "$f" 2>&1 | head -n 20 || true
-            done
-
-            # 1) Is there a finished (non-part) media file?
-            MERGED=$(ls -t -- *.mkv *.mp4 *.webm 2>/dev/null | grep -Ev '\.f[0-9A-Za-z_-]+\.(mkv|mp4|webm)$' | head -n1 || true)
-
-            if [ -n "$MERGED" ]; then
-              SRC="$MERGED"
-              echo "Using finished file: $SRC"
-            else
-              # 2) Merge the leftover video + audio parts ourselves.
-              VPART=""; APART=""
-              while IFS= read -r f; do
-                [ -n "$f" ] || continue
-                if [ -n "$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of csv=p=0 "$f" 2>/dev/null || true)" ]; then
-                  VPART="$f"
-                else
-                  APART="$f"
-                fi
-              done < <(ls -t -- *.f*.mkv *.f*.mp4 *.f*.webm 2>/dev/null || true)
-
-              if [ -z "$VPART" ] || [ -z "$APART" ]; then
-                echo "::error::Could not find both a video part and an audio part to merge (video='$VPART' audio='$APART')."
-                exit 1
-              fi
-
-              echo "Video part: $VPART"
-              echo "Audio part: $APART"
-              echo "Video duration: $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VPART" || true)"
-              echo "Audio duration: $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$APART" || true)"
-
-              SRC="${VPART%.f*}.mkv"
-              ffmpeg -hide_banner -loglevel error -y -i "$VPART" -i "$APART" -map 0:v:0 -map 1:a:0 -c copy "$SRC"
-              rm -f "$VPART" "$APART"
-              echo "Merged manually into: $SRC"
-            fi
-          fi
-          FILENAME="$SRC"
-
-          # Strip 4-byte Unicode (most emoji) from the filename. GitHub's
-          # release-asset "label" field rejects 4-byte Unicode, which makes
-          # softprops/action-gh-release fail to set the label after upload -
-          # that failure was corrupting the final download link even though
-          # the file itself uploaded fine.
-          FILENAME=$(python3 -c "import sys; name = sys.argv[1]; sys.stdout.write(''.join(ch for ch in name if len(ch.encode('utf-16-le')) <= 2))" "$FILENAME")
-
-          # Split filename into base + extension without sed (avoids brace/escaping corruption)
-          EXT="${FILENAME##*.}"
-          BASENAME="${FILENAME%.*}"
-          FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
-
-          mv "$SRC" "$FINAL_NAME"
-          echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
-
-          echo "=== Final file ==="
-          ls -lh "$FINAL_NAME"
-          echo "filename output: $FINAL_NAME"
-
-      - name: Clean up cookies
-        if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: downloaded-video
-          path: ${{ steps.dl.outputs.filename }}
-          retention-days: 1
-
-      - name: Create Release with direct link
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: run-${{ github.run_id }}
-          files: ${{ steps.dl.outputs.filename }}
-          prerelease: true
-          name: "Download run-${{ github.run_id }}"
+            # merge step didn't run and 
