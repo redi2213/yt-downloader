@@ -1,0 +1,269 @@
+
+name: List
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'YouTube URL'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Cache yt-dlp (SABR branch)
+        id: cache-ytdlp
+        uses: actions/cache@v4
+        with:
+          path: /opt/ytdlp
+          key: ytdlp-sabr-branch-v2
+
+      - name: Install yt-dlp SABR branch
+        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
+        run: |
+          pip install --target /opt/ytdlp \
+            "yt-dlp[default] @ git+https://github.com/coletdjnz/yt-dlp-dev@feat/youtube/sabr"
+
+      - name: Add yt-dlp to PATH
+        run: |
+          echo "PYTHONPATH=/opt/ytdlp" >> "$GITHUB_ENV"
+          mkdir -p /opt/ytdlp-bin
+
+          printf '#!/usr/bin/env bash\nPYTHONPATH=/opt/ytdlp python3 -m yt_dlp "$@"\n' \
+            > /opt/ytdlp-bin/yt-dlp
+
+          chmod +x /opt/ytdlp-bin/yt-dlp
+          echo "/opt/ytdlp-bin" >> "$GITHUB_PATH"
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+
+      - name: Start PO Token provider server
+        run: |
+          docker run --name bgutil-provider -d \
+            -p 4416:4416 \
+            brainicism/bgutil-ytdlp-pot-provider
+
+          for i in {1..15}; do
+            if curl -sf http://127.0.0.1:4416/ping > /dev/null; then
+              echo "PO Token server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "PO Token server failed to start"
+          exit 1
+
+      - name: Install PO Token plugin
+        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
+        run: |
+          pip install --target /opt/ytdlp -U bgutil-ytdlp-pot-provider
+
+      - name: Write cookies file
+        env:
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+        run: |
+          printf '%s\n' "$YTDLP_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
+
+      - name: Extract raw formats as JSON
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+        run: |
+          yt-dlp --version
+
+          yt-dlp \
+            --cookies cookies.txt \
+            --remote-components ejs:github \
+            --extractor-args "youtube:player_client=tv,web_safari,mweb;formats=duplicate" \
+            --no-warnings \
+            -J "$VIDEO_URL" > formats.json
+
+      - name: Deduplicate and display formats
+        run: |
+          cat > dedupe_formats.py <<'PY'
+          import json
+          import math
+          import re
+          from collections import defaultdict
+
+          with open("formats.json", encoding="utf-8") as f:
+              info = json.load(f)
+
+          formats = info.get("formats", [])
+
+          def number(value):
+              try:
+                  value = float(value)
+                  return value if math.isfinite(value) else None
+              except (TypeError, ValueError):
+                  return None
+
+          def normalized(value):
+              if value is None:
+                  return ""
+              return str(value).strip().lower()
+
+          def meaningful_note(fmt):
+              note = normalized(fmt.get("format_note"))
+              markers = []
+
+              if re.search(r"\bdrc\b|dynamic range compression", note):
+                  markers.append("drc")
+
+              if "ai-voice boosted" in note:
+                  markers.append("ai-voice-boosted")
+
+              if fmt.get("dynamic_range"):
+                  markers.append(normalized(fmt["dynamic_range"]))
+
+              return tuple(sorted(set(markers)))
+
+          def protocol_rank(fmt):
+              protocol = normalized(fmt.get("protocol"))
+
+              if protocol in ("https", "http"):
+                  return 0
+
+              if "dash" in protocol:
+                  return 1
+
+              if "m3u8" in protocol:
+                  return 2
+
+              if "sabr" in protocol:
+                  return 3
+
+              return 4
+
+          def size_bytes(fmt):
+              return number(
+                  fmt.get("filesize")
+                  or fmt.get("filesize_approx")
+              )
+
+          def quality_key(fmt):
+              # Client suffixes such as -0, -1, -dashy are
+              # intentionally excluded from the comparison.
+              return (
+                  normalized(fmt.get("ext")),
+                  fmt.get("width") or 0,
+                  fmt.get("height") or 0,
+                  number(fmt.get("fps")) or 0,
+                  normalized(fmt.get("vcodec")),
+                  normalized(fmt.get("acodec")),
+                  normalized(fmt.get("language")),
+                  normalized(fmt.get("format_id", "")).split("-")[0],
+                  round(number(fmt.get("abr")) or 0, 1),
+                  round(number(fmt.get("vbr")) or 0, 1),
+                  round(number(fmt.get("tbr")) or 0, 1),
+                  meaningful_note(fmt),
+              )
+
+          def is_storyboard(fmt):
+              return (
+                  normalized(fmt.get("vcodec")) == "images"
+                  or normalized(fmt.get("ext")) == "mhtml"
+                  or str(fmt.get("format_id", "")).startswith("sb")
+              )
+
+          # Keep ordinary downloadable media only.
+          candidates = [
+              fmt for fmt in formats
+              if not is_storyboard(fmt)
+          ]
+
+          # Group formats with matching media characteristics.
+          groups = defaultdict(list)
+
+          for fmt in candidates:
+              groups[quality_key(fmt)].append(fmt)
+
+          kept = []
+          removed = 0
+
+          for group in groups.values():
+              # Prefer direct HTTPS when otherwise equivalent.
+              # Prefer a known file size when protocol priority ties.
+              group.sort(
+                  key=lambda fmt: (
+                      protocol_rank(fmt),
+                      size_bytes(fmt) is None,
+                      -(size_bytes(fmt) or 0),
+                      str(fmt.get("format_id", "")),
+                  )
+              )
+
+              kept.append(group[0])
+              removed += len(group) - 1
+
+          kept.sort(
+              key=lambda fmt: (
+                  -(fmt.get("height") or 0),
+                  -(number(fmt.get("tbr")) or 0),
+                  str(fmt.get("format_id", "")),
+              )
+          )
+
+          def fmt_size(fmt):
+              size = size_bytes(fmt)
+              if size is None:
+                  return "unknown"
+              return f"{size / (1024 * 1024):.2f} MiB"
+
+          def resolution(fmt):
+              if fmt.get("height"):
+                  return f'{fmt.get("width", "?")}x{fmt["height"]}'
+              if fmt.get("acodec") != "none":
+                  return "audio only"
+              return "unknown"
+
+          print(f"Video: {info.get('title', 'Unknown')}")
+          print(f"Original media formats: {len(formats)}")
+          print(f"After removing storyboards: {len(candidates)}")
+          print(f"After deduplication: {len(kept)}")
+          print(f"Removed duplicates: {removed}")
+          print()
+          print(
+              f"{'ID':<18} {'EXT':<6} {'RESOLUTION':<13} "
+              f"{'PROTO':<18} {'SIZE':<14} "
+              f"{'VCODEC':<18} {'ACODEC':<18} "
+              f"{'LANG':<10} {'NOTE'}"
+          )
+          print("-" * 145)
+
+          for fmt in kept:
+              print(
+                  f"{str(fmt.get('format_id', '')):<18} "
+                  f"{str(fmt.get('ext', '')):<6} "
+                  f"{resolution(fmt):<13} "
+                  f"{str(fmt.get('protocol', '')):<18} "
+                  f"{fmt_size(fmt):<14} "
+                  f"{str(fmt.get('vcodec', '')):<18} "
+                  f"{str(fmt.get('acodec', '')):<18} "
+                  f"{str(fmt.get('language') or ''):<10} "
+                  f"{fmt.get('format_note') or ''}"
+              )
+          PY
+
+          python3 dedupe_formats.py | tee cleaned_formats.txt
+
+          {
+            echo "## Deduplicated formats"
+            echo
+            echo '```text'
+            cat cleaned_formats.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean up cookies
+        if: always()
+        run: rm -f cookies.txt
+        
