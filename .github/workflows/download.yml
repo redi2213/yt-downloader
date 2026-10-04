@@ -1,484 +1,190 @@
+
 name: Download Video
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'YouTube URL'
+        description: "YouTube or video URL"
         required: true
-      format_id:
-        description: 'Format id from List Formats (e.g. 397-1), a quality target like 480p (nearest + smallest), or bestvideo+bestaudio'
-        required: true
-        default: 'bestvideo+bestaudio'
-      audio_only:
-        description: 'true for audio-only MP3'
-        required: false
-        default: 'false'
+        type: string
 
-env:
-  VIDEO_URL: ${{ github.event.inputs.video_url }}
-  FORMAT_ID: ${{ github.event.inputs.format_id }}
-  AUDIO_ONLY: ${{ github.event.inputs.audio_only }}
+      format_id:
+        description: "Format ID (e.g. 397-1), quality (e.g. 480p), or bestvideo+bestaudio"
+        required: true
+        default: "bestvideo+bestaudio"
+        type: string
+
+      audio_only:
+        description: "Download audio as MP3"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: write
 
+concurrency:
+  group: download-video-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   download:
+    name: Download and publish
     runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    env:
+      VIDEO_URL: ${{ inputs.video_url }}
+      FORMAT_ID: ${{ inputs.format_id }}
+      AUDIO_ONLY: ${{ inputs.audio_only }}
+
     steps:
-      - name: Cache ffmpeg (static build)
-        id: cache-ffmpeg
-        uses: actions/cache@v4
-        with:
-          path: /opt/ffmpeg-bin
-          # Bump the -v suffix to force a fresh download of the static ffmpeg build.
-          key: ffmpeg-static-ytdlp-v1
-
-      - name: Install ffmpeg static build (cache miss only)
-        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      - name: Install dependencies
         run: |
-          set -euo pipefail
-          sudo mkdir -p /opt/ffmpeg-bin
-          sudo chown "$USER" /opt/ffmpeg-bin
-          curl -fsSL --retry 5 --retry-delay 3 -o /tmp/ffmpeg.tar.xz \
-            "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
-          mkdir -p /tmp/ffx
-          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffx --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
-          find /tmp/ffx -type f \( -name ffmpeg -o -name ffprobe \) -exec cp {} /opt/ffmpeg-bin/ \;
-          chmod +x /opt/ffmpeg-bin/ffmpeg /opt/ffmpeg-bin/ffprobe
-          rm -rf /tmp/ffx /tmp/ffmpeg.tar.xz
-
-      - name: Add ffmpeg to PATH and verify
-        run: |
-          echo "/opt/ffmpeg-bin" >> "$GITHUB_PATH"
-          # Fail fast if ffmpeg/ffprobe can't even start
-          /opt/ffmpeg-bin/ffmpeg -version | head -n1
-          /opt/ffmpeg-bin/ffprobe -version | head -n1
-
-      - name: Cache yt-dlp (SABR branch)
-        id: cache-ytdlp
-        uses: actions/cache@v4
-        with:
-          path: /opt/ytdlp
-          # Bump the -v suffix to force a fresh pull of the SABR branch (it's still
-          # under active development on coletdjnz/yt-dlp-dev, unmerged as of now)
-          key: ytdlp-sabr-branch-v2
-
-      - name: Install yt-dlp SABR branch (cache miss only)
-        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
-        run: pip install --target /opt/ytdlp "yt-dlp[default] @ git+https://github.com/coletdjnz/yt-dlp-dev@feat/youtube/sabr"
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg python3-pip
+          python3 -m pip install --user --break-system-packages -U yt-dlp
 
       - name: Add yt-dlp to PATH
         run: |
-          echo "PYTHONPATH=/opt/ytdlp" >> $GITHUB_ENV
-          mkdir -p /opt/ytdlp-bin
-          printf '#!/usr/bin/env bash\nPYTHONPATH=/opt/ytdlp python3 -m yt_dlp "$@"\n' > /opt/ytdlp-bin/yt-dlp
-          chmod +x /opt/ytdlp-bin/yt-dlp
-          echo "/opt/ytdlp-bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_ENV"
 
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
-
-      - name: Start PO Token provider server
+      - name: Verify dependencies
         run: |
-          docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
-          for i in {1..15}; do
-            if curl -sf http://127.0.0.1:4416/ping > /dev/null; then
-              echo "PO Token server is up"
-              break
-            fi
-            sleep 1
-          done
+          ffmpeg -version
+          yt-dlp --version
 
-      - name: Install PO Token plugin (cache miss only)
-        if: steps.cache-ytdlp.outputs.cache-hit != 'true'
-        run: pip install --target /opt/ytdlp -U bgutil-ytdlp-pot-provider
+      - name: Prepare download directory
+        run: |
+          mkdir -p downloads
+          mkdir -p release
 
-      - name: Write cookies file
-        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
-
-      - name: Download
-        id: dl
+      - name: Download video
+        if: env.AUDIO_ONLY != 'true'
         shell: bash
         run: |
-          set -euo pipefail
-          OUTTMPL="%(title).120s.%(ext)s"
-          COMMON_SPEED_FLAGS=(-N 4 --http-chunk-size 10M --retries 20 --fragment-retries 20 --socket-timeout 30 --retry-sleep linear=1:5:30)
+          set -Eeuo pipefail
 
-          # Keeps the log readable: yt-dlp prints a progress line for every
-          # fragment (tens of thousands of lines). This filter lets every other
-          # line through and shows download progress only when it crosses a new
-          # 10% step (plus the final 100% summary).
-          cat > filter_progress.py << 'PYEOF'
-          import re, sys
-          pat = re.compile(r"\[download\]\s+(\d+(?:\.\d+)?)%\s+of")
-          tag = re.compile(r"\(([0-9A-Za-z_-]+)\)\s*$")
-          summ = re.compile(r"%\s+of\s+\S+\s+in\s+\d")
-          last = {}
+          FORMAT="$(printf '%s' "$FORMAT_ID" | xargs)"
 
-          def emit(line):
-              m = pat.search(line)
-              if m:
-                  pct = float(m.group(1))
-                  t = tag.search(line)
-                  key = t.group(1) if t else line.split("[download]")[0]
-                  bucket = int(pct // 10)
-                  # always keep the final "100% of X in 00:00:45 at ..." summary
-                  if not summ.search(line) and last.get(key) == bucket:
-                      return
-                  last[key] = bucket
-              sys.stdout.write(line + "\n")
-              sys.stdout.flush()
-
-          # yt-dlp separates progress updates with carriage returns (\r), not
-          # newlines, so split the raw byte stream on both.
-          buf = b""
-          while True:
-              chunk = sys.stdin.buffer.read1(65536)
-              if not chunk:
-                  break
-              buf += chunk
-              parts = re.split(rb"[\r\n]", buf)
-              buf = parts.pop()
-              for part in parts:
-                  if part.strip():
-                      emit(part.decode("utf-8", "replace"))
-          if buf.strip():
-              emit(buf.decode("utf-8", "replace"))
-          PYEOF
-
-          # SABR is YouTube's current mandatory streaming path for hi-res formats;
-          # formats=duplicate surfaces both the legacy https/dash entries (mostly
-          # broken/missing URLs now) and the working sabr entries side by side.
-          CLIENT_ARGS="youtube:player_client=tv,web_safari,mweb;formats=duplicate"
-
-          if [ "$AUDIO_ONLY" = "true" ]; then
-            FORMAT_SPEC="bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/bestaudio[protocol=sabr][language^=fa]/bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[language^=fa][acodec^=mp4a]/bestaudio[language^=fa]/bestaudio[acodec^=mp4a]/bestaudio"
-
-            yt-dlp --cookies cookies.txt --remote-components ejs:github \
-              --extractor-args "$CLIENT_ARGS" \
-              --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
-              -f "$FORMAT_SPEC" \
-              -x --audio-format mp3 \
-              -o "$OUTTMPL" \
-              --print-to-file after_move:filepath filename.txt \
-              "$VIDEO_URL" 2>&1 | python3 -u filter_progress.py
-            QUALITY="audio"
-          else
-            SORT_ARGS=()
-            FALLBACK_SPEC=""
-            AUDIO_TIER="n/a"
-            # Safe audio fallback used for a one-time retry if the download fails:
-            # plain highest AAC, no special rules.
-            SAFE_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr][language^=fa]/bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo+bestaudio[language^=fa][acodec^=mp4a]/bestvideo+bestaudio[language^=fa]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
-
-            # ---- Audio rule (by chosen video height) ---------------------------
-            #   >= 1080p (and "best")  -> highest-bitrate surround (AC-3 / E-AC-3,
-            #                             AC-3 wins a tie: better player support);
-            #                             if none, highest-bitrate Opus; if none,
-            #                             highest-bitrate AAC
-            #   720p                   -> highest-bitrate AAC
-            #   < 720p                 -> lowest AAC (itag 599, HE-AAC ~31k)
-            # Only plain "<itag>-<n>" SABR IDs are eligible; DRC and AI voice-boosted
-            # variants (-drc-N / -vb) are never used. For the top tier, Python chooses
-            # between AC-3 and E-AC-3 by bitrate; the selector chains below are fallback.
-            audio_alternatives() {  # $1 = low | mid | high
-              case "$1" in
-                high)
-                  printf '%s\n' \
-                    "bestaudio[protocol=sabr][language^=fa][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][language^=fa][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr]" ;;
-                mid)
-                  printf '%s\n' \
-                    "bestaudio[protocol=sabr][language^=fa][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr]" ;;
-                *)
-                  printf '%s\n' \
-                    "bestaudio[protocol=sabr][language^=fa][format_id~='^599-[0-9]+$']" \
-                    "worstaudio[protocol=sabr][language^=fa][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr][format_id~='^599-[0-9]+$']" \
-                    "worstaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
-                    "bestaudio[protocol=sabr]" ;;
-              esac
-            }
-            build_spec() {  # $1 = tier -> full -f spec
-              local spec="" a
-              while IFS= read -r a; do
-                spec+="${spec:+/}bestvideo[protocol=sabr]+${a}"
-              done < <(audio_alternatives "$1")
-              spec+="/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
-              printf '%s' "$spec"
-            }
-            tier_for_height() {  # $1 = height
-              if [ "$1" -ge 1080 ]; then echo high; elif [ "$1" -ge 720 ]; then echo mid; else echo low; fi
-            }
-            dump_raw_formats() {
-              yt-dlp --cookies cookies.txt --remote-components ejs:github --extractor-args "$CLIENT_ARGS" -j "$VIDEO_URL" > raw_formats.json 2>/dev/null || echo "::warning::could not dump raw JSON"
-            }
-            # Top tier for quality-target / best modes: pick the audio id from the
-            # format list and put it first, keeping the selector chain as fallback.
-            apply_top_tier_audio() {  # $1 = target height (99999 for best)
-              local aid
-              dump_raw_formats
-              aid=$(TARGET_HEIGHT="$1" python3 pick_audio.py || true)
-              if [ -n "$aid" ]; then
-                FORMAT_SPEC="bestvideo[protocol=sabr]+${aid}/${FORMAT_SPEC}"
-              else
-                echo "::warning::could not pick audio from the format list; using the selector-based audio rule"
-              fi
-            }
-
-            cat > pick_audio.py << 'PYEOF'
-          import json, os, re, sys
-          fid = os.environ.get("FORMAT_ID", "")
-          th = os.environ.get("TARGET_HEIGHT", "")
-          try:
-              with open("raw_formats.json") as fh:
-                  info = json.load(fh)
-          except Exception:
-              print("")
-              sys.exit(0)
-          fmts = info.get("formats", [])
-          if th.isdigit():
-              height = int(th)
-          else:
-              vid = next((f for f in fmts if f.get("format_id") == fid), None)
-              height = (vid or {}).get("height") or 0
-          suffix = fid.rsplit("-", 1)[-1] if re.fullmatch(r"\d+-\d+", fid) else ""
-
-          def cands(pred):
-              rows = [f for f in fmts
-                      if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
-                      and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))]
-              # Prefer Persian globally before applying codec/bitrate rules, so
-              # an English surround track cannot outrank an available Persian AAC/Opus track.
-              fa = [f for f in rows if str(f.get("language") or "").lower().startswith("fa")]
-              if fa:
-                  rows = fa
-              return [f for f in rows if pred(f)]
-
-          def is_surround(f):
-              return f.get("acodec") in ("ac-3", "ec-3")
-
-          def is_opus(f):
-              return f.get("acodec") == "opus"
-
-          def is_aac(f):
-              return str(f.get("acodec", "")).startswith("mp4a")
-
-          def same(f):
-              # prefer the video's own client suffix when everything else ties
-              return bool(suffix) and str(f["format_id"]).endswith("-" + suffix)
-
-          def choose(cs, highest=True):
-              if not cs:
-                  return None
-              if highest:
-                  return max(cs, key=lambda f: (f.get("abr") or 0, same(f)))["format_id"]
-              return min(cs, key=lambda f: (f.get("abr") or 0, not same(f)))["format_id"]
-
-          if height >= 1080:
-              sur = cands(is_surround)
-              if sur:
-                  # highest bitrate; on a tie AC-3 beats E-AC-3 (better support)
-                  choice = max(sur, key=lambda f: (f.get("abr") or 0, f.get("acodec") == "ac-3", same(f)))["format_id"]
-              else:
-                  choice = choose(cands(is_opus)) or choose(cands(is_aac))
-          elif height >= 720:
-              choice = choose(cands(is_aac))
-          else:
-              choice = choose(cands(is_aac), highest=False)
-          if not choice:
-              choice = choose(cands(lambda f: True), highest=(height >= 720))
-          ch = next((f for f in fmts if f.get("format_id") == choice), {})
-          print("height=%s audio=%s (%s, %sk)" % (height, choice, ch.get("acodec"), ch.get("abr")), file=sys.stderr)
-          print(choice or "")
-          PYEOF
-
-            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
-              # Quality-target mode: e.g. "480p" or "bestvideo[height<=480]"
-              # picks the closest available resolution to the target, then
-              # the smallest file size among ties. "abr" comes before +size so
-              # the audio rule gets the highest-bitrate match (video has no abr,
-              # so it only affects audio).
-              TARGET_HEIGHT="${BASH_REMATCH[1]}"
-              AUDIO_TIER=$(tier_for_height "$TARGET_HEIGHT")
-              SORT_ARGS=(-S "res:${TARGET_HEIGHT},abr,+size")
-              FORMAT_SPEC=$(build_spec "$AUDIO_TIER")
-              if [ "$AUDIO_TIER" = "high" ]; then apply_top_tier_audio "$TARGET_HEIGHT"; fi
-              FALLBACK_SPEC="$SAFE_SPEC"
-            elif [ "$FORMAT_ID" = "bestvideo+bestaudio" ] || [ "$FORMAT_ID" = "bestvideo" ] || [ "$FORMAT_ID" = "best" ]; then
-              # "best" / "bestvideo" (sent by the app's Best button) are treated
-              # the same as bestvideo+bestaudio -> top tier audio.
-              AUDIO_TIER="high"
-              SORT_ARGS=(-S "abr")
-              FORMAT_SPEC=$(build_spec "$AUDIO_TIER")
-              apply_top_tier_audio 99999
-              FALLBACK_SPEC="$SAFE_SPEC"
-            elif [[ "$FORMAT_ID" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-              # Explicit format id WITH a client suffix (e.g. "134-0").
-              # The audio id is chosen from the video's height (rule above),
-              # preferring the same client suffix, sabr only.
-              dump_raw_formats
-              AUDIO_ID=$(python3 pick_audio.py)
-              if [ -z "$AUDIO_ID" ]; then
-                echo "::error::No matching audio format found for $FORMAT_ID"
-                exit 1
-              fi
-              FORMAT_SPEC="${FORMAT_ID}+${AUDIO_ID}"
-              FALLBACK_SPEC="${FORMAT_ID}+bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/${FORMAT_ID}+bestaudio[protocol=sabr][language^=fa]/${FORMAT_ID}+bestaudio[protocol=sabr][acodec^=mp4a]/${FORMAT_ID}+bestaudio"
-            else
-              # Explicit format id with no client suffix (bare itag).
-              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][language^=fa][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][language^=fa]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
-            fi
-            echo "Audio tier: $AUDIO_TIER"
-            echo "Format spec: $FORMAT_SPEC"
-
-            run_dl() {  # $1 = -f spec
-              yt-dlp --cookies cookies.txt --remote-components ejs:github \
-                --extractor-args "$CLIENT_ARGS" \
-                --windows-filenames "${COMMON_SPEED_FLAGS[@]}" \
-                "${SORT_ARGS[@]}" \
-                -f "$1" \
-                --merge-output-format mkv \
-                -o "$OUTTMPL" \
-                --print-to-file after_move:filepath filename.txt \
-                --print-to-file after_move:"%(height)s|%(dynamic_range)s|%(fps)s" metadata.txt \
-                "$VIDEO_URL" 2>&1 | python3 -u filter_progress.py
-            }
-
-            DL_OK=1
-            if ! run_dl "$FORMAT_SPEC"; then
-              if [ -n "$FALLBACK_SPEC" ] && [ "$FALLBACK_SPEC" != "$FORMAT_SPEC" ]; then
-                echo "::warning::Download failed with: $FORMAT_SPEC"
-                echo "::warning::Retrying once with the safe audio fallback: $FALLBACK_SPEC"
-                rm -f filename.txt metadata.txt
-                FORMAT_SPEC="$FALLBACK_SPEC"
-                run_dl "$FORMAT_SPEC" || DL_OK=0
-              else
-                DL_OK=0
-              fi
-            fi
-
-            if [ "$DL_OK" != "1" ]; then
-              echo "::error::Download failed with format spec: $FORMAT_SPEC"
-              echo "=== RAW format_id values yt-dlp actually uses for filtering (not the -F display table) ==="
-              dump_raw_formats
-              cat > dump_formats.py << 'PYEOF'
-          import json
-          try:
-              with open('raw_formats.json') as fh:
-                  info = json.load(fh)
-              for f in info.get('formats', []):
-                  print(f.get('format_id'), '|', f.get('protocol'), '|', f.get('vcodec'), '|', f.get('acodec'), '|', f.get('format_note'), '|', 'url_present' if f.get('url') else 'NO_URL')
-          except Exception as e:
-              print('failed to parse raw_formats.json:', e)
-          PYEOF
-              python3 dump_formats.py || true
-              exit 1
-            fi
-
-            METADATA=$(cat metadata.txt)
-            IFS='|' read -r HEIGHT HDR FPS <<< "$METADATA"
-
-            if [ "$HEIGHT" = "NA" ] || [ -z "$HEIGHT" ]; then
-              QUALITY="unknown"
-            else
-              FPS_SUFFIX=""
-              if [ "$FPS" != "NA" ] && [ -n "$FPS" ]; then
-                FPS_INT=$(echo "$FPS" | cut -d. -f1)
-                FPS_SUFFIX="_${FPS_INT}fps"
-              fi
-              HDR_SUFFIX=""
-              if [ "$HDR" != "SDR" ] && [ "$HDR" != "NA" ] && [ -n "$HDR" ]; then
-                HDR_SUFFIX="_HDR"
-              fi
-              QUALITY="${HEIGHT}p${FPS_SUFFIX}${HDR_SUFFIX}"
-            fi
+          if [[ "$FORMAT" =~ ^[0-9]+p$ ]]; then
+            HEIGHT="${FORMAT%p}"
+            FORMAT="bestvideo[height<=${HEIGHT}]+bestaudio/best[height<=${HEIGHT}]/best"
           fi
 
-          if [ ! -s filename.txt ]; then
-            echo "::error::yt-dlp did not produce an output file (filename.txt is empty/missing)."
+          echo "Selected format: $FORMAT"
+
+          yt-dlp \
+            --no-playlist \
+            --no-warnings \
+            --retries 10 \
+            --fragment-retries 10 \
+            --retry-sleep 2 \
+            --merge-output-format mp4 \
+            --format "$FORMAT" \
+            --output "downloads/%(title).180B.%(ext)s" \
+            --print after_move:filepath \
+            "$VIDEO_URL" | tee downloads/download-path.txt
+
+      - name: Download audio as MP3
+        if: env.AUDIO_ONLY == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          yt-dlp \
+            --no-playlist \
+            --no-warnings \
+            --retries 10 \
+            --fragment-retries 10 \
+            --retry-sleep 2 \
+            --extract-audio \
+            --audio-format mp3 \
+            --audio-quality 0 \
+            --output "downloads/%(title).180B.%(ext)s" \
+            --print after_move:filepath \
+            "$VIDEO_URL" | tee downloads/download-path.txt
+
+      - name: Validate and prepare output
+        id: output
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          SRC="$(tail -n 1 downloads/download-path.txt)"
+
+          if [[ ! -f "$SRC" ]]; then
+            echo "::error::Downloaded file not found: $SRC"
+            find downloads -maxdepth 2 -type f -print
             exit 1
           fi
 
-          SRC=$(cat filename.txt)
-          if [ ! -f "$SRC" ]; then
-            # yt-dlp reported a merged file that doesn't exist: the video/audio
-            # merge step didn't run and the separate parts (*.fXXX-N.mkv) are left.
-            echo "::warning::Reported output file not found: $SRC"
-            echo "=== Checking for leftover video/audio parts to merge ==="
-            VPART=""
-            APART=""
-            for f in *.f*.mkv *.f*.mp4 *.f*.webm; do
-              [ -e "$f" ] || continue
-              if ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of csv=p=0 "$f" 2>/dev/null | grep -q video; then
-                VPART="$f"
-              elif ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "$f" 2>/dev/null | grep -q audio; then
-                APART="$f"
-              fi
-            done
+          EXT="${SRC##*.}"
+          BASENAME="$(basename "$SRC")"
 
-            if [ -z "$VPART" ] || [ -z "$APART" ]; then
-              echo "::error::Could not find both a video part and an audio part to merge (video='$VPART' audio='$APART')."
-              exit 1
-            fi
+          # Remove problematic filename characters
+          SAFE_NAME="$(printf '%s' "$BASENAME" | \
+            sed 's/[<>:"\/\\|?*]/_/g' | \
+            sed 's/[[:cntrl:]]//g' | \
+            sed 's/[[:space:]]\+/ /g' | \
+            sed 's/^ *//; s/ *$//')"
 
-            echo "Video part: $VPART"
-            echo "Audio part: $APART"
-            echo "Video duration: $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VPART" || true)"
-            echo "Audio duration: $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$APART" || true)"
-
-            SRC="${VPART%.f*}.mkv"
-            ffmpeg -hide_banner -loglevel error -y -i "$VPART" -i "$APART" -map 0:v:0 -map 1:a:0 -c copy "$SRC"
-            rm -f "$VPART" "$APART"
-            echo "Merged manually into: $SRC"
+          if [[ -z "$SAFE_NAME" ]]; then
+            SAFE_NAME="download.${EXT}"
           fi
-        fi
-        FILENAME="$SRC"
 
-        # Strip 4-byte Unicode (most emoji) from the filename. GitHub's
-        # release-asset "label" field rejects 4-byte Unicode, which makes
-        # softprops/action-gh-release fail to set the label after upload -
-        # that failure was corrupting the final download link even though
-        # the file itself uploaded fine.
-        FILENAME=$(python3 -c "import sys; name = sys.argv[1]; sys.stdout.write(''.join(ch for ch in name if len(ch.encode('utf-16-le')) <= 2))" "$FILENAME")
+          DEST="release/$SAFE_NAME"
 
-        # Split filename into base + extension without sed (avoids brace/escaping corruption)
-        EXT="${FILENAME##*.}"
-        BASENAME="${FILENAME%.*}"
-        FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
+          cp -- "$SRC" "$DEST"
 
-        mv "$SRC" "$FINAL_NAME"
-        echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
+          echo "file=$DEST" >> "$GITHUB_OUTPUT"
+          echo "name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
 
-        echo "=== Final file ==="
-        ls -lh "$FINAL_NAME"
-        echo "filename output: $FINAL_NAME"
+          echo "Output file: $DEST"
+          ls -lh "$DEST"
 
-    - name: Clean up cookies
-      if: always()
-      run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py
+      - name: Upload downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-file
+          path: ${{ steps.output.outputs.file }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: downloaded-video
-        path: ${{ steps.dl.outputs.filename }}
-        retention-days: 1
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: download-${{ github.run_id }}
+          name: Download ${{ github.run_number }}
+          body: |
+            Download completed successfully.
 
-    - name: Create Release with direct link
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: run-${{ github.run_id }}
-        files: ${{ steps.dl.outputs.filename }}
-        prerelease: true
-        name: "Download run-${{ github.run_id }}"
+            Source URL: ${{ inputs.video_url }}
+            Requested format: ${{ inputs.format_id }}
+            Audio only: ${{ inputs.audio_only }}
+
+            Downloaded automatically using GitHub Actions.
+          files: ${{ steps.output.outputs.file }}
+          fail_on_unmatched_files: true
+          make_latest: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show result
+        if: success()
+        run: |
+          echo "Download completed successfully."
+          echo "Artifact: downloaded-file"
+          echo "Release tag: download-${{ github.run_id }}"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "::error::Download workflow failed."
+          echo "Check the failed step above for the actual error."
+          find downloads release -maxdepth 2 -type f -print 2>/dev/null || true
