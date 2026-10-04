@@ -76,9 +76,19 @@ def _fields_for(action: dict) -> list:
     }]
 
 
-def build_input(nav, action):
+def build_input(nav, action, prefill=None, share_url=None):
+    """``prefill`` (a link shared into the app) goes into the first text
+    field. ``share_url`` additionally shows a note and a "Choose another
+    tool" button, for when the tool was picked automatically."""
     nav.clear()
     nav.add(Label(text=action.get("title", ""), size_hint_y=None, height=48))
+
+    if share_url:
+        nav.add(Label(text="Link received - tool chosen automatically",
+                      size_hint_y=None, height=32))
+        other_btn = Button(text="Choose another tool", size_hint_y=None, height=44)
+        other_btn.bind(on_press=lambda i, u=share_url: nav.show_share_chooser(u))
+        nav.add(other_btn)
 
     fields = _fields_for(action)
     # key -> current value, kept up to date as the user types/picks
@@ -86,6 +96,7 @@ def build_input(nav, action):
     # key -> list of (button, choice_value) for choice fields, so we can
     # reset/highlight the selected one
     choice_buttons = {}
+    prefill_pending = bool(prefill)
 
     for field in fields:
         key = field["key"]
@@ -124,6 +135,10 @@ def build_input(nav, action):
 
             text_input.bind(text=_on_text)
             values[key] = ""
+            if prefill_pending:
+                text_input.text = prefill
+                values[key] = prefill
+                prefill_pending = False
             nav.add(text_input)
 
     start_btn = Button(text="Start", size_hint_y=None, height=56)

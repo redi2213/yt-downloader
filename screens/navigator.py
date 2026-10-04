@@ -25,6 +25,8 @@ class Navigator:
         self.job_manager = JobManager()
         self.audio_only = False
         self.show_token_field = False
+        # Remote action list loaded for the Share flow (None until loaded).
+        self._share_actions = None
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
@@ -326,9 +328,9 @@ class Navigator:
             formats
         )
 
-    def show_youtube_download(self):
+    def show_youtube_download(self, video_url="", playlist_url=""):
         from screens import youtube_download
-        youtube_download.build(self)
+        youtube_download.build(self, video_url=video_url, playlist_url=playlist_url)
 
     def start_playlist_from_link(self, playlist_url, target_height, want_hdr, audio_only):
         """Used by the "This is a playlist" quick-quality buttons: reads the
@@ -351,9 +353,9 @@ class Navigator:
             job=job
         )
 
-    def show_upload_screen(self):
+    def show_upload_screen(self, url=""):
         from screens import upload as upload_screen
-        upload_screen.build(self)
+        upload_screen.build(self, url=url)
 
     def show_quick_download(self):
         from screens import quick_download
@@ -409,12 +411,61 @@ class Navigator:
             res.get("actions", [])
         )
 
-    def show_action_input(self, action):
+    def show_action_input(self, action, prefill=None, share_url=None):
         from screens import actions_dynamic
         actions_dynamic.build_input(
             self,
-            action
+            action,
+            prefill=prefill,
+            share_url=share_url
         )
+
+    # -- links shared into the app (Android Share menu) -----------------------
+    def handle_shared_text(self, text):
+        """Entry point for text/links shared from other apps. YouTube links
+        go straight to the YouTube Download screen; links matching an action's
+        ``domains`` (remote config.json) open that action; anything else shows
+        a chooser. See core/share_routing.py."""
+        from core import share_routing
+        quick = share_routing.classify_quick(text)
+        if quick:
+            if quick["kind"] == "youtube_playlist":
+                self.show_youtube_download(playlist_url=quick["url"])
+            else:
+                self.show_youtube_download(video_url=quick["url"])
+            return
+
+        from screens import share_chooser
+        share_chooser.build_loading(self)
+        remote_config_service.start_load_actions(
+            on_complete=lambda res: self.schedule(
+                lambda: self._after_share_actions(text, res)
+            )
+        )
+
+    def _after_share_actions(self, text, res):
+        from core import share_routing
+        from screens import share_chooser
+        actions = res.get("actions", [])
+        self._share_actions = actions
+        decision = share_routing.classify(text, actions)
+        if decision["kind"] == "action":
+            self.show_action_input(
+                decision["action"],
+                prefill=decision["url"],
+                share_url=decision["url"]
+            )
+        else:
+            share_chooser.build(self, decision["url"], actions)
+
+    def show_share_chooser(self, url):
+        """The manual tool picker for a shared link (also reachable from an
+        auto-selected tool via its "Choose another tool" button)."""
+        from screens import share_chooser
+        if self._share_actions is not None:
+            share_chooser.build(self, url, self._share_actions)
+            return
+        self.handle_shared_text(url)
 
     def start_dynamic_action(self, action, field_values):
         # field_values: dict of {field_key: value}. Text fields need

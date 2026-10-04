@@ -16,6 +16,13 @@ android.archs = arm64-v8a
 android.accept_sdk_license = True
 android.sdk_path = /usr/local/lib/android/sdk
 
+# Share target: lets other apps (YouTube, browsers, file managers) send a link
+# to this app via the Android Share menu. See intent_filters.xml and
+# core/android_share.py. singleTask makes an already-running app receive the
+# new share instead of opening a second copy.
+android.manifest.intent_filters = intent_filters.xml
+android.manifest.launch_mode = singleTask
+
 [buildozer]
 log_level = 2
 warn_on_root = 1

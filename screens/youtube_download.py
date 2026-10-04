@@ -37,13 +37,13 @@ _PLAYLIST_QUALITIES = [
 ]
 
 
-def build(nav):
+def build(nav, video_url="", playlist_url=""):
     nav.clear()
     nav.add(Label(text="YouTube Download", size_hint_y=None, height=44))
 
     # -- single video -----------------------------------------------------
     single_url_input = TextInput(
-        hint_text="YouTube video link", multiline=False,
+        text=video_url, hint_text="YouTube video link", multiline=False,
         size_hint_y=None, height=48,
     )
     nav.add(single_url_input)
@@ -63,7 +63,7 @@ def build(nav):
 
     # -- playlist -----------------------------------------------------------
     playlist_url_input = TextInput(
-        hint_text="YouTube playlist link", multiline=False,
+        text=playlist_url, hint_text="YouTube playlist link", multiline=False,
         size_hint_y=None, height=48,
     )
     nav.add(playlist_url_input)

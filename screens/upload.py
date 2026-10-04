@@ -6,11 +6,11 @@ from kivy.uix.togglebutton import ToggleButton
 from screens.common import back_button
 
 
-def build(nav):
+def build(nav, url=""):
     nav.clear()
     nav.add(Label(text="Upload a file from a link", size_hint_y=None, height=40))
 
-    url_input = TextInput(hint_text="Direct file link", multiline=False, size_hint_y=None, height=48)
+    url_input = TextInput(text=url, hint_text="Direct file link", multiline=False, size_hint_y=None, height=48)
     nav.add(url_input)
 
     rename_input = TextInput(
