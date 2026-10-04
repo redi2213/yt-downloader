@@ -97,8 +97,7 @@ jobs:
 
       - name: Write cookies file
         run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
-
-      - name: Download
+- name: Download
         id: dl
         shell: bash
         run: |
@@ -154,7 +153,7 @@ jobs:
           CLIENT_ARGS="youtube:player_client=tv,web_safari,mweb;formats=duplicate"
 
           if [ "$AUDIO_ONLY" = "true" ]; then
-            FORMAT_SPEC="bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[acodec^=mp4a]/bestaudio"
+            FORMAT_SPEC="bestaudio[protocol=sabr][language^=fa]/bestaudio[language^=fa]/bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[acodec^=mp4a]/bestaudio"
 
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
@@ -174,6 +173,8 @@ jobs:
             SAFE_SPEC="bestvideo[protocol=sabr]+bestaudio[protocol=sabr][acodec^=mp4a]/bestvideo+bestaudio[acodec^=mp4a]/bestvideo+bestaudio"
 
             # ---- Audio rule (by chosen video height) ---------------------------
+            #   Persian audio (language fa) always wins when the video has it;
+            #   the rules below then apply inside the Persian tracks only.
             #   >= 1080p (and "best")  -> highest-bitrate surround (AC-3 / E-AC-3,
             #                             AC-3 wins a tie: better player support);
             #                             if none, highest-bitrate Opus; if none,
@@ -189,15 +190,18 @@ jobs:
               case "$1" in
                 high)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
                 mid)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
                 *)
                   printf '%s\n' \
+                    "worstaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][format_id~='^599-[0-9]+$']" \
                     "worstaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
@@ -248,11 +252,20 @@ jobs:
               height = (vid or {}).get("height") or 0
           suffix = fid.rsplit("-", 1)[-1] if re.fullmatch(r"\d+-\d+", fid) else ""
 
+          def is_fa(f):
+              lang = str(f.get("language") or "").lower()
+              note = str(f.get("format_note") or "")
+              return lang == "fa" or lang.startswith("fa-") or "persian" in note.lower() or "فارسی" in note
+
+          _pool = [f for f in fmts
+                   if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
+                   and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))]
+          # Persian audio wins over every other language; the codec/bitrate
+          # rules below then run inside the Persian tracks only.
+          POOL = [f for f in _pool if is_fa(f)] or _pool
+
           def cands(pred):
-              return [f for f in fmts
-                      if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
-                      and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))
-                      and pred(f)]
+              return [f for f in POOL if pred(f)]
 
           def is_surround(f):
               return f.get("acodec") in ("ac-3", "ec-3")
@@ -291,8 +304,7 @@ jobs:
           print("height=%s audio=%s (%s, %sk)" % (height, choice, ch.get("acodec"), ch.get("abr")), file=sys.stderr)
           print(choice or "")
           PYEOF
-
-            if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
+if [[ "$FORMAT_ID" =~ ^([0-9]+)p$ ]] || [[ "$FORMAT_ID" =~ ^bestvideo\[height\<=([0-9]+)\]$ ]]; then
               # Quality-target mode: e.g. "480p" or "bestvideo[height<=480]"
               # picks the closest available resolution to the target, then
               # the smallest file size among ties. "abr" comes before +size so
@@ -326,7 +338,7 @@ jobs:
               FALLBACK_SPEC="${FORMAT_ID}+bestaudio[protocol=sabr][acodec^=mp4a]/${FORMAT_ID}+bestaudio"
             else
               # Explicit format id with no client suffix (bare itag).
-              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
+              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][language^=fa]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
             fi
             echo "Audio tier: $AUDIO_TIER"
             echo "Format spec: $FORMAT_SPEC"
@@ -479,7 +491,7 @@ jobs:
         with:
           name: downloaded-video
           path: ${{ steps.dl.outputs.filename }}
-          retention-days: 1
+          retention-days: 7
 
       - name: Create Release with direct link
         uses: softprops/action-gh-release@v2
