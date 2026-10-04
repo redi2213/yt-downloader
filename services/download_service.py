@@ -38,8 +38,7 @@ def start_fetch_formats(job_manager: JobManager, url: str, on_status=None, on_co
 def _fetch_formats_thread(job_manager, job, on_status, on_complete):
     try:
         _emit(on_status, "Fetching qualities...")
-        dispatch_time = workflows.dispatch_workflow("list-formats.yml", {"video_url": job.input})
-        run_id = workflows.get_run_id_after("list-formats.yml", dispatch_time)
+        run_id = workflows.dispatch_and_find_run("list-formats.yml", {"video_url": job.input})
         job.run_id = run_id
         if job.cancel_requested:
             _safe_cancel(run_id)
@@ -98,11 +97,10 @@ def start_download(job_manager: JobManager, url: str, format_id: str, audio_only
 def _download_thread(job_manager, job, format_id, audio_only, on_status, on_complete):
     try:
         _emit(on_status, "Starting workflow...")
-        dispatch_time = workflows.dispatch_workflow("download.yml", {
+        run_id = workflows.dispatch_and_find_run("download.yml", {
             "video_url": job.input, "format_id": format_id,
             "audio_only": "true" if audio_only else "false",
         })
-        run_id = workflows.get_run_id_after("download.yml", dispatch_time)
         job.run_id = run_id
         if job.cancel_requested:
             _safe_cancel(run_id)

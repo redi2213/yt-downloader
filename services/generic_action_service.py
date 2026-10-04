@@ -66,8 +66,7 @@ def _action_thread(job_manager, job, on_status, on_complete):
     try:
         _emit(on_status, "Starting workflow...")
         inputs = _resolve_inputs(action, job.input)
-        dispatch_time = workflows.dispatch_workflow(workflow_file, inputs)
-        run_id = workflows.get_run_id_after(workflow_file, dispatch_time)
+        run_id = workflows.dispatch_and_find_run(workflow_file, inputs)
         job.run_id = run_id
         if job.cancel_requested:
             _safe_cancel(run_id)

@@ -96,8 +96,7 @@ def _fetch_playlist_thread(job_manager, job, on_status, on_complete):
 
 
 def get_playlist_links(playlist_url: str):
-    dispatch_time = workflows.dispatch_workflow("list-playlist.yml", {"playlist_url": playlist_url})
-    run_id = workflows.get_run_id_after("list-playlist.yml", dispatch_time)
+    run_id = workflows.dispatch_and_find_run("list-playlist.yml", {"playlist_url": playlist_url})
     if run_id is None:
         return []
     conclusion = workflows.wait_for_run(run_id)
@@ -140,8 +139,7 @@ def process_one_video(url: str, target_height: int, want_hdr: bool, audio_only: 
         if audio_only:
             fmt_id = "bestaudio"
         else:
-            dispatch_time = workflows.dispatch_workflow("list-formats.yml", {"video_url": url})
-            run_id = workflows.get_run_id_after("list-formats.yml", dispatch_time)
+            run_id = workflows.dispatch_and_find_run("list-formats.yml", {"video_url": url})
             if run_id is None:
                 return url, None, "could not detect list-formats run"
             if workflows.wait_for_run(run_id) != "success":
@@ -153,10 +151,9 @@ def process_one_video(url: str, target_height: int, want_hdr: bool, audio_only: 
                 return url, None, "no matching format"
             fmt_id, _label = picked
 
-        dl_dispatch_time = workflows.dispatch_workflow(
+        dl_run_id = workflows.dispatch_and_find_run(
             "download.yml", {"video_url": url, "format_id": fmt_id, "audio_only": "true" if audio_only else "false"}
         )
-        dl_run_id = workflows.get_run_id_after("download.yml", dl_dispatch_time)
         if dl_run_id is None:
             return url, None, "could not detect download run"
         conclusion = workflows.wait_for_run(dl_run_id)
