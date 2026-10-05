@@ -12,13 +12,15 @@ import uuid
 import requests
 
 from api.github import client
-from core import run_labels, timeutil
+from core import run_labels, run_title, timeutil
 from core.config import API_BASE, GITHUB_BRANCH
 
 # Name of the optional workflow input the app fills with a unique token. A
 # workflow that declares it and puts it in its ``run-name`` lets the app find
 # exactly the run it dispatched, however many links are sent at once.
 RUN_TOKEN_INPUT = "job_id"
+# Optional second input: a short ASCII name for the run (see core/run_title.py)
+RUN_TITLE_INPUT = "run_title"
 
 # Only used for workflows that don't know the token input yet: dispatch + find
 # must not overlap, otherwise two quick dispatches can pick each other's run.
@@ -118,15 +120,25 @@ def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, 
     token = inputs.get(RUN_TOKEN_INPUT) or uuid.uuid4().hex[:12]
     tagged = dict(inputs)
     tagged[RUN_TOKEN_INPUT] = token
+    title = inputs.get(RUN_TITLE_INPUT) or run_title.build_title(inputs)
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
-    try:
-        client.post(url, json={"ref": GITHUB_BRANCH, "inputs": tagged})
-    except requests.exceptions.HTTPError as e:
-        status = getattr(getattr(e, "response", None), "status_code", None)
-        if status != 422:
-            raise
-        # workflow doesn't know the token input -> legacy path
+
+    # Newest workflow first: token + title; then token only; then (a workflow
+    # that knows neither input answers HTTP 422 each time) the old way.
+    payloads = []
+    if title:
+        payloads.append({**tagged, RUN_TITLE_INPUT: title})
+    payloads.append(tagged)
+    for payload in payloads:
+        try:
+            client.post(url, json={"ref": GITHUB_BRANCH, "inputs": payload})
+            break
+        except requests.exceptions.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status != 422:
+                raise
+    else:
         return _dispatch_and_find_legacy(workflow_file, inputs, attempts, delay)
 
     # The title carries the token almost at once when the workflow has the new
@@ -192,13 +204,17 @@ def get_recent_runs(limit: int = 10):
     runs = r.json().get("workflow_runs", [])
     items = []
     for run in runs:
-        name = _TOKEN_SUFFIX_RE.sub("", run.get("name") or run.get("display_title", "?"))
+        raw_name = run.get("name") or run.get("display_title", "?")
+        had_token = bool(_TOKEN_SUFFIX_RE.search(raw_name))
+        name = _TOKEN_SUFFIX_RE.sub("", raw_name)
         workflow = run.get("path", "").split("/")[-1]
         items.append({
             "name": name,
             "workflow": workflow,
             "tool": run_labels.tool_label(workflow),
-            "short_title": run_labels.short_title(name),
+            # a run named by the app carries its title (or link) in its name;
+            # a plain workflow name ("Download Video") says nothing new
+            "short_title": run_labels.short_title(name) or (run_labels.clip_title(name) if had_token else ""),
             "status": run.get("status"),
             "conclusion": run.get("conclusion"),
             "created_at": timeutil.utc_iso_to_local(run.get("created_at"), "%m-%d %H:%M"),
