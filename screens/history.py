@@ -14,6 +14,11 @@ _SELECT_OFF = (1, 1, 1, 1)
 _SELECT_ON = (0.35, 0.85, 0.45, 1)
 
 
+def build_loading(nav):
+    nav.clear()
+    nav.add(Label(text="Loading...", size_hint_y=None, height=40))
+
+
 def build(nav, items):
     nav.clear()
     nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=40))
