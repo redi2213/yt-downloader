@@ -3,9 +3,11 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 
-from core import run_labels, timeutil
+from kivy.metrics import dp
+
+from core import run_labels
 from core.config import run_url
-from screens.common import STATUS_COLORS, content_width, wrapped_label_height
+from screens.common import BTN_H, GAP, STATUS_COLORS, content_width, wrapped_label_height
 
 
 def _add_job_status_section(nav):
@@ -48,13 +50,14 @@ def build(nav, runs):
         if run.get("short_title"):
             title = f"{title} - {run['short_title']}"
         row_text = f"{run['created_at']}  {title}\n{word}"
-        row_height = wrapped_label_height(row_text, extra_padding=20)
-        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=row_height, spacing=4)
-        row_btn = Button(text=row_text, size_hint_x=0.78, halign="left", valign="top",
+        row_width = content_width() * 0.74 - dp(16)
+        row_height = max(BTN_H, wrapped_label_height(row_text, extra_padding=dp(18), width=row_width))
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=row_height, spacing=dp(6))
+        row_btn = Button(text=row_text, size_hint_x=0.74, halign="left", valign="middle",
                          background_color=STATUS_COLORS[kind])
-        row_btn.text_size = (content_width() * 0.78 - 10, None)
+        row_btn.text_size = (row_width, None)
         row_btn.bind(on_press=lambda inst, r=run: nav.show_run_detail(r))
-        github_btn = Button(text="GitHub", size_hint_x=0.22)
+        github_btn = Button(text="GitHub", size_hint_x=0.26)
         github_btn.bind(on_press=lambda inst, r=run: nav.open_run_on_github(r["run_id"]))
         row.add_widget(row_btn)
         row.add_widget(github_btn)
@@ -78,12 +81,7 @@ def build_run_detail_loading(nav, run):
 
 
 def _step_text(step):
-    word, kind = run_labels.status_word(step.get("status"), step.get("conclusion"))
-    duration = ""
-    if step.get("started_at"):
-        duration = timeutil.duration_text(step.get("started_at"), step.get("completed_at"))
-    text = f"{step.get('name', '?')}\n{word}" + (f"  {duration}" if duration else "")
-    return text, kind
+    return run_labels.step_text(step)
 
 
 def build_run_detail(nav, run_id, jobs, origin="status"):
@@ -101,14 +99,14 @@ def build_run_detail(nav, run_id, jobs, origin="status"):
                 nav.add(Label(text=job.get("name") or "job", size_hint_y=None, height=40))
             for step in job.get("steps", []):
                 text, kind = _step_text(step)
-                height = wrapped_label_height(text, extra_padding=20)
+                height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(18), width=width - dp(16)))
                 btn = Button(text=text, size_hint_y=None, height=height, halign="left",
-                             valign="top", background_color=STATUS_COLORS[kind])
-                btn.text_size = (width - 10, None)
+                             valign="middle", background_color=STATUS_COLORS[kind])
+                btn.text_size = (width - dp(16), None)
                 btn.bind(on_press=lambda i, jid=job["id"], n=step.get("number"):
                          nav.show_step_log(run_id, jid, n, origin))
                 nav.add(btn)
-    github_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=4)
+    github_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
     github_btn = Button(text="Open on GitHub")
     github_btn.bind(on_press=lambda i: nav.open_run_on_github(run_id))
     copy_btn = Button(text="Copy link")
@@ -139,9 +137,10 @@ def build_step_log(nav, run_id, job_id, step_number, res, origin="status"):
     else:
         step = res["step"]
         text, kind = _step_text(step)
-        header = Button(text=text, size_hint_y=None, height=wrapped_label_height(text, extra_padding=20),
-                        halign="left", valign="top", background_color=STATUS_COLORS[kind])
-        header.text_size = (content_width() - 10, None)
+        header = Button(text=text, size_hint_y=None,
+                        height=max(BTN_H, wrapped_label_height(text, extra_padding=dp(18), width=content_width() - dp(16))),
+                        halign="left", valign="middle", background_color=STATUS_COLORS[kind])
+        header.text_size = (content_width() - dp(16), None)
         nav.add(header)
 
         lines = res.get("lines") or []
@@ -167,6 +166,10 @@ def build_step_log(nav, run_id, job_id, step_number, res, origin="status"):
     refresh_btn.bind(on_press=lambda i: nav.show_step_log(run_id, job_id, step_number, origin))
     nav.add(refresh_btn)
     back_btn = Button(text="Back", size_hint_y=None, height=48)
-    back_btn.bind(on_press=lambda i: nav.show_run_detail(
-        {"run_id": run_id, "workflow": "", "origin": origin}))
+    # opened from a job's progress panel -> Back returns to that job's screen
+    if isinstance(origin, str) and origin.startswith("job:"):
+        back_btn.bind(on_press=lambda i: nav.back_from_run_detail(origin))
+    else:
+        back_btn.bind(on_press=lambda i: nav.show_run_detail(
+            {"run_id": run_id, "workflow": "", "origin": origin}))
     nav.add(back_btn)

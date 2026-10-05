@@ -17,6 +17,7 @@ from services import download_service, playlist_service, upload_service, job_ser
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
 from services import auth_service
+from screens import common
 
 
 class Navigator:
@@ -53,6 +54,7 @@ class Navigator:
         run_progress_service.start_load_progress(run_id, on_complete=on_complete)
 
     def add(self, widget):
+        common.fit_height(widget)
         self.app.add_widget_to_content(widget)
 
     def set_status_label(self, label):
@@ -70,7 +72,6 @@ class Navigator:
         home.build(self)
 
     def show_working(self, message, job=None, back_text="Back (job keeps running)", extra_buttons=None):
-        from screens import common
         on_cancel = (lambda: self.cancel_job(job)) if job is not None else None
         common.build_working_screen(
             self,
@@ -610,6 +611,16 @@ class Navigator:
     def back_from_run_detail(self, origin="status"):
         if origin == "running":
             self.show_running_jobs()
+        elif isinstance(origin, str) and origin.startswith("job:"):
+            # opened from a job's progress panel: return to that job's screen
+            job_id = origin[4:]
+            jm = self.job_manager
+            candidates = list(jm._started) + list(jm.history) + ([jm.current_job] if jm.current_job else [])
+            job = next((j for j in candidates if j.job_id == job_id), None)
+            if job is not None:
+                self.view_job_from_history(job)
+            else:
+                self.show_running_jobs()
         else:
             self.show_actions_status()
 

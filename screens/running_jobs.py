@@ -4,12 +4,15 @@ screen shows them side by side. Each one can be reopened, inspected
 step by step, or opened on GitHub. Refresh is at the bottom - the list is a
 snapshot, not live.
 """
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 
 from core import timeutil
-from screens.common import content_width
+from screens.common import (
+    BTN_H, CARD, GAP, card_box, content_width, paint_card, wrapped_label_height,
+)
 
 
 def job_title(job):
@@ -37,8 +40,7 @@ def build(nav):
     if not jobs:
         nav.add(Label(text="No jobs running", size_hint_y=None, height=40))
 
-    width = content_width()
-    chars_per_line = max(10, int(width / 15))
+    inner_width = content_width() - 2 * dp(8)
 
     for job in jobs:
         status = job.status or "starting"
@@ -48,16 +50,14 @@ def build(nav):
         if started:
             status = f"{status} - started {started}"
         text = f"{job_title(job)}\n{status}"
-        lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line)
-                    for line in text.split("\n"))
-        text_height = lines * 40 + 12
-        row = BoxLayout(orientation="vertical", size_hint_y=None,
-                        height=text_height + 44 + 6 + 8, spacing=2, padding=(0, 4))
+        text_height = wrapped_label_height(text, extra_padding=dp(8), width=inner_width)
+        row = card_box([text_height, BTN_H])
+        paint_card(row, CARD)
         label = Label(text=text, size_hint_y=None, height=text_height,
-                      halign="left", valign="top", text_size=(width, None))
+                      halign="left", valign="middle", text_size=(inner_width, None))
         row.add_widget(label)
 
-        buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
+        buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
         open_btn = Button(text="Open")
         open_btn.bind(on_press=lambda i, j=job: nav.view_job_from_history(j))
         steps_btn = Button(text="Steps")

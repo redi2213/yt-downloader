@@ -5,13 +5,14 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 from core import android_actions
+from kivy.metrics import dp
+
 from screens.common import (
-    back_button, wrapped_label, wrapped_label_height,
+    BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box,
+    content_width, paint_card, wrapped_label_height,
 )
 
-# "Select" bar colours (the button's grey background is multiplied by these)
-_SELECT_OFF = (1, 1, 1, 1)
-_SELECT_ON = (0.35, 0.85, 0.45, 1)
+_DANGER = (1.0, 0.55, 0.55, 1)   # tint for buttons that delete things
 
 
 def build_loading(nav):
@@ -21,19 +22,19 @@ def build_loading(nav):
 
 def build(nav, items):
     nav.clear()
-    nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=40))
+    nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=BTN_H))
 
     selected = [False] * len(items)
-    bars = []  # the Select bar of every row, in display order
-    info = Label(text="", size_hint_y=None, height=32)
+    cards = []   # (card colour, title button) of every item, in display order
+    info = Label(text="", size_hint_y=None, height=BTN_H)
 
     def selected_items():
         return [it for it, on in zip(items, selected) if on]
 
     def set_selected(idx, value):
         selected[idx] = value
-        bars[idx].text = "Selected" if value else "Select"
-        bars[idx].background_color = _SELECT_ON if value else _SELECT_OFF
+        color, _title = cards[idx]
+        color.rgba = CARD_ON if value else CARD
         update_info()
 
     def update_info(*_args):
@@ -42,7 +43,7 @@ def build(nav, items):
     def need_selection():
         sel = selected_items()
         if not sel:
-            info.text = "Select some files first"
+            info.text = "Tap a file to select it first"
         return sel
 
     def copy_selected(_inst):
@@ -68,9 +69,9 @@ def build(nav, items):
             set_selected(idx, value)
 
     if not items:
-        nav.add(Label(text="No downloads yet", size_hint_y=None, height=40))
+        nav.add(Label(text="No downloads yet", size_hint_y=None, height=BTN_H))
     else:
-        select_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
+        select_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
         select_all_btn = Button(text="Select all")
         select_all_btn.bind(on_press=lambda i: set_all(True))
         clear_btn = Button(text="Clear")
@@ -82,54 +83,59 @@ def build(nav, items):
         update_info()
         nav.add(info)
 
-        action_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=4)
+        action_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
         copy_sel_btn = Button(text="Copy links")
         copy_sel_btn.bind(on_press=copy_selected)
         share_sel_btn = Button(text="Share")
         share_sel_btn.bind(on_press=share_selected)
-        delete_sel_btn = Button(text="Delete selected")
+        delete_sel_btn = Button(text="Delete selected", background_color=_DANGER)
         delete_sel_btn.bind(on_press=delete_selected)
         action_row.add_widget(copy_sel_btn)
         action_row.add_widget(share_sel_btn)
         action_row.add_widget(delete_sel_btn)
         nav.add(action_row)
 
-        bulk_delete_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None, height=48)
+        bulk_delete_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None,
+                                 height=BTN_H, background_color=_DANGER)
         bulk_delete_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm(items))
         nav.add(bulk_delete_btn)
 
+    inner_width = content_width() - 2 * dp(8)
     for idx, item in enumerate(items):
         size_mb = item.get("size", 0) / (1024 * 1024)
         size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
         title_text = f"{item['date']}\n{item['title']}{size_text}"
-        title_height = wrapped_label_height(title_text)
-        # select bar + title + link_row + spacing + padding
-        row_height = 44 + title_height + 44 + 12 + 12
-        row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=6, padding=(0, 6))
+        title_height = wrapped_label_height(title_text, extra_padding=dp(14), width=inner_width - dp(16))
 
-        bar = Button(text="Select", size_hint_y=None, height=44, background_color=_SELECT_OFF)
-        bar.bind(on_press=lambda i, n=idx: set_selected(n, not selected[n]))
-        bars.append(bar)
-        row.add_widget(bar)
-        row.add_widget(wrapped_label(title_text, height=title_height))
-        link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
-        box = TextInput(text=item["link"], readonly=True, multiline=False, size_hint_x=0.55)
-        copy_btn = Button(text="Copy", size_hint_x=0.15)
+        # One card per file: tap the file's text to select it - the whole card
+        # turns green. Link on its own line, then four evenly spaced buttons.
+        row = card_box([title_height, SMALL_BTN_H, BTN_H])
+        color = paint_card(row, CARD)
+
+        title_btn = Button(text=title_text, size_hint_y=None, height=title_height, halign="left",
+                           valign="middle", background_normal="", background_color=(0, 0, 0, 0))
+        title_btn.text_size = (inner_width - dp(16), None)
+        title_btn.bind(on_press=lambda i, n=idx: set_selected(n, not selected[n]))
+        cards.append((color, title_btn))
+        row.add_widget(title_btn)
+
+        row.add_widget(TextInput(text=item["link"], readonly=True, multiline=False,
+                                 size_hint_y=None, height=SMALL_BTN_H))
+
+        action_buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        copy_btn = Button(text="Copy")
         copy_btn.bind(on_press=lambda i, l=item["link"]: Clipboard.copy(l))
-        rename_btn = Button(text="Rename", size_hint_x=0.15)
+        rename_btn = Button(text="Rename")
         rename_btn.bind(on_press=lambda i, it=item: nav.show_rename_prompt(it))
-        zip_btn = Button(text="Zip", size_hint_x=0.15)
+        zip_btn = Button(text="Zip")
         zip_btn.bind(on_press=lambda i, it=item: nav.start_zip_release(it))
-        delete_btn = Button(text="Delete", size_hint_x=0.15)
+        delete_btn = Button(text="Delete", background_color=_DANGER)
         delete_btn.bind(on_press=lambda i, it=item: nav.show_delete_confirm(it))
-        link_row.add_widget(box)
-        link_row.add_widget(copy_btn)
-        link_row.add_widget(rename_btn)
-        link_row.add_widget(zip_btn)
-        link_row.add_widget(delete_btn)
-        row.add_widget(link_row)
-
+        for btn in (copy_btn, rename_btn, zip_btn, delete_btn):
+            action_buttons.add_widget(btn)
+        row.add_widget(action_buttons)
         nav.add(row)
+
     nav.add(back_button(nav))
 
 
