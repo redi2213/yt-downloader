@@ -470,26 +470,66 @@ jobs:
           FILENAME="$SRC"
 
           # Build a SAFE final name. Titles containing "," or "[ ]" break the
-          # path/files globbing of upload-artifact and action-gh-release (no file
-          # matches -> empty release). This helper also strips 4-byte Unicode
-          # (emoji; the release-asset label rejects them) and caps the length in
-          # bytes so non-Latin titles never hit the 255-byte filename limit.
+          # path/files globbing of upload-artifact and action-gh-release, and GitHub
+          # drops every non-ASCII character from the release link (a fully Persian
+          # title became "_._"). So: Persian/Arabic letters are transliterated to
+          # Finglish, anything else non-ASCII is removed, and if nothing readable
+          # is left the YouTube video id is used instead.
           cat > safe_name.py << 'PYEOF'
-          import os, re, sys
-          src, quality = sys.argv[1], sys.argv[2]
+          import os, re, sys, unicodedata
+          src, quality, url, run_id = sys.argv[1:5]
           base, ext = os.path.splitext(os.path.basename(src))
           ext = ext.lstrip(".") or "mkv"
-          base = "".join(ch for ch in base if len(ch.encode("utf-16-le")) <= 2)
+          base = unicodedata.normalize("NFKC", base)
+
+          # Persian/Arabic -> Finglish (approximate: short vowels are not written in Persian)
+          M = {
+              "\u0627": "a", "\u0622": "a", "\u0623": "a", "\u0625": "e", "\u0621": "", "\u0624": "o", "\u0626": "",
+              "\u0628": "b", "\u067E": "p", "\u062A": "t", "\u062B": "s", "\u062C": "j", "\u0686": "ch",
+              "\u062D": "h", "\u062E": "kh", "\u062F": "d", "\u0630": "z", "\u0631": "r", "\u0632": "z",
+              "\u0698": "zh", "\u0633": "s", "\u0634": "sh", "\u0635": "s", "\u0636": "z", "\u0637": "t",
+              "\u0638": "z", "\u0639": "", "\u063A": "gh", "\u0641": "f", "\u0642": "gh", "\u06A9": "k",
+              "\u0643": "k", "\u06AF": "g", "\u0644": "l", "\u0645": "m", "\u0646": "n", "\u0647": "h",
+              "\u0629": "h", "\u06C0": "h", "\u06D5": "h",
+              "\u064E": "a", "\u0650": "e", "\u064F": "o",
+              "\u064B": "", "\u064C": "", "\u064D": "", "\u0651": "", "\u0652": "", "\u0653": "", "\u0640": "",
+              "\u200C": "", "\u200D": "", "\u061F": "", "\u060C": "", "\u061B": "",
+          }
+          for i in range(10):
+              M[chr(0x06F0 + i)] = str(i)
+              M[chr(0x0660 + i)] = str(i)
+          VOWELISH = {"\u0648": ("v", "o"), "\u06CC": ("y", "i"), "\u064A": ("y", "i"), "\u0649": ("y", "i")}
+
+          out, prev_letter = [], False
+          for ch in base:
+              if ch in VOWELISH:
+                  out.append(VOWELISH[ch][0 if not prev_letter else 1])
+                  prev_letter = True
+              elif ch in M:
+                  out.append(M[ch])
+                  prev_letter = ch not in "\u064E\u0650\u064F\u064B\u064C\u064D\u0651\u0652\u0653\u0640\u200C\u200D" or prev_letter
+              else:
+                  out.append(ch)
+                  prev_letter = False
+          base = "".join(out)
+
+          # Anything still non-ASCII (emoji, other scripts) can't survive in a release link
+          base = base.encode("ascii", "ignore").decode("ascii")
+          # Characters that break path/files globbing and comma splitting
           base = re.sub(r"[\[\]{},*?!#%&;'\"`$\\<>|:]+", "_", base)
+          base = re.sub(r"\s+_+\s+", " ", base)
           base = re.sub(r"\s+", " ", base)
           base = re.sub(r"_+", "_", base).strip(" _.")
-          while len(base.encode("utf-8")) > 150:
-              base = base[:-1]
-          base = base.strip(" _.") or "video"
+
+          # Nothing readable left (e.g. a Hindi/Chinese-only title): use the video id
+          if len(re.findall(r"[A-Za-z0-9]", base)) < 3:
+              m = re.search(r"(?:v=|youtu\.be/|shorts/|embed/|live/)([A-Za-z0-9_-]{11})", url)
+              base = m.group(1) if m else "video_" + run_id
+          base = base[:150].strip(" _.") or "video"
           sys.stdout.write("%s_%s.%s" % (base, quality, ext))
           PYEOF
 
-          FINAL_NAME=$(python3 safe_name.py "$SRC" "$QUALITY")
+          FINAL_NAME=$(python3 safe_name.py "$SRC" "$QUALITY" "$VIDEO_URL" "$GITHUB_RUN_ID")
 
           # Keep the result alone in out/ so later steps can use "out/*".
           mkdir -p out
