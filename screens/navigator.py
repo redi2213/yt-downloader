@@ -14,7 +14,7 @@ from kivy.clock import Clock
 from core.jobs.job_manager import JobManager
 from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
 from services import download_service, playlist_service, upload_service, job_service
-from services import history_service, actions_service
+from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
 from services import auth_service
 
@@ -27,10 +27,30 @@ class Navigator:
         self.show_token_field = False
         # Remote action list loaded for the Share flow (None until loaded).
         self._share_actions = None
+        # Timer behind the run progress panel (see start_progress_timer).
+        self._progress_event = None
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
+        self.stop_progress_timer()
         self.app.clear_content()
+
+    # -- auto-refresh for the run progress panel ------------------------------
+    def start_progress_timer(self, callback, interval=10):
+        """Calls ``callback`` now and then every ``interval`` seconds until the
+        screen changes (clear() stops it)."""
+        self.stop_progress_timer()
+        self._progress_event = Clock.schedule_interval(lambda dt: callback(), interval)
+        callback()
+
+    def stop_progress_timer(self):
+        event = getattr(self, "_progress_event", None)
+        if event is not None:
+            event.cancel()
+            self._progress_event = None
+
+    def load_run_progress(self, run_id, on_complete):
+        run_progress_service.start_load_progress(run_id, on_complete=on_complete)
 
     def add(self, widget):
         self.app.add_widget_to_content(widget)
@@ -602,24 +622,40 @@ class Navigator:
             run
         )
 
-        actions_service.start_load_run_steps(
+        actions_service.start_load_run_jobs(
             run["run_id"],
-            on_complete=lambda steps: self.schedule(
+            on_complete=lambda jobs: self.schedule(
                 lambda: self.render_run_detail(
                     run["run_id"],
-                    steps,
+                    jobs,
                     origin
                 )
             )
         )
 
-    def render_run_detail(self, run_id, steps, origin="status"):
+    def render_run_detail(self, run_id, jobs, origin="status"):
         from screens import actions_status as actions_screen
         actions_screen.build_run_detail(
             self,
             run_id,
-            steps,
+            jobs,
             origin=origin
+        )
+
+    def show_step_log(self, run_id, job_id, step_number, origin="status"):
+        """The last lines of one step's log. Refresh (at the bottom) reloads
+        both the step's status and its log."""
+        from screens import actions_status as actions_screen
+        actions_screen.build_step_loading(self)
+        run_progress_service.start_load_step_view(
+            run_id,
+            job_id,
+            step_number,
+            on_complete=lambda res: self.schedule(
+                lambda: actions_screen.build_step_log(
+                    self, run_id, job_id, step_number, res, origin
+                )
+            )
         )
 
     # -- job history -------------------------------------------------------

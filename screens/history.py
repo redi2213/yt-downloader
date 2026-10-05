@@ -1,41 +1,35 @@
 from kivy.core.clipboard import Clipboard
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
-from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 from core import android_actions
 from screens.common import (
-    back_button, content_width, wrapped_label, wrapped_label_height,
+    back_button, wrapped_label, wrapped_label_height,
 )
 
-_CHECK_WIDTH = 44
-
-
-def _title_height(text):
-    """Like wrapped_label_height, but for a label that shares its row with a
-    checkbox (so it is a little narrower)."""
-    chars_per_line = max(10, int((content_width() - _CHECK_WIDTH - 8) / 15))
-    lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line)
-                for line in text.split("\n"))
-    return lines * 40 + 12
-
-
-def build_loading(nav):
-    nav.clear()
-    nav.add(Label(text="Loading...", size_hint_y=None, height=40))
+# "Select" bar colours (the button's grey background is multiplied by these)
+_SELECT_OFF = (1, 1, 1, 1)
+_SELECT_ON = (0.35, 0.85, 0.45, 1)
 
 
 def build(nav, items):
     nav.clear()
     nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=40))
 
-    checks = []  # (item, CheckBox) for every row, in display order
+    selected = [False] * len(items)
+    bars = []  # the Select bar of every row, in display order
     info = Label(text="", size_hint_y=None, height=32)
 
     def selected_items():
-        return [it for it, cb in checks if cb.active]
+        return [it for it, on in zip(items, selected) if on]
+
+    def set_selected(idx, value):
+        selected[idx] = value
+        bars[idx].text = "Selected" if value else "Select"
+        bars[idx].background_color = _SELECT_ON if value else _SELECT_OFF
+        update_info()
 
     def update_info(*_args):
         info.text = f"Selected: {len(selected_items())} of {len(items)}"
@@ -65,9 +59,8 @@ def build(nav, items):
             nav.show_bulk_delete_confirm(sel, scope="selected")
 
     def set_all(value):
-        for _it, cb in checks:
-            cb.active = value
-        update_info()
+        for idx in range(len(items)):
+            set_selected(idx, value)
 
     if not items:
         nav.add(Label(text="No downloads yet", size_hint_y=None, height=40))
@@ -100,24 +93,20 @@ def build(nav, items):
         bulk_delete_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm(items))
         nav.add(bulk_delete_btn)
 
-    for item in items:
+    for idx, item in enumerate(items):
         size_mb = item.get("size", 0) / (1024 * 1024)
         size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
         title_text = f"{item['date']}\n{item['title']}{size_text}"
-        title_height = _title_height(title_text)
-        row_height = title_height + 44 + 6 + 12  # title + link_row + spacing + padding
+        title_height = wrapped_label_height(title_text)
+        # select bar + title + link_row + spacing + padding
+        row_height = 44 + title_height + 44 + 12 + 12
         row = BoxLayout(orientation="vertical", size_hint_y=None, height=row_height, spacing=6, padding=(0, 6))
 
-        title_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=title_height, spacing=4)
-        check = CheckBox(size_hint_x=None, width=_CHECK_WIDTH)
-        check.bind(active=update_info)
-        checks.append((item, check))
-        title_label = wrapped_label(title_text, height=title_height)
-        title_label.text_size = (content_width() - _CHECK_WIDTH - 8, None)
-        title_row.add_widget(check)
-        title_row.add_widget(title_label)
-        row.add_widget(title_row)
-
+        bar = Button(text="Select", size_hint_y=None, height=44, background_color=_SELECT_OFF)
+        bar.bind(on_press=lambda i, n=idx: set_selected(n, not selected[n]))
+        bars.append(bar)
+        row.add_widget(bar)
+        row.add_widget(wrapped_label(title_text, height=title_height))
         link_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
         box = TextInput(text=item["link"], readonly=True, multiline=False, size_hint_x=0.55)
         copy_btn = Button(text="Copy", size_hint_x=0.15)

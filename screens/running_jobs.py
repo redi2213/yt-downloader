@@ -8,6 +8,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 
+from core import timeutil
 from screens.common import content_width
 
 
@@ -41,6 +42,11 @@ def build(nav):
 
     for job in jobs:
         status = job.status or "starting"
+        if status == "starting" and not job.run_id:
+            status = "waiting for the run to appear"
+        started = timeutil.datetime_to_local(job.created_at, "%H:%M")
+        if started:
+            status = f"{status} - started {started}"
         text = f"{job_title(job)}\n{status}"
         lines = sum(max(1, (len(line) + chars_per_line - 1) // chars_per_line)
                     for line in text.split("\n"))
