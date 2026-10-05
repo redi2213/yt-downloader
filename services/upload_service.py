@@ -33,13 +33,15 @@ def start_upload(job_manager: JobManager, file_url: str, zip_it: bool, custom_na
 def _upload_thread(job_manager, job, zip_it, custom_name, on_status, on_complete):
     try:
         _emit(on_status, "Starting workflow...")
-        workflows.dispatch_workflow("upload-file.yml", {
+        # job_id doubles as the lookup token (the workflow puts it in its
+        # run-name) and as the release tag, so it is passed in explicitly.
+        run_id = workflows.dispatch_and_find_run("upload-file.yml", {
             "file_url": job.input,
             "zip_it": "true" if zip_it else "false",
             "custom_name": custom_name,
             "job_id": job.job_id,
-        })
-        _find_and_track_upload_run(job_manager, job, on_status, on_complete)
+        }, attempts=40, delay=3)
+        _after_run_lookup(job_manager, job, run_id, on_status, on_complete)
     except AuthenticationError:
         job_manager.complete(job, ok=False, error="GitHub token invalid or expired. Update it and retry.")
         _emit_complete(on_complete, job)
@@ -49,10 +51,16 @@ def _upload_thread(job_manager, job, zip_it, custom_name, on_status, on_complete
 
 
 def _find_and_track_upload_run(job_manager, job, on_status, on_complete):
+    # Used by the "retry" offered when the run could not be found: look again
+    # for the run carrying this job's id.
+    run_id = workflows.get_run_id_by_token("upload-file.yml", job.job_id, attempts=40, delay=3)
+    _after_run_lookup(job_manager, job, run_id, on_status, on_complete)
+
+
+def _after_run_lookup(job_manager, job, run_id, on_status, on_complete):
     # Large files can take a while for GitHub to register the run under,
-    # so search longer, and if we still don't find it, offer a retry
+    # so the search is long, and if we still don't find it, offer a retry
     # instead of a dead end - the workflow may simply still be starting.
-    run_id = workflows.get_run_id_by_job_id("upload-file.yml", job.job_id, attempts=40, delay=3)
     job.run_id = run_id
     if job.cancel_requested:
         _safe_cancel(run_id)

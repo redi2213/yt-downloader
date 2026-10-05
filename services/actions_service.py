@@ -33,6 +33,18 @@ def _load_run_steps_thread(run_id, on_complete):
     _emit_complete(on_complete, steps)
 
 
+def start_load_run_jobs(run_id, on_complete=None):
+    run_in_background(_load_run_jobs_thread, run_id, on_complete)
+
+
+def _load_run_jobs_thread(run_id, on_complete):
+    try:
+        jobs = workflows.get_run_jobs(run_id)
+    except Exception:
+        jobs = None
+    _emit_complete(on_complete, jobs)
+
+
 def _emit_complete(on_complete, payload):
     if on_complete:
         on_complete(payload)
