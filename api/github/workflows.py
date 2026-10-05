@@ -12,6 +12,7 @@ import uuid
 import requests
 
 from api.github import client
+from core import run_labels, timeutil
 from core.config import API_BASE, GITHUB_BRANCH
 
 # Name of the optional workflow input the app fills with a unique token. A
@@ -112,7 +113,9 @@ def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, 
     run's title, so several links dispatched at once never get mixed up.
     Workflows that don't declare that input yet answer HTTP 422; for those the
     old time-based matching is used, serialised by a lock."""
-    token = uuid.uuid4().hex[:12]
+    # A caller that already owns a job_id (the upload flow tags its release
+    # with it) keeps it; it becomes the token.
+    token = inputs.get(RUN_TOKEN_INPUT) or uuid.uuid4().hex[:12]
     tagged = dict(inputs)
     tagged[RUN_TOKEN_INPUT] = token
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
@@ -126,7 +129,10 @@ def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, 
         # workflow doesn't know the token input -> legacy path
         return _dispatch_and_find_legacy(workflow_file, inputs, attempts, delay)
 
-    run_id = get_run_id_by_token(workflow_file, token, attempts, delay)
+    # The title carries the token almost at once when the workflow has the new
+    # run-name, so this search is short; the long search below only matters
+    # for a workflow whose run-name doesn't show the token yet.
+    run_id = get_run_id_by_token(workflow_file, token, min(attempts, 10), min(delay, 1.5))
     if run_id is not None:
         _claimed_runs.add(run_id)
         return run_id
@@ -186,15 +192,46 @@ def get_recent_runs(limit: int = 10):
     runs = r.json().get("workflow_runs", [])
     items = []
     for run in runs:
+        name = _TOKEN_SUFFIX_RE.sub("", run.get("name") or run.get("display_title", "?"))
+        workflow = run.get("path", "").split("/")[-1]
         items.append({
-            "name": _TOKEN_SUFFIX_RE.sub("", run.get("name") or run.get("display_title", "?")),
-            "workflow": run.get("path", "").split("/")[-1],
+            "name": name,
+            "workflow": workflow,
+            "tool": run_labels.tool_label(workflow),
+            "short_title": run_labels.short_title(name),
             "status": run.get("status"),
             "conclusion": run.get("conclusion"),
-            "created_at": run.get("created_at", "")[:16].replace("T", " "),
+            "created_at": timeutil.utc_iso_to_local(run.get("created_at"), "%m-%d %H:%M"),
             "run_id": run.get("id"),
         })
     return items
+
+
+def get_run_jobs(run_id):
+    """Every job of a run with its steps (number, name, status, conclusion and
+    start/end times) - what the run detail and progress panels show."""
+    url = f"{API_BASE}/actions/runs/{run_id}/jobs?per_page=30"
+    r = client.get(url)
+    jobs = []
+    for job in r.json().get("jobs", []):
+        jobs.append({
+            "id": job.get("id"),
+            "name": job.get("name"),
+            "status": job.get("status"),
+            "conclusion": job.get("conclusion"),
+            "steps": [
+                {
+                    "number": step.get("number"),
+                    "name": step.get("name", "?"),
+                    "status": step.get("status"),
+                    "conclusion": step.get("conclusion"),
+                    "started_at": step.get("started_at"),
+                    "completed_at": step.get("completed_at"),
+                }
+                for step in job.get("steps", [])
+            ],
+        })
+    return jobs
 
 
 def get_run_steps(run_id):

@@ -17,6 +17,16 @@ def get_run_log_text(run_id) -> str:
     return r.text
 
 
+def get_job_log_text(job_id):
+    """The log of one job as text, or None when GitHub doesn't have it (yet)."""
+    url = f"{API_BASE}/actions/jobs/{job_id}/logs"
+    r = client.get_allow_missing(url)
+    if r.status_code != 200:
+        return None
+    r.encoding = "utf-8"
+    return r.text
+
+
 _SIZE_RE = re.compile(r"(?:~\s*)?(\d+(?:\.\d+)?)\s*(KiB|MiB|GiB)")
 _PROTO_RE = re.compile(r"\b(sabr|dash|https)\s*\|")
 _AUDIO_RE = re.compile(r"\|\s*audio only\s+(\S+)\s+(\d+(?:\.\d+)?)k")

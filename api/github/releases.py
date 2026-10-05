@@ -2,6 +2,7 @@
 import time
 
 from api.github import client
+from core import timeutil
 from core.config import API_BASE
 
 
@@ -34,7 +35,9 @@ def get_live_history():
         items.append({
             "title": assets[0]["name"],
             "link": assets[0]["browser_download_url"],
-            "date": rel.get("created_at", "")[:16].replace("T", " "),
+            # published_at, not created_at: GitHub's created_at for a release is
+            # the date of the commit its tag points to, not when it was made.
+            "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
             "release_id": rel["id"],
             "asset_id": assets[0]["id"],
             "tag_name": tag,
