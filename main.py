@@ -12,6 +12,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 
+from screens.common import GAP, PAD
 from screens.navigator import Navigator
 
 
@@ -20,7 +21,7 @@ class YTBridgeApp(App):
         Window.softinput_mode = "below_target"
 
         self.scroll = ScrollView()
-        self.content = BoxLayout(orientation="vertical", padding=10, spacing=8, size_hint_y=None)
+        self.content = BoxLayout(orientation="vertical", padding=PAD, spacing=GAP, size_hint_y=None)
         self.content.bind(minimum_height=self.content.setter("height"))
         self.scroll.add_widget(self.content)
 
