@@ -50,6 +50,21 @@ def short_title(name, max_len=34):
     return text
 
 
+def step_text(step, now=None):
+    """Text of a step's button: 'Name\nOK  3s', and its status kind."""
+    from core import timeutil
+    word, kind = status_word(step.get("status"), step.get("conclusion"))
+    duration = ""
+    if step.get("started_at"):
+        duration = timeutil.duration_text(step.get("started_at"), step.get("completed_at"), now=now)
+    return f"{step.get('name', '?')}\n{word}" + (f"  {duration}" if duration else ""), kind
+
+
+def clip_title(text, max_len=34):
+    text = (text or "").strip()
+    return text if len(text) <= max_len else text[: max_len - 3].rstrip() + "..."
+
+
 def status_word(status, conclusion=None):
     """One short word for a run or step. Returns (word, kind) where kind is
     one of ok / fail / running / waiting / other, used for colouring."""

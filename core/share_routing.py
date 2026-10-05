@@ -22,16 +22,52 @@ _URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _TRAILING_PUNCT = ".,;:!?)]}>»،؛"
 
 
+# Redirect links that wrap the real address: (host suffix, path, query keys).
+# Chrome shares search results as google.com/url?...&url=<real link>.
+_REDIRECTS = (
+    ("google.com", "/url", ("url", "q")),
+    ("youtube.com", "/redirect", ("q",)),
+    ("facebook.com", "/l.php", ("u",)),
+)
+
+
+def unwrap_redirect(url):
+    """If ``url`` is a Google/YouTube/Facebook redirect link, the address it
+    points to (also through several layers); otherwise ``url`` unchanged."""
+    for _ in range(3):
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            return url
+        host = host_of(url)
+        target = None
+        for suffix, path, keys in _REDIRECTS:
+            is_google = suffix == "google.com" and re.search(r"(^|\.)google\.[a-z.]+$", host)
+            if (is_google or host_matches(host, suffix)) and parsed.path == path:
+                query = parse_qs(parsed.query)
+                for key in keys:
+                    value = (query.get(key) or [""])[0]
+                    if value.lower().startswith(("http://", "https://")):
+                        target = value
+                        break
+            if target:
+                break
+        if not target:
+            return url
+        url = target
+    return url
+
+
 def extract_url(text):
     """First http(s) link inside shared text (apps often add a title or a
-    sentence around the link), without trailing punctuation. None if there is
-    no link."""
+    sentence around the link), without trailing punctuation, with redirect
+    wrappers (Google's url?...&url=) removed. None if there is no link."""
     if not text:
         return None
     m = _URL_RE.search(text)
     if not m:
         return None
-    return m.group(0).rstrip(_TRAILING_PUNCT)
+    return unwrap_redirect(m.group(0).rstrip(_TRAILING_PUNCT))
 
 
 def host_of(url):
