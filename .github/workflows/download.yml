@@ -160,7 +160,7 @@ jobs:
           CLIENT_ARGS="youtube:player_client=tv,web_safari,mweb;formats=duplicate"
 
           if [ "$AUDIO_ONLY" = "true" ]; then
-            FORMAT_SPEC="bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[acodec^=mp4a]/bestaudio"
+            FORMAT_SPEC="bestaudio[protocol=sabr][language^=fa]/bestaudio[language^=fa]/bestaudio[protocol=sabr][acodec^=mp4a]/bestaudio[protocol=sabr]/bestaudio[acodec^=mp4a]/bestaudio"
 
             yt-dlp --cookies cookies.txt --remote-components ejs:github \
               --extractor-args "$CLIENT_ARGS" \
@@ -195,15 +195,18 @@ jobs:
               case "$1" in
                 high)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec=opus][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
                 mid)
                   printf '%s\n' \
+                    "bestaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
                 *)
                   printf '%s\n' \
+                    "worstaudio[protocol=sabr][language^=fa][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr][format_id~='^599-[0-9]+$']" \
                     "worstaudio[protocol=sabr][acodec^=mp4a][format_id~='^[0-9]+-[0-9]+$']" \
                     "bestaudio[protocol=sabr]" ;;
@@ -254,11 +257,20 @@ jobs:
               height = (vid or {}).get("height") or 0
           suffix = fid.rsplit("-", 1)[-1] if re.fullmatch(r"\d+-\d+", fid) else ""
 
+          def is_fa(f):
+              lang = str(f.get("language") or "").lower()
+              note = str(f.get("format_note") or "")
+              return lang == "fa" or lang.startswith("fa-") or "persian" in note.lower() or "فارسی" in note
+
+          _pool = [f for f in fmts
+                   if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
+                   and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))]
+          # Persian audio wins over every other language; the codec/bitrate
+          # rules below then run inside the Persian tracks only.
+          POOL = [f for f in _pool if is_fa(f)] or _pool
+
           def cands(pred):
-              return [f for f in fmts
-                      if f.get("vcodec") == "none" and f.get("protocol") == "sabr"
-                      and re.fullmatch(r"\d+-\d+", str(f.get("format_id", "")))
-                      and pred(f)]
+              return [f for f in POOL if pred(f)]
 
           def is_surround(f):
               return f.get("acodec") in ("ac-3", "ec-3")
@@ -332,7 +344,7 @@ jobs:
               FALLBACK_SPEC="${FORMAT_ID}+bestaudio[protocol=sabr][acodec^=mp4a]/${FORMAT_ID}+bestaudio"
             else
               # Explicit format id with no client suffix (bare itag).
-              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
+              FORMAT_SPEC="best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][language^=fa]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio[protocol=sabr][acodec^=mp4a]/best[format_id~='^${FORMAT_ID}(-[0-9]+)?$']+bestaudio"
             fi
             echo "Audio tier: $AUDIO_TIER"
             echo "Format spec: $FORMAT_SPEC"
@@ -457,40 +469,52 @@ jobs:
           fi
           FILENAME="$SRC"
 
-          # Strip 4-byte Unicode (most emoji) from the filename. GitHub's
-          # release-asset "label" field rejects 4-byte Unicode, which makes
-          # softprops/action-gh-release fail to set the label after upload -
-          # that failure was corrupting the final download link even though
-          # the file itself uploaded fine.
-          FILENAME=$(python3 -c "import sys; name = sys.argv[1]; sys.stdout.write(''.join(ch for ch in name if len(ch.encode('utf-16-le')) <= 2))" "$FILENAME")
+          # Build a SAFE final name. Titles containing "," or "[ ]" break the
+          # path/files globbing of upload-artifact and action-gh-release (no file
+          # matches -> empty release). This helper also strips 4-byte Unicode
+          # (emoji; the release-asset label rejects them) and caps the length in
+          # bytes so non-Latin titles never hit the 255-byte filename limit.
+          cat > safe_name.py << 'PYEOF'
+          import os, re, sys
+          src, quality = sys.argv[1], sys.argv[2]
+          base, ext = os.path.splitext(os.path.basename(src))
+          ext = ext.lstrip(".") or "mkv"
+          base = "".join(ch for ch in base if len(ch.encode("utf-16-le")) <= 2)
+          base = re.sub(r"[\[\]{},*?!#%&;'\"`$\\<>|:]+", "_", base)
+          base = re.sub(r"\s+", " ", base)
+          base = re.sub(r"_+", "_", base).strip(" _.")
+          while len(base.encode("utf-8")) > 150:
+              base = base[:-1]
+          base = base.strip(" _.") or "video"
+          sys.stdout.write("%s_%s.%s" % (base, quality, ext))
+          PYEOF
 
-          # Split filename into base + extension without sed (avoids brace/escaping corruption)
-          EXT="${FILENAME##*.}"
-          BASENAME="${FILENAME%.*}"
-          FINAL_NAME="${BASENAME}_${QUALITY}.${EXT}"
+          FINAL_NAME=$(python3 safe_name.py "$SRC" "$QUALITY")
 
-          mv "$SRC" "$FINAL_NAME"
+          # Keep the result alone in out/ so later steps can use "out/*".
+          mkdir -p out
+          mv "$SRC" "out/$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
           echo "=== Final file ==="
-          ls -lh "$FINAL_NAME"
+          ls -lh "out/$FINAL_NAME"
           echo "filename output: $FINAL_NAME"
 
       - name: Clean up cookies
         if: always()
-        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py
+        run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py safe_name.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: downloaded-video
-          path: ${{ steps.dl.outputs.filename }}
+          path: out/
           retention-days: 1
 
       - name: Create Release with direct link
         uses: softprops/action-gh-release@v2
         with:
           tag_name: run-${{ github.run_id }}
-          files: ${{ steps.dl.outputs.filename }}
+          files: out/*
           prerelease: true
           name: "Download run-${{ github.run_id }}"
