@@ -13,6 +13,12 @@ REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 
 
+# Times from GitHub are UTC; they are shown in Tehran time. Iran has had no
+# daylight saving since 2022, so a fixed +03:30 offset is correct (the device
+# clock/timezone is not used on purpose: Python on Android often reports UTC).
+LOCAL_UTC_OFFSET_MINUTES = 210
+
+
 def run_url(run_id) -> str:
     """The GitHub Actions page of a run (live logs and steps), for opening
     in the browser."""
