@@ -42,6 +42,9 @@ jobs:
       GPLAYDL_VERSION: ${{ inputs.gplaydl_version }}
       DISPENSER: ${{ inputs.dispenser }}
       ARCH: ${{ inputs.arch }}
+      # gplaydl 4 reads this in CI instead of the interactive "gplaydl link".
+      # GitHub masks it in logs; the probe only reports whether it is set.
+      GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
     steps:
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -94,6 +97,8 @@ jobs:
             echo
             echo "gplaydl: \`$(pip show gplaydl 2>/dev/null | sed -n 's/^Version: //p')\`  |  arch: \`$ARCH\`"
             echo
+            if [ -n "$GPLAYDL_API_KEY" ]; then echo "GPLAYDL_API_KEY secret: **set**"; else echo "GPLAYDL_API_KEY secret: **not set**"; fi
+            echo
           } >> "$SUM"
 
           # Where are we running from? (datacenter IPs are sometimes refused)
@@ -105,7 +110,7 @@ jobs:
           echo "::group::gplaydl --help"
           gplaydl --help 2>&1 | python3 redact.py | head -n 60
           echo "::endgroup::"
-          for c in auth info splits delivery download; do
+          for c in link auth info splits delivery download; do
             echo "::group::gplaydl $c --help"
             gplaydl "$c" --help 2>&1 | python3 redact.py | head -n 40
             echo "::endgroup::"
