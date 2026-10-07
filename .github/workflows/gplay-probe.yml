@@ -22,13 +22,23 @@ on:
         required: false
         default: ''
       arch:
-        description: 'Device architecture for the token'
+        description: 'Device type for the token (gplaydl: arm64, armv7, x86, x86_64, tv)'
         required: true
         default: 'arm64'
         type: choice
         options:
           - arm64
           - armv7
+          - x86
+          - x86_64
+      download_test:
+        description: 'ALSO download the FIRST package for real (not uploaded) to see the real files and sizes'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 permissions:
   contents: read
@@ -42,6 +52,10 @@ jobs:
       GPLAYDL_VERSION: ${{ inputs.gplaydl_version }}
       DISPENSER: ${{ inputs.dispenser }}
       ARCH: ${{ inputs.arch }}
+      DOWNLOAD_TEST: ${{ inputs.download_test }}
+      NO_COLOR: '1'
+      TERM: dumb
+      COLUMNS: '100'
       # gplaydl 4 reads this in CI instead of the interactive "gplaydl link".
       # GitHub masks it in logs; the probe only reports whether it is set.
       GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
@@ -70,9 +84,11 @@ jobs:
           # Public repo = public logs: never print download URLs or tokens.
           cat > redact.py << 'PYEOF'
           import re, sys
+          ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
           URL = re.compile(r"https?://[^\s\"']+")
           LONG = re.compile(r"[A-Za-z0-9_\-+/=.]{50,}")
           for line in sys.stdin:
+              line = ANSI.sub("", line)
               line = URL.sub("<url>", line)
               line = LONG.sub("<redacted>", line)
               sys.stdout.write(line)
@@ -122,13 +138,12 @@ jobs:
             echo "<details open><summary><code>gplaydl --help</code></summary>"; echo; echo '```'
             gplaydl --help 2>&1 | python3 redact.py | head -n 40
             echo '```'; echo "</details>"; echo
-            echo "<details open><summary><code>gplaydl download --help</code></summary>"; echo; echo '```'
-            gplaydl download --help 2>&1 | python3 redact.py | head -n 60
-            echo '```'; echo "</details>"; echo
+            for hc in download info list-splits; do
+              echo "<details><summary><code>gplaydl $hc --help</code></summary>"; echo; echo '```'
+              gplaydl "$hc" --help 2>&1 | python3 redact.py | head -n 60
+              echo '```'; echo "</details>"; echo
+            done
           } >> "$SUM"
-
-          # has_cmd <name>: is it listed as a command in the top-level help?
-          has_cmd() { gplaydl --help 2>&1 | grep -Eq "(^|[[:space:]])$1([[:space:]]|$)"; }
 
           # ---------------- 1) token ----------------
           if [ -n "$DISPENSER" ]; then
@@ -175,17 +190,16 @@ jobs:
               fi
               echo "#### \`$pkg\`" >> "$SUM"
               : > pkg_all.txt
-              for sub in info details splits delivery list; do
-                if ! has_cmd "$sub"; then
-                  echo "- \`gplaydl $sub\`: not a command in this version" >> "$SUM"
-                  continue
-                fi
-                if [ -n "$WORKING" ]; then
-                  run_logged "$sub $pkg" timeout 120 gplaydl "$sub" "$pkg" -d "$WORKING" --arch "$ARCH"
-                else
-                  run_logged "$sub $pkg" timeout 120 gplaydl "$sub" "$pkg" --arch "$ARCH"
-                fi
+              for sub in info list-splits; do
+                DARGS=()
+                [ -n "$WORKING" ] && DARGS=(-d "$WORKING")
+                run_logged "$sub $pkg" timeout 120 gplaydl "$sub" "$pkg" "${DARGS[@]}" --arch "$ARCH"
                 code=$?
+                if [ $code -eq 2 ]; then
+                  # usage error: this command may not take --arch
+                  run_logged "$sub $pkg (without --arch)" timeout 120 gplaydl "$sub" "$pkg" "${DARGS[@]}"
+                  code=$?
+                fi
                 cat out.txt >> pkg_all.txt
                 {
                   echo "<details open><summary><code>gplaydl $sub $pkg</code> - exit $code</summary>"
@@ -209,9 +223,31 @@ jobs:
             done
           fi
 
+          # ---------------- 3) optional: a real download of the first package ----------------
+          if [ "$DOWNLOAD_TEST" = "true" ] && [ "$WORKING" != "__none__" ]; then
+            first=$(echo "$PACKAGES" | cut -d, -f1 | tr -d '[:space:]')
+            echo "### 3. Real download test: \`$first\` (kept only inside this run, not uploaded)" >> "$SUM"
+            rm -rf dl; mkdir dl
+            DARGS=(); [ -n "$WORKING" ] && DARGS=(-d "$WORKING")
+            run_logged "download $first" timeout 900 gplaydl download "$first" -a "$ARCH" -o dl "${DARGS[@]}"
+            code=$?
+            {
+              echo "exit code: $code"
+              echo
+              echo "| File | Size |"
+              echo "|---|---|"
+              find dl -type f -printf '%s\t%P\n' | sort -k2 | awk -F'\t' '{printf "| `%s` | %.2f MiB |\n", $2, $1/1048576}'
+              echo
+              echo "Total: $(du -sk dl | cut -f1 | awk '{printf "%.2f MiB", $1/1024}')  |  files: $(find dl -type f | wc -l)"
+              echo
+              echo "<details><summary>download output</summary>"; echo; echo '```'; cat out.txt; echo '```'; echo "</details>"
+            } >> "$SUM"
+            rm -rf dl
+          fi
+
           echo "---" >> "$SUM"
-          echo "Nothing was downloaded or uploaded. Expand the sections above and send me this Summary (or the log)." >> "$SUM"
+          echo "Expand the sections above and send me this Summary (or the log). Nothing is uploaded." >> "$SUM"
 
       - name: Clean up
         if: always()
-        run: rm -f redact.py full.txt out.txt pkg_all.txt
+        run: rm -rf redact.py full.txt out.txt pkg_all.txt dl
