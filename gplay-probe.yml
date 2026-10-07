@@ -1,0 +1,217 @@
+name: Google Play Probe
+
+# Feasibility test ONLY - downloads nothing. It checks, from GitHub's own
+# servers, whether gplaydl can get a Play token and what it can tell us about
+# an app BEFORE downloading it (version, splits, OBB, sizes). Read the run
+# Summary. Nothing is uploaded and no release is created.
+run-name: Google Play probe ${{ inputs.packages }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Package names, comma separated (info only, nothing is downloaded)'
+        required: true
+        default: 'com.whatsapp,com.tencent.ig,org.mozilla.firefox'
+      gplaydl_version:
+        description: 'gplaydl version (empty = latest). Try 2.1.6 if latest needs a Google account.'
+        required: false
+        default: ''
+      dispenser:
+        description: 'Dispenser URL (empty = try gplaydl default, then two public ones)'
+        required: false
+        default: ''
+      arch:
+        description: 'Device architecture for the token'
+        required: true
+        default: 'arm64'
+        type: choice
+        options:
+          - arm64
+          - armv7
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PACKAGES: ${{ inputs.packages }}
+      GPLAYDL_VERSION: ${{ inputs.gplaydl_version }}
+      DISPENSER: ${{ inputs.dispenser }}
+      ARCH: ${{ inputs.arch }}
+      # gplaydl 4 reads this in CI instead of the interactive "gplaydl link".
+      # GitHub masks it in logs; the probe only reports whether it is set.
+      GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install gplaydl
+        run: |
+          set -euo pipefail
+          if [ -n "$GPLAYDL_VERSION" ]; then
+            pip install "gplaydl==${GPLAYDL_VERSION}"
+          else
+            pip install gplaydl
+          fi
+          pip show gplaydl | sed -n '1,3p'
+
+      - name: Probe
+        shell: bash
+        run: |
+          set +e
+          SUM="${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+          # Public repo = public logs: never print download URLs or tokens.
+          cat > redact.py << 'PYEOF'
+          import re, sys
+          URL = re.compile(r"https?://[^\s\"']+")
+          LONG = re.compile(r"[A-Za-z0-9_\-+/=.]{50,}")
+          for line in sys.stdin:
+              line = URL.sub("<url>", line)
+              line = LONG.sub("<redacted>", line)
+              sys.stdout.write(line)
+          PYEOF
+
+          # run_logged <label> <command...>: runs, redacts, keeps the first
+          # 80 lines in out.txt, returns the command's own exit code.
+          run_logged() {
+            local label="$1"; shift
+            echo "::group::$label"
+            "$@" 2>&1 | python3 redact.py > full.txt
+            local code=${PIPESTATUS[0]}
+            head -n 80 full.txt > out.txt
+            cat out.txt
+            echo "(exit code: $code)"
+            echo "::endgroup::"
+            return $code
+          }
+
+          {
+            echo "## Google Play probe"
+            echo
+            echo "gplaydl: \`$(pip show gplaydl 2>/dev/null | sed -n 's/^Version: //p')\`  |  arch: \`$ARCH\`"
+            echo
+            if [ -n "$GPLAYDL_API_KEY" ]; then echo "GPLAYDL_API_KEY secret: **set**"; else echo "GPLAYDL_API_KEY secret: **not set**"; fi
+            echo
+          } >> "$SUM"
+
+          # Where are we running from? (datacenter IPs are sometimes refused)
+          IPINFO=$(curl -fsS --max-time 10 https://ipinfo.io/json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("country","?"), "-", d.get("org","?"))' 2>/dev/null)
+          echo "Runner network: ${IPINFO:-unknown}" | tee -a "$SUM"
+          echo >> "$SUM"
+
+          # The CLI as installed - so the real commands can be read from the log
+          echo "::group::gplaydl --help"
+          gplaydl --help 2>&1 | python3 redact.py | head -n 60
+          echo "::endgroup::"
+          for c in link auth info splits delivery download; do
+            echo "::group::gplaydl $c --help"
+            gplaydl "$c" --help 2>&1 | python3 redact.py | head -n 40
+            echo "::endgroup::"
+          done
+
+          # The real command list and the download options, in the Summary too
+          {
+            echo "### 0. gplaydl commands (from --help)"
+            echo "<details open><summary><code>gplaydl --help</code></summary>"; echo; echo '```'
+            gplaydl --help 2>&1 | python3 redact.py | head -n 40
+            echo '```'; echo "</details>"; echo
+            echo "<details open><summary><code>gplaydl download --help</code></summary>"; echo; echo '```'
+            gplaydl download --help 2>&1 | python3 redact.py | head -n 60
+            echo '```'; echo "</details>"; echo
+          } >> "$SUM"
+
+          # has_cmd <name>: is it listed as a command in the top-level help?
+          has_cmd() { gplaydl --help 2>&1 | grep -Eq "(^|[[:space:]])$1([[:space:]]|$)"; }
+
+          # ---------------- 1) token ----------------
+          if [ -n "$DISPENSER" ]; then
+            CANDIDATES=("$DISPENSER")
+          else
+            CANDIDATES=("" "https://auroraoss.com/api/auth" "https://dispenser.gplaydl.com/api/auth")
+          fi
+
+          WORKING="__none__"
+          echo "### 1. Token (authentication)" >> "$SUM"
+          echo "| Dispenser | Result |" >> "$SUM"
+          echo "|---|---|" >> "$SUM"
+          for d in "${CANDIDATES[@]}"; do
+            name="${d:-gplaydl default}"
+            if [ -n "$d" ]; then
+              run_logged "auth via $name" timeout 120 gplaydl auth -d "$d" --arch "$ARCH"
+            else
+              run_logged "auth via $name" timeout 120 gplaydl auth --arch "$ARCH"
+            fi
+            code=$?
+            if [ $code -eq 0 ]; then
+              echo "| \`$name\` | OK |" >> "$SUM"
+              WORKING="$d"
+              break
+            else
+              why=$(tail -n 1 out.txt | cut -c1-90)
+              echo "| \`$name\` | FAILED (exit $code): ${why//|//} |" >> "$SUM"
+            fi
+          done
+          echo >> "$SUM"
+
+          # ---------------- 2) what can we learn without downloading? ----------------
+          echo "### 2. App information (nothing is downloaded)" >> "$SUM"
+          echo >> "$SUM"
+          if [ "$WORKING" = "__none__" ]; then
+            echo "Skipped: no token. See the log above and the --help output for other ways to authenticate." | tee -a "$SUM"
+          else
+            IFS=',' read -ra PKGS <<< "$PACKAGES"
+            for raw in "${PKGS[@]}"; do
+              pkg=$(echo "$raw" | tr -d '[:space:]')
+              [ -z "$pkg" ] && continue
+              if ! [[ "$pkg" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]]; then
+                echo "**$pkg** - not a valid package name, skipped" >> "$SUM"; continue
+              fi
+              echo "#### \`$pkg\`" >> "$SUM"
+              : > pkg_all.txt
+              for sub in info details splits delivery list; do
+                if ! has_cmd "$sub"; then
+                  echo "- \`gplaydl $sub\`: not a command in this version" >> "$SUM"
+                  continue
+                fi
+                if [ -n "$WORKING" ]; then
+                  run_logged "$sub $pkg" timeout 120 gplaydl "$sub" "$pkg" -d "$WORKING" --arch "$ARCH"
+                else
+                  run_logged "$sub $pkg" timeout 120 gplaydl "$sub" "$pkg" --arch "$ARCH"
+                fi
+                code=$?
+                cat out.txt >> pkg_all.txt
+                {
+                  echo "<details open><summary><code>gplaydl $sub $pkg</code> - exit $code</summary>"
+                  echo
+                  echo '```'
+                  cat out.txt
+                  echo '```'
+                  echo "</details>"
+                  echo
+                } >> "$SUM"
+              done
+              # quick answers to the questions that matter
+              SIZES=$(grep -Eio '[0-9][0-9.,]* ?(KB|MB|GB|KiB|MiB|GiB|bytes)' pkg_all.txt | head -n 3 | tr '\n' ' ')
+              OBB=$(grep -ci 'obb' pkg_all.txt)
+              SPLITS=$(grep -Eci 'split|config\.' pkg_all.txt)
+              {
+                echo "- Sizes shown by gplaydl: ${SIZES:-**none found**}"
+                echo "- Mentions of OBB: $OBB line(s); split-related lines: $SPLITS"
+                echo
+              } >> "$SUM"
+            done
+          fi
+
+          echo "---" >> "$SUM"
+          echo "Nothing was downloaded or uploaded. Expand the sections above and send me this Summary (or the log)." >> "$SUM"
+
+      - name: Clean up
+        if: always()
+        run: rm -f redact.py full.txt out.txt pkg_all.txt
