@@ -42,10 +42,20 @@ on:
           - x86
           - x86_64
           - all
+      use_android_version:
+        description: 'Use a specific Android version'
+        required: false
+        default: false
+        type: boolean
       android_version:
         description: 'Your Android version (5-16). Only used to warn if the app needs a newer one - gplaydl cannot select by it.'
         required: false
         default: ''
+      add_extra_languages:
+        description: 'Add extra languages'
+        required: false
+        default: false
+        type: boolean
       locales:
         description: 'Extra languages, e.g. de,fr,zh-CN (English is always included)'
         required: false
@@ -81,8 +91,8 @@ jobs:
       PLAY_URL: ${{ inputs.play_url }}
       MODE: ${{ inputs.mode }}
       ARCH: ${{ inputs.architecture }}
-      ANDROID_VERSION: ${{ inputs.android_version }}
-      LOCALES: ${{ inputs.locales }}
+      ANDROID_VERSION: ${{ inputs.use_android_version && inputs.android_version || '' }}
+      LOCALES: ${{ inputs.add_extra_languages && inputs.locales || '' }}
       OUTPUT_FORMAT: ${{ inputs.output_format }}
       GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
       NO_COLOR: '1'
