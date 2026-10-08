@@ -184,6 +184,175 @@
       "workflow_inputs": {
         "telegram_url": "{input}"
       }
+    },
+    {
+      "id": "google_play_download",
+      "title": "Google Play Downloader",
+      "icon": "google_play",
+      "enabled": true,
+      "fields": [
+        {
+          "key": "play_url",
+          "type": "text",
+          "label": "Google Play link",
+          "hint": "Google Play app link or package name"
+        },
+        {
+          "key": "stage",
+          "type": "choice",
+          "label": "Stage",
+          "choices": [
+            {
+              "label": "Inspect only",
+              "value": "inspect"
+            },
+            {
+              "label": "Download",
+              "value": "download"
+            }
+          ],
+          "default": "download"
+        },
+        {
+          "key": "mode",
+          "type": "choice",
+          "label": "Mode",
+          "choices": [
+            {
+              "label": "Universal",
+              "value": "universal"
+            },
+            {
+              "label": "Optimized",
+              "value": "optimized"
+            }
+          ],
+          "default": "universal"
+        },
+        {
+          "key": "architecture",
+          "type": "choice",
+          "label": "Architecture",
+          "choices": [
+            {
+              "label": "ARM64",
+              "value": "arm64"
+            },
+            {
+              "label": "ARMv7",
+              "value": "armv7"
+            },
+            {
+              "label": "x86",
+              "value": "x86"
+            },
+            {
+              "label": "x86_64",
+              "value": "x86_64"
+            },
+            {
+              "label": "All",
+              "value": "all"
+            }
+          ],
+          "default": "arm64"
+        },
+        {
+          "key": "android_version",
+          "type": "choice",
+          "label": "Android version",
+          "choices": [
+            {
+              "label": "Auto / don't check",
+              "value": ""
+            },
+            {
+              "label": "Android 5",
+              "value": "5"
+            },
+            {
+              "label": "Android 6",
+              "value": "6"
+            },
+            {
+              "label": "Android 7",
+              "value": "7"
+            },
+            {
+              "label": "Android 8",
+              "value": "8"
+            },
+            {
+              "label": "Android 9",
+              "value": "9"
+            },
+            {
+              "label": "Android 10",
+              "value": "10"
+            },
+            {
+              "label": "Android 11",
+              "value": "11"
+            },
+            {
+              "label": "Android 12",
+              "value": "12"
+            },
+            {
+              "label": "Android 13",
+              "value": "13"
+            },
+            {
+              "label": "Android 14",
+              "value": "14"
+            },
+            {
+              "label": "Android 15",
+              "value": "15"
+            },
+            {
+              "label": "Android 16",
+              "value": "16"
+            }
+          ],
+          "default": ""
+        },
+        {
+          "key": "locales",
+          "type": "text",
+          "label": "Extra languages",
+          "hint": "Optional, e.g. de,fr,zh-CN",
+          "default": ""
+        },
+        {
+          "key": "output_format",
+          "type": "choice",
+          "label": "Output format",
+          "choices": [
+            {
+              "label": "Standard (APK / APKS / XAPK)",
+              "value": "standard"
+            },
+            {
+              "label": "Compress (ZIP)",
+              "value": "zip"
+            }
+          ],
+          "default": "standard"
+        }
+      ],
+      "workflow": "google-play-download.yml",
+      "workflow_inputs": {
+        "stage": "{stage}",
+        "play_url": "{play_url}",
+        "mode": "{mode}",
+        "architecture": "{architecture}",
+        "android_version": "{android_version}",
+        "locales": "{locales}",
+        "output_format": "{output_format}",
+        "job_id": "",
+        "run_title": "Google Play Downloader"
+      }
     }
   ]
 }
