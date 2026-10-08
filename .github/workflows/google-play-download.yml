@@ -42,20 +42,10 @@ on:
           - x86
           - x86_64
           - all
-      use_android_version:
-        description: 'Use a specific Android version'
-        required: false
-        default: false
-        type: boolean
       android_version:
         description: 'Your Android version (5-16). Only used to warn if the app needs a newer one - gplaydl cannot select by it.'
         required: false
         default: ''
-      add_extra_languages:
-        description: 'Add extra languages'
-        required: false
-        default: false
-        type: boolean
       locales:
         description: 'Extra languages, e.g. de,fr,zh-CN (English is always included)'
         required: false
@@ -91,8 +81,8 @@ jobs:
       PLAY_URL: ${{ inputs.play_url }}
       MODE: ${{ inputs.mode }}
       ARCH: ${{ inputs.architecture }}
-      ANDROID_VERSION: ${{ inputs.use_android_version && inputs.android_version || '' }}
-      LOCALES: ${{ inputs.add_extra_languages && inputs.locales || '' }}
+      ANDROID_VERSION: ${{ inputs.android_version }}
+      LOCALES: ${{ inputs.locales }}
       OUTPUT_FORMAT: ${{ inputs.output_format }}
       GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
       NO_COLOR: '1'
@@ -286,10 +276,7 @@ jobs:
               if arch not in ALL_ARCHS + ["all"]:
                   die(f"Unknown architecture: {arch}")
               if mode == "optimized" and arch == "all":
-                  die("Optimized needs ONE architecture (arm64, armv7, x86 or x86_64).")
-              # Universal mode always downloads all architectures. The
-              # architecture field is intentionally ignored in this mode.
-              arch_list = ",".join(ALL_ARCHS) if mode == "universal" else arch
+                  die("Optimized needs ONE architecture (arm64, armv7, x86 or x86_64). 'all' is for Universal.")
               locales = os.environ.get("LOCALES", "").strip()
               if locales and not LOCALES_RE.match(locales):
                   die("Locales must look like: de,fr,zh-CN")
@@ -298,9 +285,8 @@ jobs:
                   die(f"Unknown Android version '{version}'. Use a number from 5 to 16.")
               with open(os.environ["GITHUB_ENV"], "a") as fh:
                   fh.write(f"PACKAGE={pkg}\n")
-                  fh.write(f"ARCH_LIST={arch_list}\n")
-              selected_arch = "all" if mode == "universal" else arch
-              print(f"Package: {pkg}  |  mode: {mode}  |  architecture: {selected_arch}")
+                  fh.write("ARCH_LIST=" + (",".join(ALL_ARCHS) if arch == "all" else arch) + "\n")
+              print(f"Package: {pkg}  |  mode: {mode}  |  architecture: {arch}")
 
 
           def _summary(text):
