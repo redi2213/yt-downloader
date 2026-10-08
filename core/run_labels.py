@@ -15,6 +15,7 @@ TOOL_LABELS = {
     "download-anything.yml": "Download anything",
     "aparat-download.yml": "Aparat",
     "telegram-download.yml": "Telegram",
+    "google-play-download.yml": "Google Play",
     "cleanup-releases.yml": "Cleanup",
     "build-apk.yml": "Build APK",
 }

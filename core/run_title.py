@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from core import translit
 
 # Workflow input that carries a URL, by priority
-URL_INPUT_KEYS = ("video_url", "url", "aparat_url", "telegram_url", "file_url", "playlist_url")
+URL_INPUT_KEYS = ("video_url", "url", "aparat_url", "telegram_url", "file_url", "playlist_url", "play_url")
 
 _YT_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
 _YT_ID_RE = re.compile(r"(?:v=|youtu\.be/|shorts/|embed/|live/)([A-Za-z0-9_-]{11})")
@@ -27,6 +27,16 @@ def _file_name(url):
     name = unquote(urlparse(url).path.rsplit("/", 1)[-1])
     name = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", name)
     return name.replace("_", " ").replace(".", " ")
+
+
+def _play_package(url):
+    """The app's package name from a Google Play link (or a bare package name)."""
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+", url or ""):
+        return url
+    parsed = urlparse(url)
+    if (parsed.hostname or "").lower() == "play.google.com":
+        return (parse_qs(parsed.query).get("id") or [""])[0]
+    return ""
 
 
 def _url_slug(url):
@@ -62,7 +72,9 @@ def build_title(inputs, fetch=_default_fetch):
     if not url or not isinstance(url, str):
         return ""
     title = ""
-    if _is_youtube(url):
+    if inputs.get("play_url"):
+        title = _play_package(url)
+    elif _is_youtube(url):
         raw = youtube_title(url, fetch)
         title = translit.ascii_title(raw) if raw else ""
         if not title:
