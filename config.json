@@ -211,7 +211,8 @@
           "key": "play_url",
           "type": "text",
           "label": "Google Play link",
-          "hint": "Google Play link or package name"
+          "hint": "Google Play link or package name",
+          "required": true
         },
         {
           "key": "mode",
@@ -232,7 +233,7 @@
         {
           "key": "architecture",
           "type": "choice",
-          "label": "Device type",
+          "label": "Device type (Optimized only)",
           "choices": [
             {
               "label": "ARM64",
@@ -255,21 +256,24 @@
               "value": "all"
             }
           ],
-          "default": "arm64"
+          "default": "arm64",
+          "hint": "Not used in Universal mode"
         },
         {
           "key": "android_version",
           "type": "text",
           "label": "Android version (optional)",
           "hint": "Optional: 5-16",
-          "default": ""
+          "default": "",
+          "required": false
         },
         {
           "key": "locales",
           "type": "text",
           "label": "Extra languages (optional)",
           "hint": "Optional, e.g. de,fr,zh-CN. English is always included.",
-          "default": ""
+          "default": "",
+          "required": false
         },
         {
           "key": "output_format",
