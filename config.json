@@ -192,18 +192,12 @@
       "enabled": true,
       "fields": [
         {
-          "key": "play_url",
-          "type": "text",
-          "label": "Google Play link",
-          "hint": "Google Play app link or package name"
-        },
-        {
           "key": "stage",
           "type": "choice",
           "label": "Stage",
           "choices": [
             {
-              "label": "Inspect only",
+              "label": "Inspect (look only)",
               "value": "inspect"
             },
             {
@@ -211,7 +205,13 @@
               "value": "download"
             }
           ],
-          "default": "download"
+          "default": "inspect"
+        },
+        {
+          "key": "play_url",
+          "type": "text",
+          "label": "Google Play link",
+          "hint": "Google Play link or package name"
         },
         {
           "key": "mode",
@@ -232,7 +232,7 @@
         {
           "key": "architecture",
           "type": "choice",
-          "label": "Architecture",
+          "label": "Device type",
           "choices": [
             {
               "label": "ARM64",
@@ -259,69 +259,16 @@
         },
         {
           "key": "android_version",
-          "type": "choice",
-          "label": "Android version",
-          "choices": [
-            {
-              "label": "Auto / don't check",
-              "value": ""
-            },
-            {
-              "label": "Android 5",
-              "value": "5"
-            },
-            {
-              "label": "Android 6",
-              "value": "6"
-            },
-            {
-              "label": "Android 7",
-              "value": "7"
-            },
-            {
-              "label": "Android 8",
-              "value": "8"
-            },
-            {
-              "label": "Android 9",
-              "value": "9"
-            },
-            {
-              "label": "Android 10",
-              "value": "10"
-            },
-            {
-              "label": "Android 11",
-              "value": "11"
-            },
-            {
-              "label": "Android 12",
-              "value": "12"
-            },
-            {
-              "label": "Android 13",
-              "value": "13"
-            },
-            {
-              "label": "Android 14",
-              "value": "14"
-            },
-            {
-              "label": "Android 15",
-              "value": "15"
-            },
-            {
-              "label": "Android 16",
-              "value": "16"
-            }
-          ],
+          "type": "text",
+          "label": "Android version (optional)",
+          "hint": "Optional: 5-16",
           "default": ""
         },
         {
           "key": "locales",
           "type": "text",
-          "label": "Extra languages",
-          "hint": "Optional, e.g. de,fr,zh-CN",
+          "label": "Extra languages (optional)",
+          "hint": "Optional, e.g. de,fr,zh-CN. English is always included.",
           "default": ""
         },
         {
@@ -334,7 +281,7 @@
               "value": "standard"
             },
             {
-              "label": "Compress (ZIP)",
+              "label": "ZIP (everything in one ZIP)",
               "value": "zip"
             }
           ],
