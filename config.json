@@ -260,18 +260,32 @@
           "hint": "Not used in Universal mode"
         },
         {
+          "key": "use_android_version",
+          "type": "toggle",
+          "label": "Use specific Android version",
+          "default": false,
+          "hint": "OFF = use the default version"
+        },
+        {
           "key": "android_version",
           "type": "text",
-          "label": "Android version (optional)",
-          "hint": "Optional: 5-16",
+          "label": "Android version",
+          "hint": "5-16",
           "default": "",
           "required": false
         },
         {
+          "key": "add_extra_languages",
+          "type": "toggle",
+          "label": "Add extra languages",
+          "default": false,
+          "hint": "OFF = English only"
+        },
+        {
           "key": "locales",
           "type": "text",
-          "label": "Extra languages (optional)",
-          "hint": "Optional, e.g. de,fr,zh-CN. English is always included.",
+          "label": "Extra languages",
+          "hint": "e.g. de,fr,zh-CN",
           "default": "",
           "required": false
         },
@@ -302,7 +316,9 @@
         "locales": "{locales}",
         "output_format": "{output_format}",
         "job_id": "",
-        "run_title": "Google Play Downloader"
+        "run_title": "Google Play Downloader",
+        "use_android_version": "{use_android_version}",
+        "add_extra_languages": "{add_extra_languages}"
       }
     }
   ]
