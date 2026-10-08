@@ -1,5 +1,5 @@
 {
-  "config_version": 5,
+  "config_version": 6,
   "actions": [
     {
       "id": "youtube_generic",
@@ -187,32 +187,18 @@
     },
     {
       "id": "google_play_download",
-      "title": "Google Play Downloader",
+      "title": "Download APK from Google Play",
       "icon": "google_play",
       "enabled": true,
+      "domains": [
+        "play.google.com"
+      ],
       "fields": [
         {
-          "key": "stage",
-          "type": "choice",
-          "label": "Stage",
-          "choices": [
-            {
-              "label": "Inspect (look only)",
-              "value": "inspect"
-            },
-            {
-              "label": "Download",
-              "value": "download"
-            }
-          ],
-          "default": "inspect"
-        },
-        {
-          "key": "play_url",
+          "key": "url",
           "type": "text",
           "label": "Google Play link",
-          "hint": "Google Play link or package name",
-          "required": true
+          "hint": "https://play.google.com/store/apps/details?id=..."
         },
         {
           "key": "mode",
@@ -220,11 +206,11 @@
           "label": "Mode",
           "choices": [
             {
-              "label": "Universal",
+              "label": "Universal (everything)",
               "value": "universal"
             },
             {
-              "label": "Optimized",
+              "label": "Optimized (one device type)",
               "value": "optimized"
             }
           ],
@@ -233,14 +219,14 @@
         {
           "key": "architecture",
           "type": "choice",
-          "label": "Device type (Optimized only)",
+          "label": "Device type",
           "choices": [
             {
-              "label": "ARM64",
+              "label": "arm64 (most phones)",
               "value": "arm64"
             },
             {
-              "label": "ARMv7",
+              "label": "armv7 (old 32-bit)",
               "value": "armv7"
             },
             {
@@ -252,54 +238,95 @@
               "value": "x86_64"
             },
             {
-              "label": "All",
+              "label": "All (Universal only)",
               "value": "all"
             }
           ],
-          "default": "arm64",
-          "hint": "Not used in Universal mode"
+          "default": "arm64"
         },
         {
-          "key": "use_android_version",
-          "type": "toggle",
-          "label": "Use specific Android version",
-          "default": false,
-          "hint": "OFF = use the default version"
-        },
-        {
-          "key": "android_version",
-          "type": "text",
-          "label": "Android version",
-          "hint": "5-16",
-          "default": "",
-          "required": false
-        },
-        {
-          "key": "add_extra_languages",
-          "type": "toggle",
-          "label": "Add extra languages",
-          "default": false,
-          "hint": "OFF = English only"
+          "key": "android",
+          "type": "choice",
+          "label": "Your Android version (only used to warn)",
+          "choices": [
+            {
+              "label": "Don't check",
+              "value": ""
+            },
+            {
+              "label": "Android 16",
+              "value": "16"
+            },
+            {
+              "label": "Android 15",
+              "value": "15"
+            },
+            {
+              "label": "Android 14",
+              "value": "14"
+            },
+            {
+              "label": "Android 13",
+              "value": "13"
+            },
+            {
+              "label": "Android 12",
+              "value": "12"
+            },
+            {
+              "label": "Android 11",
+              "value": "11"
+            },
+            {
+              "label": "Android 10",
+              "value": "10"
+            },
+            {
+              "label": "Android 9",
+              "value": "9"
+            },
+            {
+              "label": "Android 8",
+              "value": "8"
+            }
+          ],
+          "default": ""
         },
         {
           "key": "locales",
-          "type": "text",
-          "label": "Extra languages",
-          "hint": "e.g. de,fr,zh-CN",
-          "default": "",
-          "required": false
-        },
-        {
-          "key": "output_format",
           "type": "choice",
-          "label": "Output format",
+          "label": "Extra languages (English is always included)",
           "choices": [
             {
-              "label": "Standard (APK / APKS / XAPK)",
+              "label": "English only",
+              "value": ""
+            },
+            {
+              "label": "Persian",
+              "value": "fa"
+            },
+            {
+              "label": "Arabic",
+              "value": "ar"
+            },
+            {
+              "label": "Persian + Arabic",
+              "value": "fa,ar"
+            }
+          ],
+          "default": ""
+        },
+        {
+          "key": "output",
+          "type": "choice",
+          "label": "Output",
+          "choices": [
+            {
+              "label": "Standard (apk / apks / xapk)",
               "value": "standard"
             },
             {
-              "label": "ZIP (everything in one ZIP)",
+              "label": "ZIP",
               "value": "zip"
             }
           ],
@@ -308,17 +335,13 @@
       ],
       "workflow": "google-play-download.yml",
       "workflow_inputs": {
-        "stage": "{stage}",
-        "play_url": "{play_url}",
+        "stage": "download",
+        "play_url": "{url}",
         "mode": "{mode}",
         "architecture": "{architecture}",
-        "android_version": "{android_version}",
-        "locales": "{locales}",
-        "output_format": "{output_format}",
-        "job_id": "",
-        "run_title": "Google Play Downloader",
-        "use_android_version": "{use_android_version}",
-        "add_extra_languages": "{add_extra_languages}"
+        "android_version": "{android}",
+        "output_format": "{output}",
+        "locales": "{locales}"
       }
     }
   ]
