@@ -1,0 +1,637 @@
+name: Google Play Download
+run-name: ${{ inputs.run_title || inputs.play_url }} [${{ inputs.job_id }}]
+
+# Two stages, one workflow:
+#   inspect  - reads the app from Google Play and shows version, Android
+#              requirements, architectures and the download size BEFORE anything
+#              big is downloaded. Nothing is uploaded.
+#   download - downloads the files, builds the package (.apk / .apks / .xapk or
+#              ZIP) and publishes it as a GitHub Release (run-<run id>).
+# Needs the repository secret GPLAYDL_API_KEY (never printed).
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'inspect = look only, download = get the files'
+        required: true
+        default: 'inspect'
+        type: choice
+        options:
+          - inspect
+          - download
+      play_url:
+        description: 'Google Play link (https://play.google.com/store/apps/details?id=...) or the package name'
+        required: true
+      mode:
+        description: 'universal = everything Play offers for the device type(s); optimized = one device type + your languages'
+        required: true
+        default: 'universal'
+        type: choice
+        options:
+          - universal
+          - optimized
+      architecture:
+        description: 'Device type (all = every architecture, universal only)'
+        required: true
+        default: 'arm64'
+        type: choice
+        options:
+          - arm64
+          - armv7
+          - x86
+          - x86_64
+          - all
+      android_version:
+        description: 'Your Android version (5-16). Only used to warn if the app needs a newer one - gplaydl cannot select by it.'
+        required: false
+        default: ''
+      locales:
+        description: 'Extra languages, e.g. de,fr,zh-CN (English is always included)'
+        required: false
+        default: ''
+      output_format:
+        description: 'standard = apk / apks / xapk by content, zip = everything in one ZIP'
+        required: true
+        default: 'standard'
+        type: choice
+        options:
+          - standard
+          - zip
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  play:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      STAGE: ${{ inputs.stage }}
+      PLAY_URL: ${{ inputs.play_url }}
+      MODE: ${{ inputs.mode }}
+      ARCH: ${{ inputs.architecture }}
+      ANDROID_VERSION: ${{ inputs.android_version }}
+      LOCALES: ${{ inputs.locales }}
+      OUTPUT_FORMAT: ${{ inputs.output_format }}
+      GPLAYDL_API_KEY: ${{ secrets.GPLAYDL_API_KEY }}
+      NO_COLOR: '1'
+      TERM: dumb
+      COLUMNS: '100'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Validate input
+        run: |
+          set -euo pipefail
+          if [ -z "${GPLAYDL_API_KEY:-}" ]; then
+            echo "::error::Secret GPLAYDL_API_KEY is not set (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          cat > gp_tools.py << 'PYEOF'
+          #!/usr/bin/env python3
+          """Helpers for google-play-download.yml (kept in one file so the workflow is
+          self-contained). Sub-commands: validate, inspect-report, pack.
+
+          What gplaydl 4.2.1 can and cannot tell us (seen in real runs):
+            - `info` gives name / package / version / developer / rating / downloads -
+              no sizes, no SDK levels.
+            - `list-splits -a <arch>` gives split names only (no sizes) and does not list
+              asset packs such as game_asset.apk.
+            - `download` prints "Downloading N files (X MB ...)" BEFORE transferring, so
+              a download that is stopped right after that line is a size probe. These
+              numbers are Play's transfer sizes; files on disk can be larger.
+            - Min/target SDK come from the base APK's manifest (aapt).
+          """
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import subprocess
+          import sys
+          import zipfile
+          from urllib.parse import parse_qs, urlparse
+
+          PKG_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$")
+          LOCALES_RE = re.compile(r"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?(,[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,4})?)*$")
+          ALL_ARCHS = ["arm64", "armv7", "x86", "x86_64"]
+          ABI_SPLIT = {"arm64": "arm64_v8a", "armv7": "armeabi_v7a", "x86": "x86", "x86_64": "x86_64"}
+          ABI_NAME = {"arm64": "arm64-v8a", "armv7": "armeabi-v7a", "x86": "x86", "x86_64": "x86_64"}
+          API_TO_ANDROID = {21: "5.0", 22: "5.1", 23: "6", 24: "7.0", 25: "7.1", 26: "8.0", 27: "8.1", 28: "9",
+                            29: "10", 30: "11", 31: "12", 32: "12L", 33: "13", 34: "14", 35: "15", 36: "16"}
+          ANDROID_TO_API = {"5": 21, "6": 23, "7": 24, "8": 26, "9": 28, "10": 29, "11": 30,
+                            "12": 31, "13": 33, "14": 34, "15": 35, "16": 36}
+          # GitHub refuses release files of 2 GiB or more; stay clearly below it.
+          LIMIT = int(os.environ.get("GP_LIMIT", 1_900_000_000))
+
+
+          def die(message):
+              print(f"::error::{message}")
+              sys.exit(1)
+
+
+          def read(path, default=""):
+              try:
+                  with open(path, encoding="utf-8", errors="replace") as fh:
+                      return fh.read()
+              except OSError:
+                  return default
+
+
+          def read_rc(path):
+              try:
+                  return int(read(path).strip())
+              except ValueError:
+                  return None
+
+
+          def human(n):
+              if n is None:
+                  return "unknown"
+              n = float(n)
+              for unit in ("B", "KiB", "MiB", "GiB"):
+                  if n < 1024 or unit == "GiB":
+                      return f"{n:.0f} {unit}" if unit == "B" else f"{n:.2f} {unit}"
+                  n /= 1024
+
+
+          def android_name(api):
+              return f"Android {API_TO_ANDROID[api]} (API {api})" if api in API_TO_ANDROID else f"API {api}"
+
+
+          # ---------------------------------------------------------------- parsing
+          def package_from(raw):
+              raw = (raw or "").strip()
+              if PKG_RE.match(raw):
+                  return raw
+              parsed = urlparse(raw)
+              host = (parsed.hostname or "").lower()
+              pkg = ""
+              if parsed.scheme in ("http", "https") and (host == "play.google.com" or host.endswith(".play.google.com")) \
+                      and parsed.path.rstrip("/") == "/store/apps/details":
+                  pkg = (parse_qs(parsed.query).get("id") or [""])[0]
+              elif parsed.scheme == "market" and parsed.netloc == "details":
+                  pkg = (parse_qs(parsed.query).get("id") or [""])[0]
+              return pkg if PKG_RE.match(pkg) else None
+
+
+          def parse_info(text):
+              """The Rich table printed by `gplaydl info`."""
+              info = {}
+              lines = text.splitlines()
+              for i, line in enumerate(lines):
+                  if line.strip().startswith("┌"):
+                      for prev in reversed(lines[:i]):
+                          if prev.strip():
+                              info["name"] = prev.strip()
+                              break
+                      break
+              for line in lines:
+                  m = re.match(r"^\s*│\s*([A-Za-z ]+?)\s*│\s*(.*?)\s*│\s*$", line)
+                  if m:
+                      info[m.group(1).strip().lower().replace(" ", "_")] = m.group(2).strip()
+              version = info.get("version", "")
+              m = re.match(r"^(.*?)\s*\((\d+)\)\s*$", version)
+              if m:
+                  info["version_name"], info["version_code"] = m.group(1), int(m.group(2))
+              return info
+
+
+          def parse_split_names(text):
+              return [m.group(2) for line in text.splitlines()
+                      for m in [re.match(r"^\s*│\s*(\d+)\s*│\s*(\S+)\s*│\s*$", line)] if m]
+
+
+          def parse_header(text):
+              """'Downloading 3 files  (823.1 MB, ...' -> (3, bytes) or None."""
+              m = re.search(r"Downloading\s+(\d+)\s+files?\s+\(\s*([\d.,]+)\s*([KMG]?B)", text, re.IGNORECASE)
+              if not m:
+                  return None
+              factor = {"B": 1, "KB": 10 ** 3, "MB": 10 ** 6, "GB": 10 ** 9}[m.group(3).upper()]
+              return int(m.group(1)), int(float(m.group(2).replace(",", "")) * factor)
+
+
+          def parse_badging(text):
+              out = {"permissions": []}
+              m = re.search(r"package: name='([^']*)' versionCode='(\d*)' versionName='([^']*)'", text)
+              if m:
+                  out["package"], out["version_code"], out["version_name"] = m.group(1), m.group(2), m.group(3)
+              for key, pattern in (("min_sdk", r"^sdkVersion:'(\d+)'"), ("target_sdk", r"^targetSdkVersion:'(\d+)'")):
+                  m = re.search(pattern, text, re.MULTILINE)
+                  if m:
+                      out[key] = int(m.group(1))
+              m = re.search(r"^application-label:'([^']*)'", text, re.MULTILINE)
+              if m:
+                  out["label"] = m.group(1)
+              m = re.search(r"^native-code:\s*(.*)$", text, re.MULTILINE)
+              if m:
+                  out["native_code"] = re.findall(r"'([^']+)'", m.group(1))
+              out["permissions"] = re.findall(r"^uses-permission(?:-sdk-23)?: name='([^']+)'", text, re.MULTILINE)
+              return out
+
+
+          def aapt_meta(apk):
+              """Manifest details of an APK: aapt first, pyaxmlparser as a fallback."""
+              meta = {}
+              try:
+                  res = subprocess.run(["aapt", "dump", "badging", apk], capture_output=True, text=True, timeout=120)
+                  meta = parse_badging(res.stdout)
+              except (OSError, subprocess.SubprocessError):
+                  pass
+              if "min_sdk" not in meta:
+                  try:
+                      from pyaxmlparser import APK  # pure-python fallback for new resource formats
+                      a = APK(apk)
+                      meta.setdefault("package", a.package)
+                      meta["min_sdk"] = int(a.get_min_sdk_version() or 0) or None
+                      meta["target_sdk"] = int(a.get_target_sdk_version() or 0) or None
+                      meta.setdefault("label", a.get_app_name())
+                      meta.setdefault("version_name", a.version_name)
+                      meta.setdefault("version_code", str(a.version_code))
+                      meta["permissions"] = list(a.get_permissions())
+                  except Exception:
+                      pass
+              return meta
+
+
+          # ---------------------------------------------------------------- commands
+          def cmd_validate():
+              pkg = package_from(os.environ.get("PLAY_URL", ""))
+              if not pkg:
+                  die("Not a valid Google Play link. Use https://play.google.com/store/apps/details?id=<package> "
+                      "(or just the package name).")
+              mode, arch = os.environ.get("MODE", ""), os.environ.get("ARCH", "")
+              if mode not in ("universal", "optimized"):
+                  die(f"Unknown mode: {mode}")
+              if arch not in ALL_ARCHS + ["all"]:
+                  die(f"Unknown architecture: {arch}")
+              if mode == "optimized" and arch == "all":
+                  die("Optimized needs ONE architecture (arm64, armv7, x86 or x86_64). 'all' is for Universal.")
+              locales = os.environ.get("LOCALES", "").strip()
+              if locales and not LOCALES_RE.match(locales):
+                  die("Locales must look like: de,fr,zh-CN")
+              version = os.environ.get("ANDROID_VERSION", "").strip()
+              if version and version not in ANDROID_TO_API:
+                  die(f"Unknown Android version '{version}'. Use a number from 5 to 16.")
+              with open(os.environ["GITHUB_ENV"], "a") as fh:
+                  fh.write(f"PACKAGE={pkg}\n")
+                  fh.write("ARCH_LIST=" + (",".join(ALL_ARCHS) if arch == "all" else arch) + "\n")
+              print(f"Package: {pkg}  |  mode: {mode}  |  architecture: {arch}")
+
+
+          def _summary(text):
+              path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if path:
+                  with open(path, "a", encoding="utf-8") as fh:
+                      fh.write(text)
+
+
+          def cmd_inspect_report():
+              info = parse_info(read("info.txt"))
+              if read_rc("info.rc") != 0 or not info.get("package"):
+                  tail = " | ".join(l.strip() for l in read("info.txt").strip().splitlines()[-3:])[:300]
+                  result = {"ok": False, "error": f"Could not read the app from Google Play: {tail or 'no output'}"}
+                  print("GPLAY_INSPECT_JSON " + json.dumps(result))
+                  _summary(f"## Google Play inspect\n\n**Failed.** {result['error']}\n")
+                  die(result["error"])
+
+              # architectures the app offers: a device type "has" an ABI if Play returns its split
+              abis, per_arch, tried = [], {}, 0
+              for arch in ALL_ARCHS:
+                  rc = read_rc(f"splits_{arch}.rc")
+                  names = parse_split_names(read(f"splits_{arch}.txt")) if rc == 0 else None
+                  per_arch[arch] = names
+                  if names is not None:
+                      tried += 1
+                      if any(ABI_SPLIT[arch] in n for n in names):
+                          abis.append(ABI_NAME[arch])
+              no_abi_splits = tried > 0 and not abis
+
+              # sizes (Play's transfer sizes)
+              total, no_extras, base = (parse_header(read(n)) for n in ("peek_all.log", "peek_noextras.log", "base.log"))
+              diff = lambda a, b: (a[0] - b[0], a[1] - b[1]) if a and b else None
+              splits, extras = diff(no_extras, base), diff(total, no_extras)
+
+              # manifest of the base APK
+              meta = {}
+              base_apks = [os.path.join(dp, f) for dp, _, fs in os.walk("base_dl") for f in fs if f.endswith(".apk")]
+              if base_apks:
+                  meta = aapt_meta(base_apks[0])
+              base_disk = os.path.getsize(base_apks[0]) if base_apks else None
+
+              warnings = []
+              min_sdk, target_sdk = meta.get("min_sdk"), meta.get("target_sdk")
+              wanted = os.environ.get("ANDROID_VERSION", "").strip()
+              if wanted and min_sdk:
+                  api = ANDROID_TO_API[wanted]
+                  if min_sdk > api:
+                      warnings.append(f"This app needs {android_name(min_sdk)} or newer, but your device is Android {wanted} (API {api}).")
+              if total and total[1] > LIMIT:
+                  warnings.append(f"Total {human(total[1])} is above ~1.9 GB: it will be released as separate files "
+                                  "(GitHub allows less than 2 GiB per file) instead of one package.")
+              if not meta:
+                  warnings.append("Could not read the app's manifest (minimum/target Android unknown).")
+              if total is None:
+                  warnings.append("Google Play did not report a download size; sizes are unknown (not guessed).")
+
+              if total and total[0] == 1:
+                  pkg_type = "apk"
+              elif extras and extras[0] == 0:
+                  pkg_type = "apks"
+              elif extras:
+                  pkg_type = "apks-or-xapk"
+              else:
+                  pkg_type = "unknown"
+              type_text = {"apk": "a single .apk", "apks": "Base + split APKs (.apks, or ZIP)",
+                           "apks-or-xapk": "Base + splits + extra files: asset packs are installed as splits (.apks); "
+                                           "real OBB files make an .xapk (known after download)",
+                           "unknown": "unknown"}[pkg_type]
+
+              result = {
+                  "ok": True, "package": info["package"], "name": meta.get("label") or info.get("name"),
+                  "version_name": info.get("version_name"), "version_code": info.get("version_code"),
+                  "developer": info.get("developer"), "rating": info.get("rating"), "downloads": info.get("downloads"),
+                  "min_sdk": min_sdk, "target_sdk": target_sdk, "abis": abis, "no_abi_splits": no_abi_splits,
+                  "splits_for_arch": per_arch.get(os.environ.get("ARCH_LIST", "arm64").split(",")[0]),
+                  "sizes": {"total": total[1] if total else None, "files": total[0] if total else None,
+                            "base": base[1] if base else None, "splits": splits[1] if splits else None,
+                            "splits_files": splits[0] if splits else None,
+                            "extras": extras[1] if extras else None, "extras_files": extras[0] if extras else None},
+                  "size_note": "Play's transfer sizes; files on disk can be ~10-15% larger",
+                  "package_type": pkg_type, "warnings": warnings, "permissions_count": len(meta.get("permissions", [])),
+              }
+              print("GPLAY_INSPECT_JSON " + json.dumps(result, ensure_ascii=True))
+
+              sz = result["sizes"]
+              lines = [f"## Google Play inspect: {result['name'] or info['package']}", "",
+                       "| | |", "|---|---|",
+                       f"| Package | `{info['package']}` |",
+                       f"| Version | {info.get('version_name', '?')} (code {info.get('version_code', '?')}) |",
+                       f"| Developer | {info.get('developer', '?')} |",
+                       f"| Rating / downloads | {info.get('rating', '?')} / {info.get('downloads', '?')} |",
+                       f"| Minimum Android | {android_name(min_sdk) if min_sdk else 'unknown'} |",
+                       f"| Target SDK | {('API ' + str(target_sdk)) if target_sdk else 'unknown'} |",
+                       f"| Architectures | {', '.join(abis) if abis else ('no ABI-specific files (any device)' if no_abi_splits else 'unknown')} |",
+                       f"| Splits for `{os.environ.get('ARCH_LIST', '')}` | {', '.join(result['splits_for_arch'] or []) or 'none'} |",
+                       f"| Package | {type_text} |", "",
+                       "### Download size (from Google Play, before downloading)", "",
+                       "| Part | Files | Size |", "|---|---|---|",
+                       f"| Base APK | {base[0] if base else '?'} | {human(sz['base'])} |",
+                       f"| Split APKs | {splits[0] if splits else '?'} | {human(sz['splits'])} |",
+                       f"| Extra files (asset packs / OBB) | {extras[0] if extras else '?'} | {human(sz['extras'])} |",
+                       f"| **Total** | {total[0] if total else '?'} | **{human(sz['total'])}** |", "",
+                       f"_{result['size_note']}. Android version, language and density are chosen by Google Play for the "
+                       "selected device type, so the exact set can differ slightly._", ""]
+              for w in warnings:
+                  lines.append(f"> **Warning:** {w}")
+              _summary("\n".join(lines) + "\n")
+              print("\n".join(lines))
+
+
+          def _sha256(path):
+              digest = hashlib.sha256()
+              with open(path, "rb") as fh:
+                  for chunk in iter(lambda: fh.read(1 << 20), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+
+          def _zip(path, members):
+              with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+                  for arcname, source in members:
+                      zf.write(source, arcname)
+
+
+          def cmd_pack():
+              pkg, fmt = os.environ["PACKAGE"], os.environ.get("OUTPUT_FORMAT", "standard")
+              all_files = sorted(os.path.join(dp, f) for dp, _, fs in os.walk("dl") for f in fs)
+              # one entry per file name (a multi-architecture download may repeat the base APK)
+              entries = {}
+              for path in all_files:
+                  name = os.path.basename(path)
+                  if name in entries:
+                      if os.path.getsize(entries[name]) == os.path.getsize(path):
+                          continue
+                      name = os.path.basename(os.path.dirname(path)) + "_" + name
+                  entries[name] = path
+              apks = {n: p for n, p in entries.items() if n.lower().endswith(".apk")}
+              obbs = {n: p for n, p in entries.items() if n.lower().endswith(".obb")}
+              others = {n: p for n, p in entries.items() if n not in apks and n not in obbs}
+              if not apks:
+                  die("gplaydl did not produce any APK file")
+              base_name = next((n for n in apks if re.fullmatch(re.escape(pkg) + r"-(\d+)\.apk", n)), sorted(apks)[0])
+              m = re.fullmatch(re.escape(pkg) + r"-(\d+)\.apk", base_name)
+              meta = aapt_meta(apks[base_name])
+              version_code = (m.group(1) if m else meta.get("version_code")) or "0"
+              version_name = meta.get("version_name") or version_code
+              stem = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{pkg}_{version_name}_{version_code}")
+              total_in = sum(os.path.getsize(p) for p in entries.values())
+
+              os.makedirs("out", exist_ok=True)
+              notes = []
+              kind = None
+              too_big = total_in > LIMIT - 5 * 1024 * 1024
+
+              def split_id(name):
+                  if name == base_name:
+                      return "base"
+                  return re.sub(r"\.apk$", "", name[len(f"{pkg}-{version_code}-"):] if name.startswith(f"{pkg}-{version_code}-") else name)
+
+              if not too_big:
+                  if fmt == "zip":
+                      kind, out_name = "zip", f"{stem}.zip"
+                      members = [(n, p) for n, p in apks.items()] + [(f"Android/obb/{pkg}/{n}", p) for n, p in obbs.items()] \
+                          + list(others.items())
+                      _zip(os.path.join("out", out_name), members)
+                  elif obbs:
+                      kind, out_name = "xapk", f"{stem}.xapk"
+                      manifest = {
+                          "xapk_version": 2, "package_name": pkg, "name": meta.get("label") or pkg,
+                          "version_code": str(version_code), "version_name": str(version_name),
+                          "min_sdk_version": str(meta.get("min_sdk") or ""), "target_sdk_version": str(meta.get("target_sdk") or ""),
+                          "permissions": meta.get("permissions", []),
+                          "split_apks": [{"file": n, "id": split_id(n)} for n in apks],
+                          "expansions": [{"file": f"Android/obb/{pkg}/{n}", "install_location": "EXTERNAL_STORAGE",
+                                          "install_path": f"Android/obb/{pkg}/{n}"} for n in obbs],
+                      }
+                      with open("manifest.json", "w") as fh:
+                          json.dump(manifest, fh, indent=2)
+                      members = [("manifest.json", "manifest.json")] + [(n, p) for n, p in apks.items()] \
+                          + [(f"Android/obb/{pkg}/{n}", p) for n, p in obbs.items()]
+                      _zip(os.path.join("out", out_name), members)
+                  elif len(apks) == 1:
+                      kind, out_name = "apk", f"{stem}.apk"
+                      shutil.copy(apks[base_name], os.path.join("out", out_name))
+                  else:
+                      kind, out_name = "apks", f"{stem}.apks"
+                      _zip(os.path.join("out", out_name), list(apks.items()))
+                  if os.path.getsize(os.path.join("out", out_name)) > LIMIT:
+                      os.remove(os.path.join("out", out_name))
+                      kind, too_big = None, True
+              if too_big:
+                  kind = "files"
+                  for n, p in {**apks, **obbs, **others}.items():
+                      if os.path.getsize(p) > LIMIT:
+                          die(f"{n} is {human(os.path.getsize(p))}: too big for one GitHub release file (limit 2 GiB).")
+                      shutil.copy(p, os.path.join("out", n))
+                  with open(os.path.join("out", "zz_INSTALL.txt"), "w") as fh:
+                      fh.write(f"{pkg} {version_name} ({version_code})\n\n"
+                               "This app is too big for one package, so every file is a separate download.\n"
+                               "1. Download ALL the .apk files and install them together (SAI / Split APKs Installer, or\n"
+                               "   adb install-multiple *.apk).\n")
+                      if obbs:
+                          fh.write(f"2. Put the .obb file(s) in /sdcard/Android/obb/{pkg}/ BEFORE opening the app.\n")
+                  notes.append("Too big for one file: released as separate files + zz_INSTALL.txt")
+
+              out_files = []
+              for name in sorted(os.listdir("out"), key=lambda n: (n == "zz_INSTALL.txt", n)):
+                  path = os.path.join("out", name)
+                  out_files.append({"name": name, "size": os.path.getsize(path), "sha256": _sha256(path)})
+              result = {
+                  "ok": True, "type": kind, "package": pkg, "name": meta.get("label"), "version_name": version_name,
+                  "version_code": version_code, "min_sdk": meta.get("min_sdk"), "target_sdk": meta.get("target_sdk"),
+                  "apk_count": len(apks), "obb_count": len(obbs), "files": out_files,
+                  "total_bytes": sum(f["size"] for f in out_files), "notes": notes,
+              }
+              with open("pack.json", "w") as fh:
+                  json.dump(result, fh)
+              print("GPLAY_DOWNLOAD_JSON " + json.dumps(result, ensure_ascii=True))
+              lines = [f"## Google Play download: {meta.get('label') or pkg}", "",
+                       f"`{pkg}` {version_name} (code {version_code}) - package type: **{kind}** "
+                       f"({len(apks)} APK, {len(obbs)} OBB)", "",
+                       "| File | Size | SHA-256 |", "|---|---|---|"]
+              lines += [f"| `{f['name']}` | {human(f['size'])} | `{f['sha256'][:16]}...` |" for f in out_files]
+              lines += [""] + [f"> {n}" for n in notes]
+              if meta.get("min_sdk"):
+                  lines.append(f"\nMinimum Android: {android_name(meta['min_sdk'])}")
+              _summary("\n".join(lines) + "\n")
+              print("\n".join(lines))
+              with open(os.environ.get("GITHUB_OUTPUT", os.devnull), "a") as fh:
+                  fh.write(f"main_file={out_files[0]['name']}\nfile_count={len(out_files)}\ntotal_bytes={result['total_bytes']}\n")
+
+
+          def cmd_links():
+              """After the release exists: its page and the direct link of every file."""
+              result = json.loads(read("pack.json") or "{}")
+              repo, run_id = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
+              tag = f"run-{run_id}"
+              release_url = f"https://github.com/{repo}/releases/tag/{tag}"
+              direct = [f"https://github.com/{repo}/releases/download/{tag}/{f['name']}" for f in result.get("files", [])]
+              print("GPLAY_RELEASE_JSON " + json.dumps({"release_url": release_url, "direct_urls": direct,
+                                                         "files": [f["name"] for f in result.get("files", [])]}))
+              lines = ["", "### Release", "", f"- Release URL: {release_url}"]
+              for f, url in zip(result.get("files", []), direct):
+                  lines.append(f"- `{f['name']}` ({human(f['size'])}): {url}")
+              _summary("\n".join(lines) + "\n")
+              print("\n".join(lines))
+
+
+          if __name__ == "__main__":
+              commands = {"validate": cmd_validate, "inspect-report": cmd_inspect_report, "pack": cmd_pack, "links": cmd_links}
+              if len(sys.argv) != 2 or sys.argv[1] not in commands:
+                  die("usage: gp_tools.py validate|inspect-report|pack|links")
+              commands[sys.argv[1]]()
+          PYEOF
+          python3 gp_tools.py validate
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          pip install gplaydl pyaxmlparser
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends aapt
+
+      - name: Inspect
+        if: ${{ inputs.stage == 'inspect' }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p work && cd work
+          LOCALE_ARGS=()
+          [ -n "${LOCALES:-}" ] && LOCALE_ARGS=(-l "$LOCALES")
+          FIRST_ARCH="${ARCH_LIST%%,*}"
+
+          # peek <name> [flags]: starts a download only to read the size line it
+          # prints before transferring anything, then stops it.
+          peek() {
+            local name="$1"; shift
+            rm -rf "peek_$name"; mkdir "peek_$name"
+            gplaydl download "$PACKAGE" -a "$ARCH_LIST" -o "peek_$name" ${LOCALE_ARGS[@]+"${LOCALE_ARGS[@]}"} "$@" > "peek_$name.log" 2>&1 &
+            local pid=$!
+            for _ in $(seq 1 120); do
+              grep -q "Downloading [0-9]* file" "peek_$name.log" 2>/dev/null && break
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 0.5
+            done
+            kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+            rm -rf "peek_$name"
+          }
+
+          timeout 120 gplaydl info "$PACKAGE" > info.txt 2>&1; echo $? > info.rc
+          if [ "$(cat info.rc)" != "0" ]; then
+            cat info.txt
+            python3 ../gp_tools.py inspect-report   # prints the error and stops
+            exit 1
+          fi
+          for a in arm64 armv7 x86 x86_64; do
+            timeout 120 gplaydl list-splits "$PACKAGE" -a "$a" > "splits_$a.txt" 2>&1; echo $? > "splits_$a.rc"
+          done
+          peek all
+          peek noextras --no-extras
+          mkdir base_dl
+          timeout 900 gplaydl download "$PACKAGE" -a "$FIRST_ARCH" -o base_dl --no-splits --no-extras > base.log 2>&1
+          rm -f base_dl/*.dm
+          python3 ../gp_tools.py inspect-report
+
+      - name: Download
+        if: ${{ inputs.stage == 'download' }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p dl out
+          LOCALE_ARGS=()
+          [ -n "${LOCALES:-}" ] && LOCALE_ARGS=(-l "$LOCALES")
+          timeout 4500 gplaydl download "$PACKAGE" -a "$ARCH_LIST" -o dl ${LOCALE_ARGS[@]+"${LOCALE_ARGS[@]}"} > download.log 2>&1
+          code=$?
+          tail -n 40 download.log
+          if [ "$code" != "0" ]; then
+            echo "::error::gplaydl download failed (exit $code)"
+            exit 1
+          fi
+
+      - name: Build package
+        if: ${{ inputs.stage == 'download' }}
+        id: pack
+        run: python3 gp_tools.py pack
+
+      - name: Create Release with direct link
+        if: ${{ inputs.stage == 'download' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: run-${{ github.run_id }}
+          files: out/*
+          prerelease: true
+          name: "Download run-${{ github.run_id }}"
+
+      - name: Release links
+        if: ${{ inputs.stage == 'download' }}
+        run: python3 gp_tools.py links
+
+      - name: Clean up
+        if: always()
+        run: rm -rf work dl out download.log pack.json manifest.json gp_tools.py
