@@ -5,6 +5,10 @@ from kivy.uix.togglebutton import ToggleButton
 
 from screens.common import back_button
 
+# normal / ON (the button's grey is multiplied by these)
+_ZIP_OFF = (1, 1, 1, 1)
+_ZIP_ON = (0.35, 0.85, 0.45, 1)
+
 
 def build(nav, url=""):
     nav.clear()
@@ -34,3 +38,4 @@ def build(nav, url=""):
 def _toggle_zip(instance):
     is_on = instance.state == "down"
     instance.text = f"Zip before upload: {'ON' if is_on else 'OFF'}"
+    instance.background_color = _ZIP_ON if is_on else _ZIP_OFF

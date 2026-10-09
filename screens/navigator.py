@@ -10,6 +10,7 @@ work; the Navigator calls into ``services`` to actually do that work.
 Nothing here imports the GitHub API layer directly.
 """
 from kivy.clock import Clock
+from kivy.uix.button import Button
 
 from core.jobs.job_manager import JobManager
 from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
@@ -30,11 +31,44 @@ class Navigator:
         self._share_actions = None
         # Timer behind the run progress panel (see start_progress_timer).
         self._progress_event = None
+        # True while the home screen is showing (the phone's Back key closes the app there).
+        self.on_home = False
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
         self.stop_progress_timer()
+        self.on_home = False
         self.app.clear_content()
+
+    # -- the phone's own Back key ---------------------------------------------
+    def _content_widgets(self):
+        content = self.app.content
+        return list(content) if isinstance(content, list) else list(content.children)
+
+    def go_back(self):
+        """Android's Back key: does what this screen's own Back button does,
+        so every screen returns to its own parent. On a confirmation screen
+        that is Cancel (nothing gets deleted). It never presses a job's Cancel:
+        a running job keeps running. Returns True when handled; False on the
+        home screen, where the app should close."""
+        if getattr(self, "on_home", False):
+            return False
+
+        def walk(widgets):
+            for w in widgets:
+                yield w
+                yield from walk(list(getattr(w, "children", [])))
+
+        buttons = [w for w in walk(self._content_widgets())
+                   if isinstance(w, Button) and isinstance(w.text, str)]
+        back = [b for b in buttons if b.text.startswith("Back")]
+        cancel = [b for b in buttons if b.text == "Cancel"]
+        target = back[-1] if back else (cancel[-1] if cancel else None)
+        if target is None:
+            self.show_home()
+        else:
+            target.dispatch("on_press")
+        return True
 
     # -- auto-refresh for the run progress panel ------------------------------
     def start_progress_timer(self, callback, interval=10):
@@ -70,6 +104,7 @@ class Navigator:
     def show_home(self):
         from screens import home
         home.build(self)
+        self.on_home = True
 
     def show_working(self, message, job=None, back_text="Back (job keeps running)", extra_buttons=None):
         on_cancel = (lambda: self.cancel_job(job)) if job is not None else None
@@ -546,6 +581,12 @@ class Navigator:
                 if not value:
                     label = field.get("label") or "this field"
                     self.set_status(f"Enter {label.lower()}" if field.get("label") else "Enter a link")
+                    return
+            else:
+                from screens import actions_dynamic
+                error = actions_dynamic.validate_custom(field, value)
+                if error:
+                    self.set_status(error)
                     return
             cleaned[key] = value
 
