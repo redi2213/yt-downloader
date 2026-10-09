@@ -1,5 +1,5 @@
 {
-  "config_version": 6,
+  "config_version": 7,
   "actions": [
     {
       "id": "youtube_generic",
@@ -126,7 +126,7 @@
         {
           "key": "channel_limit",
           "type": "choice",
-          "label": "Channel: how many",
+          "label": "Channel: how many (tap one, or type your own)",
           "choices": [
             {
               "label": "Last 5 videos",
@@ -157,7 +157,21 @@
               "value": "days:30"
             }
           ],
-          "default": "count:5"
+          "default": "count:5",
+          "custom": {
+            "units": [
+              {
+                "label": "Videos",
+                "value": "count",
+                "max": 200
+              },
+              {
+                "label": "Days",
+                "value": "days",
+                "max": 365
+              }
+            ]
+          }
         }
       ],
       "workflow": "aparat-download.yml",
