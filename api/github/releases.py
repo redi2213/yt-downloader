@@ -2,6 +2,7 @@
 import time
 
 from api.github import client
+from api.github.auth import auth_headers
 from core import timeutil
 from core.config import API_BASE
 
@@ -18,6 +19,42 @@ def get_release_link(run_id=None, tag: str = None, attempts: int = 10, delay: fl
                 return assets[0]["browser_download_url"]
         time.sleep(delay)
     return None
+
+
+# A release whose only asset is this file carries a link as its *content*
+# (e.g. Filimo's temporary HLS link), not a file to download.
+TEXT_LINK_ASSET = "direct-link.txt"
+
+
+def get_release_result(run_id=None, tag: str = None, attempts: int = 10, delay: float = 2):
+    """Like get_release_link, but when the release's asset is a
+    ``direct-link.txt`` file, returns the link written INSIDE it instead of
+    the URL of the .txt file itself."""
+    if tag is None:
+        tag = f"run-{run_id}"
+    url = f"{API_BASE}/releases/tags/{tag}"
+    for _ in range(attempts):
+        r = client.get_allow_missing(url)
+        if r.status_code == 200:
+            assets = r.json().get("assets", [])
+            if assets:
+                asset = assets[0]
+                if asset.get("name") == TEXT_LINK_ASSET:
+                    return _read_text_asset(asset)
+                return asset["browser_download_url"]
+        time.sleep(delay)
+    return None
+
+
+def _read_text_asset(asset) -> str:
+    # The asset API URL + octet-stream also works for private repos.
+    headers = dict(auth_headers())
+    headers["Accept"] = "application/octet-stream"
+    r = client.get(asset["url"], headers=headers)
+    lines = [l.strip() for l in r.text.splitlines() if l.strip()]
+    if not lines:
+        raise ValueError("direct-link.txt is empty")
+    return lines[0]
 
 
 def get_live_history():
