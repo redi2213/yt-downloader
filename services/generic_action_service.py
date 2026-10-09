@@ -103,7 +103,7 @@ def _action_thread(job_manager, job, on_status, on_complete):
 
 def _finish_action(job_manager, run_id, job, on_complete):
     try:
-        link = releases.get_release_link(run_id)
+        link = releases.get_release_result(run_id)
     except Exception as e:
         retry = _make_retry_fetch_link(job_manager, run_id, job, on_complete)
         job_manager.complete(job, ok=False,
