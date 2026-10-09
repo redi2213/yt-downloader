@@ -1,0 +1,173 @@
+
+name: Filimo Direct HLS Link
+
+run-name: Filimo Link - ${{ inputs.filimo_url }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      filimo_url:
+        description: "Filimo video URL"
+        required: true
+        type: string
+      job_id:
+        description: "App job ID"
+        required: false
+        type: string
+      run_title:
+        description: "Job title"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  filimo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Filimo CLI
+        uses: actions/checkout@v4
+        with:
+          repository: SaeedDev94/filimo-plus-cli
+          path: filimo-cli
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.3"
+          cache-dependency-path: filimo-cli/go.sum
+
+      - name: Add non-interactive link mode
+        working-directory: filimo-cli
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          args_file = Path("internal/cli/args.go")
+          flags_file = Path("internal/cli/flags.go")
+          download_file = Path("internal/cli/download.go")
+
+          args = args_file.read_text()
+          if "LinkOnly bool" not in args:
+              marker = "type Args struct {"
+              if marker not in args:
+                  raise SystemExit("Could not find Args struct")
+              args = args.replace(marker, marker + "\n\tLinkOnly bool", 1)
+              args_file.write_text(args)
+
+          flags = flags_file.read_text()
+          if '"link"' not in flags and '"l"' not in flags:
+              print("WARNING: Add the -link flag manually if upstream CLI flags changed.")
+          else:
+              print("Link flag already exists.")
+
+          download = download_file.read_text()
+          if '"strconv"' not in download:
+              download = download.replace(
+                  "import (",
+                  'import (\n\t"strconv"',
+                  1
+              )
+
+          marker = 'fmt.Println("Name:", watch.Data.Attributes.Name)'
+          code = '''
+          if args.LinkOnly {
+              bestHeight := -1
+              bestLink := ""
+              for _, variant := range hls.Variants {
+                  height := 0
+                  parts := strings.Split(variant.Resolution, "x")
+                  if len(parts) == 2 {
+                      height, _ = strconv.Atoi(parts[1])
+                  }
+                  if height > bestHeight && variant.Link != "" {
+                      bestHeight = height
+                      bestLink = variant.Link
+                  }
+              }
+              if bestLink == "" {
+                  return fmt.Errorf("no HLS video variant found")
+              }
+              fmt.Println("FILIMO_HLS_URL=" + bestLink)
+              return nil
+          }
+          '''
+          if "FILIMO_HLS_URL=" not in download:
+              if marker not in download:
+                  raise SystemExit("Could not find video-name output location")
+              download = download.replace(marker, marker + "\n" + code, 1)
+
+          if '"strings"' not in download:
+              download = download.replace(
+                  "import (",
+                  'import (\n\t"strings"',
+                  1
+              )
+
+          download_file.write_text(download)
+          PY
+
+      - name: Build CLI
+        working-directory: filimo-cli
+        run: go build -o filimo-plus-cli ./cmd/filimo-plus-cli
+
+      - name: Extract HLS link
+        env:
+          FILIMO_URL: ${{ inputs.filimo_url }}
+          FILIMO_AUTHV1: ${{ secrets.FILIMO_AUTHV1 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${FILIMO_AUTHV1:-}" ]; then
+            echo "Missing FILIMO_AUTHV1 repository secret."
+            exit 1
+          fi
+
+          # The CLI must support -link and -token flags.
+          chmod +x filimo-cli/filimo-plus-cli
+
+          set +e
+          printf '1\n1\n1\n' | ./filimo-cli/filimo-plus-cli \
+            -link \
+            -id "$FILIMO_URL" \
+            -token "$FILIMO_AUTHV1" \
+            > "$RUNNER_TEMP/filimo-output.txt" 2>&1
+          CLI_STATUS=$?
+          set -e
+
+          sed -n 's/^FILIMO_HLS_URL=//p' \
+            "$RUNNER_TEMP/filimo-output.txt" \
+            | tail -n 1 > "$RUNNER_TEMP/filimo-link.txt"
+
+          if [ ! -s "$RUNNER_TEMP/filimo-link.txt" ]; then
+            echo "Failed to extract HLS link. CLI output follows:"
+            sed -E 's/(token|authorization|cookie).*/\1=[REDACTED]/Ig' \
+              "$RUNNER_TEMP/filimo-output.txt"
+            exit 1
+          fi
+
+          echo "HLS link extracted successfully."
+          echo "CLI exit code: $CLI_STATUS"
+
+      - name: Publish link as release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="run-${{ github.run_id }}"
+
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/filimo-link.txt#filimo-link.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Filimo Direct Link" \
+            --notes "Generated HLS playlist link."
+
+          echo "Filimo link asset published."
+          
