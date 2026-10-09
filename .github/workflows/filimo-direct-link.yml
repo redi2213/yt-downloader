@@ -3,37 +3,38 @@ name: Filimo Downloader
 on:
   workflow_dispatch:
     inputs:
-      filimo_url:
+      url:
         description: "Filimo URL or item ID"
         required: true
         type: string
 
-      output_mode:
-        description: "Output mode"
+      quality:
+        description: "Video quality"
         required: true
         type: choice
         options:
-          - direct_link
-          - github_release
-        default: github_release
+          - Best available
+          - 1080p
+          - 720p
+          - 480p
+          - 360p
 
-      video_index:
-        description: "Video quality option number"
+      subtitle:
+        description: "Subtitle language"
         required: true
-        type: string
-        default: "1"
+        type: choice
+        options:
+          - none
+          - Persian
+          - English
 
-      audio_index:
-        description: "Audio track option number"
+      output_mode:
+        description: "Output destination"
         required: true
-        type: string
-        default: "1"
-
-      subtitle_index:
-        description: "Subtitle option number; leave blank to skip"
-        required: false
-        type: string
-        default: ""
+        type: choice
+        options:
+          - Workflow Artifact
+          - GitHub Release
 
 permissions:
   contents: write
@@ -41,190 +42,199 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg expect
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install pexpect
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v5
         with:
           go-version: "1.24.3"
+          cache: false
 
-      - name: Get Filimo CLI
+      - name: Clone Filimo CLI
         run: |
           git clone --depth 1 \
-            https://github.com/saeeddev94/filimo-plus-cli.git \
+            https://github.com/SaeedDev94/filimo-plus-cli.git \
             filimo-cli
 
-      - name: Build CLI
+      - name: Build Filimo CLI
         working-directory: filimo-cli
-        run: go build -o ../filimo-cli-bin .
-
-      - name: Validate inputs
-        env:
-          FILIMO_URL: ${{ inputs.filimo_url }}
-          VIDEO_INDEX: ${{ inputs.video_index }}
-          AUDIO_INDEX: ${{ inputs.audio_index }}
-          SUBTITLE_INDEX: ${{ inputs.subtitle_index }}
         run: |
-          test -n "$FILIMO_URL"
-          [[ "$VIDEO_INDEX" =~ ^[1-9][0-9]*$ ]]
-          [[ "$AUDIO_INDEX" =~ ^[1-9][0-9]*$ ]]
-          if [[ -n "$SUBTITLE_INDEX" ]]; then
-            [[ "$SUBTITLE_INDEX" =~ ^[1-9][0-9]*$ ]]
+          go version
+          go build -v -o ../filimo-cli-bin \
+            ./cmd/filimo-plus-cli
+
+      - name: Download and build video
+        env:
+          FILIMO_AUTHV1: ${{ secrets.FILIMO_AUTHV1 }}
+          FILIMO_URL: ${{ inputs.url }}
+          VIDEO_QUALITY: ${{ inputs.quality }}
+          SUBTITLE_LANGUAGE: ${{ inputs.subtitle }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$FILIMO_AUTHV1" ]; then
+            echo "::error::FILIMO_AUTHV1 secret is missing"
+            exit 1
           fi
 
-      - name: Create interactive runner
-        run: |
-          cat > run-filimo.exp <<'EXPECT'
-          #!/usr/bin/expect -f
-          set timeout -1
+          mkdir -p output media
 
-          set mode $env(PHASE)
-          set url $env(FILIMO_URL)
-          set token $env(FILIMO_TOKEN)
-          set video $env(VIDEO_INDEX)
-          set audio $env(AUDIO_INDEX)
-          set subtitle $env(SUBTITLE_INDEX)
+          cat > filimo_runner.py <<'PY'
+          import os
+          import re
+          import sys
+          import pexpect
 
-          log_user 1
+          CLI = os.path.abspath("./filimo-cli-bin")
+          TOKEN = os.environ["FILIMO_AUTHV1"]
+          URL = os.environ["FILIMO_URL"]
+          QUALITY = os.environ["VIDEO_QUALITY"]
+          SUBTITLE = os.environ["SUBTITLE_LANGUAGE"]
 
-          if {$mode eq "link"} {
-              spawn ./filimo-cli-bin -id $url -token $token -link
-          } elseif {$mode eq "download"} {
-              spawn ./filimo-cli-bin -id $url -token $token \
-                  -output media/filimo-item
-          } elseif {$mode eq "build"} {
-              spawn ./filimo-cli-bin -build media/filimo-item \
-                  -output dist/filimo-item.mp4
-          } else {
-              exit 2
-          }
+          def choose(options, prompt):
+              if not options:
+                  raise RuntimeError("No menu options detected: " + prompt)
 
-          expect {
-              -re {(?i)(select|choose).*(video|quality|resolution)|(?i)(video|quality|resolution).*(select|choose)} {
-                  if {$mode eq "build"} {
-                      send -- "1\r"
-                  } else {
-                      send -- "$video\r"
+              if prompt == "Select video variant:":
+                  if QUALITY == "Best available":
+                      return "1"
+
+                  for number, option in options:
+                      if QUALITY.lower() in option.lower():
+                          return str(number)
+
+                  raise RuntimeError(
+                      "Requested quality is unavailable. Options: "
+                      + repr(options)
+                  )
+
+              if prompt == "Select subtitle:":
+                  if SUBTITLE.lower() == "none":
+                      return ""
+
+                  aliases = {
+                      "persian": ("persian", "farsi", "فارسی"),
+                      "english": ("english",),
                   }
-                  exp_continue
-              }
+                  wanted = aliases.get(SUBTITLE.lower(), (SUBTITLE.lower(),))
 
-              -re {(?i)(select|choose).*(audio|track)|(?i)(audio|track).*(select|choose)} {
-                  if {$mode eq "build"} {
-                      send -- "1\r"
-                  } else {
-                      send -- "$audio\r"
-                  }
-                  exp_continue
-              }
+                  for number, option in options:
+                      if any(x in option.lower() for x in wanted):
+                          return str(number)
 
-              -re {(?i)(select|choose).*(subtitle|subtitles)|(?i)(subtitle|subtitles).*(select|choose)} {
-                  if {$mode eq "build"} {
-                      if {$subtitle eq ""} {
-                          send -- "\r"
-                      } else {
-                          send -- "1\r"
-                      }
-                  } else {
-                      if {$subtitle eq ""} {
-                          send -- "\r"
-                      } else {
-                          send -- "$subtitle\r"
-                      }
-                  }
-                  exp_continue
-              }
+                  print(
+                      "Requested subtitle not found; skipping subtitle.",
+                      file=sys.stderr
+                  )
+                  return ""
 
-              eof {
-                  catch wait result
-                  set status [lindex $result 3]
-                  exit $status
-              }
-          }
-          EXPECT
+              # Select the first audio track by default.
+              return "1"
 
-          chmod +x run-filimo.exp
+          def run_cli(args):
+              child = pexpect.spawn(
+                  CLI, args, encoding="utf-8", timeout=3600
+              )
+              child.logfile_read = sys.stdout
 
-      - name: Extract direct stream link
-        if: inputs.output_mode == 'direct_link'
-        env:
-          FILIMO_TOKEN: ${{ secrets.FILIMO_AUTHV1 }}
-          FILIMO_URL: ${{ inputs.filimo_url }}
-          VIDEO_INDEX: ${{ inputs.video_index }}
-          AUDIO_INDEX: ${{ inputs.audio_index }}
-          SUBTITLE_INDEX: ${{ inputs.subtitle_index }}
-          PHASE: link
-        run: |
-          test -n "$FILIMO_TOKEN" || {
-            echo "Missing FILIMO_AUTHV1 repository secret."
-            exit 1
-          }
+              prompts = [
+                  "Select video variant:",
+                  "Select audio track:",
+                  "Select subtitle:",
+              ]
 
-          ./run-filimo.exp 2>&1 | tee filimo-output.txt
+              while True:
+                  index = child.expect(
+                      prompts + [pexpect.EOF],
+                      timeout=3600
+                  )
 
-          {
-            echo "## Filimo direct-link result"
-            echo
-            echo 'The CLI output is available in the workflow logs.'
-            echo 'Stream links may expire and may require authorization.'
-          } >> "$GITHUB_STEP_SUMMARY"
+                  if index == len(prompts):
+                      break
 
-      - name: Download selected media
-        if: inputs.output_mode == 'github_release'
-        env:
-          FILIMO_TOKEN: ${{ secrets.FILIMO_AUTHV1 }}
-          FILIMO_URL: ${{ inputs.filimo_url }}
-          VIDEO_INDEX: ${{ inputs.video_index }}
-          AUDIO_INDEX: ${{ inputs.audio_index }}
-          SUBTITLE_INDEX: ${{ inputs.subtitle_index }}
-          PHASE: download
-        run: |
-          test -n "$FILIMO_TOKEN" || {
-            echo "Missing FILIMO_AUTHV1 repository secret."
-            exit 1
-          }
+                  prompt = prompts[index]
 
-          mkdir -p media dist
-          ./run-filimo.exp 2>&1 | tee filimo-download.log
+                  # The CLI prints numbered options after the prompt
+                  # and then waits for a line of input.
+                  menu = ""
+                  while True:
+                      try:
+                          menu += child.read_nonblocking(
+                              size=4096, timeout=0.4
+                          )
+                      except (pexpect.TIMEOUT, pexpect.EOF):
+                          break
 
-      - name: Build MP4
-        if: inputs.output_mode == 'github_release'
-        env:
-          FILIMO_TOKEN: ${{ secrets.FILIMO_AUTHV1 }}
-          FILIMO_URL: ${{ inputs.filimo_url }}
-          VIDEO_INDEX: ${{ inputs.video_index }}
-          AUDIO_INDEX: ${{ inputs.audio_index }}
-          SUBTITLE_INDEX: ${{ inputs.subtitle_index }}
-          PHASE: build
-        run: |
-          mkdir -p dist
-          ./run-filimo.exp 2>&1 | tee filimo-build.log
-          test -s dist/filimo-item.mp4
+                  options = []
+                  for line in menu.splitlines():
+                      match = re.match(r"\s*(\d+)\)\s*(.*?)\s*$", line)
+                      if match:
+                          options.append(
+                              (int(match.group(1)), match.group(2))
+                          )
 
-      - name: Publish GitHub Release
-        if: inputs.output_mode == 'github_release'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: filimo-${{ github.run_id }}-${{ github.run_attempt }}
-          name: Filimo Download ${{ github.run_id }}
-          files: dist/filimo-item.mp4
-          fail_on_unmatched_files: true
-          generate_release_notes: false
+                  answer = choose(options, prompt)
+                  child.sendline(answer)
 
-      - name: Upload diagnostic logs
-        if: always()
+              child.close()
+              if child.exitstatus not in (0, None):
+                  raise RuntimeError(
+                      "Filimo CLI failed with exit code "
+                      + str(child.exitstatus)
+                  )
+
+          run_cli([
+              "-token", TOKEN,
+              "-id", URL,
+              "-o", "media/filimo-item",
+          ])
+
+          if not os.path.isdir("media/filimo-item/video"):
+              raise RuntimeError("Downloaded video files were not found.")
+
+          # Build the selected video, audio and subtitle into one MP4.
+          run_cli([
+              "-build", "media/filimo-item",
+              "-o", "output/filimo.mp4",
+          ])
+
+          if not os.path.isfile("output/filimo.mp4"):
+              raise RuntimeError(
+                  "The MP4 output was not created. Check the build logs."
+              )
+
+          if os.path.getsize("output/filimo.mp4") == 0:
+              raise RuntimeError("The generated MP4 is empty.")
+          PY
+
+          python filimo_runner.py
+
+      - name: Upload temporary workflow artifact
+        if: ${{ inputs.output_mode == 'Workflow Artifact' }}
         uses: actions/upload-artifact@v4
         with:
-          name: filimo-workflow-logs
-          path: |
-            filimo-output.txt
-            filimo-download.log
-            filimo-build.log
-          if-no-files-found: ignore
-          retention-days: 2
+          name: filimo-video
+          path: output/filimo.mp4
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        if: ${{ inputs.output_mode == 'GitHub Release' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: filimo-${{ github.run_number }}
+          name: Filimo Download ${{ github.run_number }}
+          files: output/filimo.mp4
+          fail_on_unmatched_files: true
+          generate_release_notes: false
