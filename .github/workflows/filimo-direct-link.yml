@@ -32,7 +32,6 @@ on:
         required: true
         type: choice
         options:
-          - Workflow Artifact
           - GitHub Release
           - Direct link only (HLS)
 
@@ -41,7 +40,7 @@ permissions:
 
 jobs:
   download:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
 
     steps:
@@ -551,23 +550,12 @@ jobs:
               f.write(f"### Filimo output\n{line}\n")
           PY
 
-          if [ "${{ inputs.output_mode }}" = "GitHub Release" ] \
-             && [ "$SIZE" -ge 2147483648 ]; then
+          if [ "$SIZE" -ge 2147483648 ]; then
             echo "::error::File is over the 2 GiB Release limit"
             exit 1
           fi
 
-      - name: Upload workflow artifact
-        if: ${{ inputs.output_mode == 'Workflow Artifact' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: filimo-video
-          path: ${{ env.FILE_PATH }}
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Publish GitHub Release
-        if: ${{ inputs.output_mode != 'Workflow Artifact' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: run-${{ github.run_id }}
@@ -577,7 +565,6 @@ jobs:
           generate_release_notes: false
 
       - name: Release links
-        if: ${{ inputs.output_mode != 'Workflow Artifact' }}
         run: |
           BASE="https://github.com/${{ github.repository }}/releases"
           TAG="run-${{ github.run_id }}"
