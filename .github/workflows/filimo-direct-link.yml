@@ -92,7 +92,6 @@ jobs:
 
           cat > filimo_runner.py <<'PY'
           import os
-          import re
           import sys
           import pexpect
 
@@ -102,9 +101,17 @@ jobs:
           QUALITY = os.environ["VIDEO_QUALITY"]
           SUBTITLE = os.environ["SUBTITLE_LANGUAGE"]
 
+          PROMPTS = [
+              "Select video variant:",
+              "Select audio track:",
+              "Select subtitle:",
+          ]
+
           def choose(options, prompt):
               if not options:
-                  raise RuntimeError("No menu options detected: " + prompt)
+                  raise RuntimeError(
+                      f"No numbered menu options found for {prompt!r}"
+                  )
 
               if prompt == "Select video variant:":
                   if QUALITY == "Best available":
@@ -115,8 +122,8 @@ jobs:
                           return str(number)
 
                   raise RuntimeError(
-                      "Requested quality is unavailable. Options: "
-                      + repr(options)
+                      f"Quality {QUALITY!r} unavailable. "
+                      f"Available options: {options!r}"
                   )
 
               if prompt == "Select subtitle:":
@@ -127,73 +134,72 @@ jobs:
                       "persian": ("persian", "farsi", "فارسی"),
                       "english": ("english",),
                   }
-                  wanted = aliases.get(SUBTITLE.lower(), (SUBTITLE.lower(),))
+
+                  wanted = aliases.get(
+                      SUBTITLE.lower(), (SUBTITLE.lower(),)
+                  )
 
                   for number, option in options:
                       if any(x in option.lower() for x in wanted):
                           return str(number)
 
                   print(
-                      "Requested subtitle not found; skipping subtitle.",
-                      file=sys.stderr
+                      "Requested subtitle not found; skipping.",
+                      file=sys.stderr,
                   )
                   return ""
 
-              # Select the first audio track by default.
+              # Select first available audio track.
               return "1"
 
           def run_cli(args):
               child = pexpect.spawn(
-                  CLI, args, encoding="utf-8", timeout=3600
+                  CLI,
+                  args,
+                  encoding="utf-8",
+                  timeout=3600,
+                  maxread=65535,
               )
-              child.logfile_read = sys.stdout
 
-              prompts = [
-                  "Select video variant:",
-                  "Select audio track:",
-                  "Select subtitle:",
-              ]
+              child.logfile_read = sys.stdout
 
               while True:
                   index = child.expect(
-                      prompts + [pexpect.EOF],
-                      timeout=3600
+                      PROMPTS + [pexpect.EOF],
+                      timeout=3600,
                   )
 
-                  if index == len(prompts):
+                  if index == len(PROMPTS):
                       break
 
-                  prompt = prompts[index]
+                  prompt = PROMPTS[index]
+                  options = []
 
-                  # The CLI prints numbered options after the prompt
-                  # and then waits for a line of input.
-                  menu = ""
+                  # Read numbered menu options from the output buffer.
                   while True:
                       try:
-                          menu += child.read_nonblocking(
-                              size=4096, timeout=0.4
+                          child.expect(
+                              r"(?m)^(\d+)\)\s*(.*?)\r?$",
+                              timeout=0.5,
                           )
-                      except (pexpect.TIMEOUT, pexpect.EOF):
+                          options.append((
+                              int(child.match.group(1)),
+                              child.match.group(2).strip(),
+                          ))
+                      except pexpect.TIMEOUT:
                           break
-
-                  options = []
-                  for line in menu.splitlines():
-                      match = re.match(r"\s*(\d+)\)\s*(.*?)\s*$", line)
-                      if match:
-                          options.append(
-                              (int(match.group(1)), match.group(2))
-                          )
 
                   answer = choose(options, prompt)
                   child.sendline(answer)
 
               child.close()
+
               if child.exitstatus not in (0, None):
                   raise RuntimeError(
-                      "Filimo CLI failed with exit code "
-                      + str(child.exitstatus)
+                      f"Filimo CLI failed: {child.exitstatus}"
                   )
 
+          # Download selected video, audio and subtitle tracks.
           run_cli([
               "-token", TOKEN,
               "-id", URL,
@@ -203,24 +209,22 @@ jobs:
           if not os.path.isdir("media/filimo-item/video"):
               raise RuntimeError("Downloaded video files were not found.")
 
-          # Build the selected video, audio and subtitle into one MP4.
+          # Build a single MP4 from the downloaded media.
           run_cli([
               "-build", "media/filimo-item",
               "-o", "output/filimo.mp4",
           ])
 
           if not os.path.isfile("output/filimo.mp4"):
-              raise RuntimeError(
-                  "The MP4 output was not created. Check the build logs."
-              )
+              raise RuntimeError("MP4 output was not created.")
 
           if os.path.getsize("output/filimo.mp4") == 0:
-              raise RuntimeError("The generated MP4 is empty.")
+              raise RuntimeError("Generated MP4 is empty.")
           PY
 
           python filimo_runner.py
 
-      - name: Upload temporary workflow artifact
+      - name: Upload workflow artifact
         if: ${{ inputs.output_mode == 'Workflow Artifact' }}
         uses: actions/upload-artifact@v4
         with:
