@@ -34,6 +34,7 @@ on:
         options:
           - Workflow Artifact
           - GitHub Release
+          - Direct link only (HLS)
 
 permissions:
   contents: write
@@ -47,31 +48,127 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          python -m pip install --upgrade pip
-          python -m pip install pexpect
+      - name: Cache ffmpeg (static build)
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: /opt/ffmpeg-bin
+          # Same key as the Download Video workflow: the cache is shared.
+          key: ffmpeg-static-ytdlp-v1
 
-      - name: Set up Go
+      - name: Install ffmpeg static build (cache miss only)
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /opt/ffmpeg-bin
+          sudo chown "$USER" /opt/ffmpeg-bin
+          curl -fsSL --retry 5 --retry-delay 3 -o /tmp/ffmpeg.tar.xz \
+            "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+          mkdir -p /tmp/ffx
+          tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffx --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          find /tmp/ffx -type f \( -name ffmpeg -o -name ffprobe \) -exec cp {} /opt/ffmpeg-bin/ \;
+          chmod +x /opt/ffmpeg-bin/ffmpeg /opt/ffmpeg-bin/ffprobe
+          rm -rf /tmp/ffx /tmp/ffmpeg.tar.xz
+
+      - name: Add ffmpeg to PATH and verify
+        run: |
+          echo "/opt/ffmpeg-bin" >> "$GITHUB_PATH"
+          /opt/ffmpeg-bin/ffmpeg -version | head -n1
+          /opt/ffmpeg-bin/ffprobe -version | head -n1
+
+      - name: Cache Python libs
+        id: cache-pylib
+        uses: actions/cache@v4
+        with:
+          path: /opt/pylib
+          key: filimo-pylib-pexpect-v1
+
+      - name: Install pexpect (cache miss only)
+        if: steps.cache-pylib.outputs.cache-hit != 'true'
+        run: pip install --target /opt/pylib pexpect
+
+      - name: Add Python libs to PYTHONPATH
+        run: echo "PYTHONPATH=/opt/pylib" >> "$GITHUB_ENV"
+
+      - name: Resolve Filimo CLI version
+        id: cli
+        run: |
+          SHA=$(git ls-remote \
+            https://github.com/SaeedDev94/filimo-plus-cli.git HEAD \
+            | cut -c1-12)
+          [ -n "$SHA" ] || { echo "::error::Cannot resolve CLI version"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Filimo CLI binary
+        id: cache-cli
+        uses: actions/cache@v4
+        with:
+          path: filimo-cli-bin
+          # Bump -p1 when the patch below changes.
+          key: filimo-cli-${{ steps.cli.outputs.sha }}-p1-go1.24.3
+
+      - name: Set up Go (cache miss only)
+        if: steps.cache-cli.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: "1.24.3"
           cache: false
 
-      - name: Clone Filimo CLI
+      - name: Clone, patch and build Filimo CLI (cache miss only)
+        if: steps.cache-cli.outputs.cache-hit != 'true'
         run: |
+          set -euo pipefail
           git clone --depth 1 \
             https://github.com/SaeedDev94/filimo-plus-cli.git \
             filimo-cli
 
-      - name: Build Filimo CLI
-        working-directory: filimo-cli
-        run: |
+          # Adds the -l/-link flag: print the selected HLS link and exit
+          # without downloading. Fails loudly if upstream code moved.
+          python3 - <<'PY'
+          import re
+
+          def edit(path, anchor, add, before=True):
+              t = open(path, encoding="utf-8").read()
+              assert t.count(anchor) == 1, f"anchor not found in {path}"
+              t = t.replace(anchor, add + anchor if before else anchor + add)
+              open(path, "w", encoding="utf-8").write(t)
+
+          edit("filimo-cli/internal/cli/args.go",
+               "\tIsContinueDownload bool\n",
+               "\tLinkOnly           bool\n", before=False)
+
+          edit("filimo-cli/internal/cli/flags.go",
+               '\t\t{\n\t\t\tShortName: "c",\n',
+               '\t\t{\n\t\t\tShortName: "l",\n\t\t\tFullName:  "link",\n'
+               '\t\t\tUsage:     "Print selected HLS link without downloading",\n'
+               '\t\t\tRegister: func(flag *Flag) {\n'
+               '\t\t\t\tflagSet.BoolVar(&args.LinkOnly, flag.ShortName, args.LinkOnly, flag.Usage)\n'
+               '\t\t\t\tflagSet.BoolVar(&args.LinkOnly, flag.FullName, args.LinkOnly, flag.Usage)\n'
+               '\t\t\t},\n\t\t},\n')
+
+          edit("filimo-cli/internal/cli/download.go",
+               "\tvar downloadDir string\n",
+               '\tif args.LinkOnly {\n'
+               '\t\tif len(selectedVariants) == 0 {\n'
+               '\t\t\tfmt.Println("No video quality selected.")\n'
+               '\t\t\treturn\n'
+               '\t\t}\n'
+               '\t\tfor _, item := range selectedVariants {\n'
+               '\t\t\tfmt.Println("Selected HLS link:")\n'
+               '\t\t\tfmt.Println(hls.Variants[item].Link)\n'
+               '\t\t}\n'
+               '\t\treturn\n'
+               '\t}\n\n')
+          PY
+
+          cd filimo-cli
           go version
-          go build -v -o ../filimo-cli-bin \
-            ./cmd/filimo-plus-cli
+          go build -v -o ../filimo-cli-bin ./cmd/filimo-plus-cli
+
+      - name: Verify CLI binary
+        run: |
+          chmod +x filimo-cli-bin
+          ./filimo-cli-bin -h | grep -q -- "-l, -link"
 
       - name: Download and build video
         env:
@@ -79,6 +176,7 @@ jobs:
           FILIMO_URL: ${{ inputs.url }}
           VIDEO_QUALITY: ${{ inputs.quality }}
           SUBTITLE_LANGUAGE: ${{ inputs.subtitle }}
+          OUTPUT_MODE: ${{ inputs.output_mode }}
         run: |
           set -euo pipefail
 
@@ -212,6 +310,78 @@ jobs:
               text = re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_")
               return text[:80].strip("_") or "filimo"
 
+          LINK_ONLY = os.environ.get("OUTPUT_MODE", "") == "Direct link only (HLS)"
+          MEDIA = "media/filimo-item"
+
+          def count_segments(directory):
+              try:
+                  with open(os.path.join(directory, "playlist.m3u8"),
+                            encoding="utf-8") as fh:
+                      return sum(
+                          1 for l in fh
+                          if l.strip() and not l.startswith("#")
+                      )
+              except OSError:
+                  return 0
+
+          class Tee:
+              """Keeps the full CLI output, but logs segment downloads
+              only when they cross a new 10% step (562 lines -> ~10)."""
+
+              def __init__(self):
+                  self.text = ""
+                  self.buf = ""
+                  self.totals = {}
+                  self.count = {}
+                  self.last = {}
+
+              def write(self, data):
+                  self.text += data
+                  self.buf += data
+                  parts = re.split(r"\r\n|\n|\r", self.buf)
+                  self.buf = parts.pop()
+                  for line in parts:
+                      self.emit(line)
+
+              def flush(self):
+                  sys.stdout.flush()
+
+              def finish(self):
+                  if self.buf.strip():
+                      self.emit(self.buf)
+                  self.buf = ""
+
+              def emit(self, line):
+                  if "wmsAuthSign" in line:
+                      print("[HLS link hidden in log]")
+                      return
+
+                  m = re.match(r"Downloading:\s*(.+?),\s*atempt #(\d+)", line)
+                  if m and m.group(2) == "1":
+                      path = m.group(1)
+                      if path.endswith(".key"):
+                          return
+                      d = os.path.dirname(path)
+                      if d not in self.totals:
+                          self.totals[d] = count_segments(d)
+                      total = self.totals[d]
+                      n = self.count[d] = self.count.get(d, 0) + 1
+                      if total:
+                          pct = min(100, n * 100 // total)
+                          bucket = pct // 10
+                          if self.last.get(d) == bucket and n != total:
+                              return
+                          self.last[d] = bucket
+                          label = os.path.relpath(d, MEDIA)
+                          print(f"[progress] {label}: {pct}% ({n}/{total})")
+                      elif n % 50 == 1:
+                          print(f"[progress] {d}: {n} segments")
+                      sys.stdout.flush()
+                      return
+
+                  print(line)
+                  sys.stdout.flush()
+
           def run_cli(args):
               child = pexpect.spawn(
                   CLI,
@@ -221,7 +391,8 @@ jobs:
                   maxread=65535,
               )
 
-              child.logfile_read = sys.stdout
+              tee = Tee()
+              child.logfile_read = tee
 
               while True:
                   index = child.expect(
@@ -259,11 +430,55 @@ jobs:
                   child.sendline(answer)
 
               child.close()
+              tee.finish()
 
               if child.exitstatus not in (0, None):
                   raise RuntimeError(
                       f"Filimo CLI failed: {child.exitstatus}"
                   )
+
+              return tee.text
+
+          if LINK_ONLY:
+              out = run_cli([
+                  "-token", TOKEN,
+                  "-id", URL,
+                  "-l",
+              ])
+
+              m = re.search(r"Selected HLS link:\s*\r?\n\s*(\S+)", out)
+              if not m:
+                  raise RuntimeError("HLS link was not printed by the CLI.")
+              link = m.group(1)
+
+              # Remaining validity from the JWT "exp" claim, if present.
+              left = ""
+              try:
+                  import base64, json, time
+                  sign = re.search(r"wmsAuthSign=([\w-]+)\.([\w-]+)\.", link)
+                  payload = sign.group(2)
+                  payload += "=" * (-len(payload) % 4)
+                  exp = json.loads(base64.urlsafe_b64decode(payload))["exp"]
+                  left = f"{max(0, int(exp - time.time())) // 60} min"
+              except Exception:
+                  pass
+
+              with open("output/direct-link.txt", "w") as f:
+                  f.write(link + "\n")
+
+              with open(os.environ["GITHUB_ENV"], "a") as f:
+                  f.write("FILE_NAME=direct-link.txt\n")
+                  f.write("FILE_PATH=output/direct-link.txt\n")
+
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+                  f.write("### Filimo direct link (HLS)\n")
+                  f.write(f"Title: {NAME}\n\n")
+                  f.write(f"Quality: {QUALITY}\n\n")
+                  if left:
+                      f.write(f"Valid for about: {left}\n\n")
+                  f.write(f"{link}\n")
+              print("[runner] HLS link saved to output/direct-link.txt")
+              sys.exit(0)
 
           # Download selected video, audio and subtitle tracks.
           run_cli([
@@ -301,6 +516,7 @@ jobs:
           python filimo_runner.py
 
       - name: Validate output file
+        if: ${{ inputs.output_mode != 'Direct link only (HLS)' }}
         run: |
           set -euo pipefail
 
@@ -351,7 +567,7 @@ jobs:
           retention-days: 7
 
       - name: Publish GitHub Release
-        if: ${{ inputs.output_mode == 'GitHub Release' }}
+        if: ${{ inputs.output_mode != 'Workflow Artifact' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: run-${{ github.run_id }}
@@ -361,7 +577,7 @@ jobs:
           generate_release_notes: false
 
       - name: Release links
-        if: ${{ inputs.output_mode == 'GitHub Release' }}
+        if: ${{ inputs.output_mode != 'Workflow Artifact' }}
         run: |
           BASE="https://github.com/${{ github.repository }}/releases"
           TAG="run-${{ github.run_id }}"
