@@ -26,7 +26,6 @@ on:
         options:
           - none
           - Persian
-          - English
 
       output_mode:
         description: "Output destination"
@@ -92,6 +91,7 @@ jobs:
 
           cat > filimo_runner.py <<'PY'
           import os
+          import re
           import sys
           import pexpect
 
@@ -107,6 +107,10 @@ jobs:
               "Select subtitle:",
           ]
 
+          def height(option):
+              m = re.search(r"(\d+)p\b", option)
+              return int(m.group(1)) if m else 0
+
           def choose(options, prompt):
               if not options:
                   raise RuntimeError(
@@ -114,12 +118,31 @@ jobs:
                   )
 
               if prompt == "Select video variant:":
-                  if QUALITY == "Best available":
-                      return "1"
+                  # CLI menu is NOT sorted (360p, 144p, 240p, 480p ...),
+                  # so always pick by the real resolution number.
+                  ranked = sorted(
+                      ((height(o), n) for n, o in options), reverse=True
+                  )
 
-                  for number, option in options:
-                      if QUALITY.lower() in option.lower():
-                          return str(number)
+                  if QUALITY == "Best available":
+                      print(f"[runner] Best -> {ranked[0][0]}p",
+                            file=sys.stderr)
+                      return str(ranked[0][1])
+
+                  wanted = int(re.match(r"\d+", QUALITY).group(0))
+
+                  for h, n in ranked:
+                      if h == wanted:
+                          return str(n)
+
+                  lower = [(h, n) for h, n in ranked if 0 < h < wanted]
+                  if lower:
+                      print(
+                          f"[runner] {wanted}p unavailable; "
+                          f"using {lower[0][0]}p",
+                          file=sys.stderr,
+                      )
+                      return str(lower[0][1])
 
                   raise RuntimeError(
                       f"Quality {QUALITY!r} unavailable. "
@@ -130,27 +153,64 @@ jobs:
                   if SUBTITLE.lower() == "none":
                       return ""
 
-                  aliases = {
-                      "persian": ("persian", "farsi", "فارسی"),
-                      "english": ("english",),
-                  }
-
-                  wanted = aliases.get(
-                      SUBTITLE.lower(), (SUBTITLE.lower(),)
-                  )
+                  # CLI lists language codes (fa, en, ar), not names.
+                  persian = ("fa", "fas", "per", "persian", "farsi", "فارسی")
 
                   for number, option in options:
-                      if any(x in option.lower() for x in wanted):
+                      if option.strip().lower() in persian:
                           return str(number)
 
                   print(
-                      "Requested subtitle not found; skipping.",
+                      "Persian subtitle not available; skipping.",
                       file=sys.stderr,
                   )
                   return ""
 
               # Select first available audio track.
               return "1"
+
+          NAME = ""
+
+          WORDS = {
+              "فصل": "fasl", "قسمت": "qesmat", "فیلم": "film",
+              "سریال": "serial", "مستند": "mostanad",
+              "انیمیشن": "animation", "آبی": "abi",
+          }
+
+          LETTERS = {
+              "آ": "a", "ا": "a", "أ": "a", "إ": "e", "ء": "", "ئ": "i",
+              "ب": "b", "پ": "p", "ت": "t", "ث": "s", "ج": "j",
+              "چ": "ch", "ح": "h", "خ": "kh", "د": "d", "ذ": "z",
+              "ر": "r", "ز": "z", "ژ": "zh", "س": "s", "ش": "sh",
+              "ص": "s", "ض": "z", "ط": "t", "ظ": "z", "ع": "a",
+              "غ": "gh", "ف": "f", "ق": "q", "ک": "k", "ك": "k",
+              "گ": "g", "ل": "l", "م": "m", "ن": "n", "و": "v",
+              "ه": "h", "ة": "e", "ی": "i", "ي": "i", "ى": "i",
+              "ؤ": "o",
+          }
+
+          def finglish(text):
+              for i, d in enumerate("۰۱۲۳۴۵۶۷۸۹"):
+                  text = text.replace(d, str(i))
+              for i, d in enumerate("٠١٢٣٤٥٦٧٨٩"):
+                  text = text.replace(d, str(i))
+
+              parts = []
+              for word in re.split(r"(\s+)", text):
+                  if word in WORDS:
+                      parts.append(WORDS[word])
+                  else:
+                      parts.append("".join(
+                          LETTERS.get(c, c) for c in word
+                      ))
+              return "".join(parts)
+
+          def safe_name(text):
+              # Pure English names stay as they are; Persian letters
+              # become Finglish. Then make the name filesystem-safe.
+              text = finglish(text)
+              text = re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_")
+              return text[:80].strip("_") or "filimo"
 
           def run_cli(args):
               child = pexpect.spawn(
@@ -172,6 +232,12 @@ jobs:
                   if index == len(PROMPTS):
                       break
 
+                  global NAME
+                  if not NAME:
+                      m = re.search(r"Name:\s*(.+)", child.before or "")
+                      if m:
+                          NAME = m.group(1).strip()
+
                   prompt = PROMPTS[index]
                   options = []
 
@@ -179,8 +245,8 @@ jobs:
                   while True:
                       try:
                           child.expect(
-                              r"(?m)^(\d+)\)\s*(.*?)\r?$",
-                              timeout=0.5,
+                              r"(?m)^\s*(\d+)\)\s*(.*?)\r?$",
+                              timeout=2,
                           )
                           options.append((
                               int(child.match.group(1)),
@@ -220,16 +286,67 @@ jobs:
 
           if os.path.getsize("output/filimo.mp4") == 0:
               raise RuntimeError("Generated MP4 is empty.")
+
+          # Final file name from the title (English kept, Persian ->
+          # Finglish).
+          file_name = safe_name(NAME) + ".mp4"
+          os.rename("output/filimo.mp4", f"output/{file_name}")
+          print(f"[runner] Title: {NAME!r} -> {file_name}")
+
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"FILE_NAME={file_name}\n")
+              f.write(f"FILE_PATH=output/{file_name}\n")
           PY
 
           python filimo_runner.py
+
+      - name: Validate output file
+        run: |
+          set -euo pipefail
+
+          FILE="$FILE_PATH"
+          SIZE=$(stat -c %s "$FILE")
+
+          ffprobe -v error -print_format json \
+            -show_format -show_streams "$FILE" > probe.json
+
+          python3 - <<'PY'
+          import json, os
+
+          path = os.environ["FILE_PATH"]
+          d = json.load(open("probe.json"))
+          v = [s for s in d["streams"] if s["codec_type"] == "video"]
+          a = [s for s in d["streams"] if s["codec_type"] == "audio"]
+          dur = float(d["format"].get("duration", 0))
+          size = os.path.getsize(path)
+
+          assert v, "No video stream in output"
+          assert a, "No audio stream in output"
+          assert dur > 10, f"Duration too short: {dur}s"
+
+          line = (
+              f"{v[0]['width']}x{v[0]['height']}, "
+              f"{int(dur // 60)}m{int(dur % 60)}s, "
+              f"{size / 1048576:.1f} MiB"
+          )
+          print("Validated:", line)
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"### Filimo output\n{line}\n")
+          PY
+
+          if [ "${{ inputs.output_mode }}" = "GitHub Release" ] \
+             && [ "$SIZE" -ge 2147483648 ]; then
+            echo "::error::File is over the 2 GiB Release limit"
+            exit 1
+          fi
 
       - name: Upload workflow artifact
         if: ${{ inputs.output_mode == 'Workflow Artifact' }}
         uses: actions/upload-artifact@v4
         with:
           name: filimo-video
-          path: output/filimo.mp4
+          path: ${{ env.FILE_PATH }}
           if-no-files-found: error
           retention-days: 7
 
@@ -237,8 +354,18 @@ jobs:
         if: ${{ inputs.output_mode == 'GitHub Release' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: filimo-${{ github.run_number }}
+          tag_name: run-${{ github.run_id }}
           name: Filimo Download ${{ github.run_number }}
-          files: output/filimo.mp4
+          files: ${{ env.FILE_PATH }}
           fail_on_unmatched_files: true
           generate_release_notes: false
+
+      - name: Release links
+        if: ${{ inputs.output_mode == 'GitHub Release' }}
+        run: |
+          BASE="https://github.com/${{ github.repository }}/releases"
+          TAG="run-${{ github.run_id }}"
+          {
+            echo "Release: $BASE/tag/$TAG"
+            echo "Direct: $BASE/download/$TAG/$FILE_NAME"
+          } >> "$GITHUB_STEP_SUMMARY"
