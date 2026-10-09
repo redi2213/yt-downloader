@@ -30,7 +30,15 @@ class YTBridgeApp(App):
 
         self.nav = Navigator(self)
         self.nav.show_home()
+        # The phone's own Back key (key code 27) goes one screen back.
+        Window.bind(on_keyboard=self._on_keyboard)
         return self.scroll
+
+    def _on_keyboard(self, window, key, *args):
+        if key == 27:
+            # True = handled here; False on the home screen = default (close the app)
+            return bool(self.nav.go_back())
+        return False
 
     def on_start(self):
         # Links shared into the app from other apps (Android Share menu).
