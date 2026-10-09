@@ -1,5 +1,5 @@
 {
-  "config_version": 7,
+  "config_version": 8,
   "actions": [
     {
       "id": "youtube_generic",
@@ -356,6 +356,90 @@
         "android_version": "{android}",
         "output_format": "{output}",
         "locales": "{locales}"
+      }
+    },
+    {
+      "id": "filimo_download",
+      "title": "Download from Filimo",
+      "icon": "filimo",
+      "enabled": true,
+      "domains": [
+        "filimo.com"
+      ],
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Filimo link",
+          "hint": "Movie or episode link (or item ID)"
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Best",
+              "value": "Best available"
+            },
+            {
+              "label": "1080p",
+              "value": "1080p"
+            },
+            {
+              "label": "720p",
+              "value": "720p"
+            },
+            {
+              "label": "480p",
+              "value": "480p"
+            },
+            {
+              "label": "360p",
+              "value": "360p"
+            }
+          ],
+          "default": "Best available"
+        },
+        {
+          "key": "subtitle",
+          "type": "choice",
+          "label": "Subtitle",
+          "choices": [
+            {
+              "label": "None",
+              "value": "none"
+            },
+            {
+              "label": "Persian",
+              "value": "Persian"
+            }
+          ],
+          "default": "none"
+        },
+        {
+          "key": "output",
+          "type": "choice",
+          "label": "Output",
+          "choices": [
+            {
+              "label": "Download file",
+              "value": "GitHub Release"
+            },
+            {
+              "label": "Direct link only (HLS)",
+              "value": "Direct link only (HLS)"
+            }
+          ],
+          "default": "GitHub Release"
+        }
+      ],
+      "workflow": "filimo-direct-link.yml",
+      "workflow_inputs": {
+        "url": "{url}",
+        "quality": "{quality}",
+        "subtitle": "{subtitle}",
+        "output_mode": "{output}"
       }
     }
   ]
