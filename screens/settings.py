@@ -12,6 +12,7 @@ from kivy.uix.textinput import TextInput
 
 from screens.common import back_button
 from services import token_service
+from api import filimo
 
 
 def build(nav):
@@ -33,6 +34,16 @@ def build(nav):
         save_token_btn = Button(text="Save token", size_hint_y=None, height=40)
         save_token_btn.bind(on_press=lambda i: _save_token_and_refresh(nav, token_input))
         nav.add(save_token_btn)
+
+    nav.add(Label(text="Filimo token (kept only on this phone)", size_hint_y=None, height=28))
+    filimo_input = TextInput(
+        text=filimo.get_token(), hint_text="Filimo token", multiline=False,
+        password=True, size_hint_y=None, height=48,
+    )
+    nav.add(filimo_input)
+    save_filimo_btn = Button(text="Save Filimo token", size_hint_y=None, height=40)
+    save_filimo_btn.bind(on_press=lambda i: filimo.save_token(filimo_input.text.strip()))
+    nav.add(save_filimo_btn)
 
     github_signin_btn = Button(text="Sign in with GitHub", size_hint_y=None, height=48)
     github_signin_btn.bind(on_press=lambda i: nav.show_github_signin())

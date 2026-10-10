@@ -567,6 +567,23 @@ class Navigator:
             return
         self.handle_shared_text(url)
 
+    def start_filimo_phone_link(self, values):
+        """Filimo link requested from the phone's own network (not GitHub)."""
+        from services import filimo_link_service
+        self.show_working("Getting link from this phone's network...")
+
+        def _done(res):
+            def _show():
+                if res.get("ok"):
+                    msg = f"{res['title']} - {res['quality']}".strip(" -")
+                    self.show_result(msg or "Link ready", link=res["link"])
+                else:
+                    self.show_result(res.get("error", "Failed"))
+            self.schedule(_show)
+
+        filimo_link_service.start_fetch_link(
+            values.get("url", ""), values.get("quality", "Best available"), _done)
+
     def start_dynamic_action(self, action, field_values):
         # field_values: dict of {field_key: value}. Text fields need
         # trimming and a non-empty check; choice fields (already a resolved
@@ -589,6 +606,9 @@ class Navigator:
                     self.set_status(error)
                     return
             cleaned[key] = value
+
+        if action.get("handler") == "filimo_phone":
+            return self.start_filimo_phone_link(cleaned)
 
         job = generic_action_service.create_action_job(
             self.job_manager,
