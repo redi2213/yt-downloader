@@ -1,5 +1,5 @@
 {
-  "config_version": 8,
+  "config_version": 9,
   "actions": [
     {
       "id": "youtube_generic",
@@ -441,6 +441,49 @@
         "subtitle": "{subtitle}",
         "output_mode": "{output}"
       }
+    },
+    {
+      "id": "filimo_phone_link",
+      "title": "Filimo link (phone network)",
+      "icon": "filimo",
+      "enabled": true,
+      "handler": "filimo_phone",
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Filimo link",
+          "hint": "Movie or episode link (or item ID)"
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Best",
+              "value": "Best available"
+            },
+            {
+              "label": "1080p",
+              "value": "1080p"
+            },
+            {
+              "label": "720p",
+              "value": "720p"
+            },
+            {
+              "label": "480p",
+              "value": "480p"
+            },
+            {
+              "label": "360p",
+              "value": "360p"
+            }
+          ],
+          "default": "480p"
+        }
+      ]
     }
   ]
 }
