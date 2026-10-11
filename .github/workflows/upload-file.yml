@@ -4,8 +4,8 @@ run-name: ${{ inputs.run_title || 'Upload' }} [${{ inputs.job_id }}]
 on:
   workflow_dispatch:
     inputs:
-      url_1:
-        description: 'Link(s) - one or more, one per line'
+      file_url:
+        description: 'Link(s) - one or more, one per line (or separated by spaces)'
         required: true
         type: string
       url_2:
@@ -33,9 +33,15 @@ on:
         required: false
         default: 'false'
         type: string
+      custom_name:
+        description: 'Ignored (kept only so older app versions do not break)'
+        required: false
+        default: ''
+        type: string
       job_id:
-        description: 'Unique id used to find this run and tag the release (set by the app)'
-        required: true
+        description: 'Unique id used to find this run and tag the release (set by the app). Empty = use run id'
+        required: false
+        default: ''
         type: string
       run_title:
         description: 'Short name for this run, set by the app (leave empty when running by hand)'
@@ -54,21 +60,22 @@ jobs:
     outputs:
       matrix: ${{ steps.collect.outputs.matrix }}
       count: ${{ steps.collect.outputs.count }}
+      tag: ${{ steps.collect.outputs.tag }}
     steps:
       - name: Collect links
         id: collect
         env:
-          U1: ${{ inputs.url_1 }}
+          U1: ${{ inputs.file_url }}
           U2: ${{ inputs.url_2 }}
           U3: ${{ inputs.url_3 }}
           U4: ${{ inputs.url_4 }}
           U5: ${{ inputs.url_5 }}
+          JOB_ID: ${{ inputs.job_id }}
         run: |
           set -euo pipefail
 
           ALL=$(printf '%s\n' "$U1" "$U2" "$U3" "$U4" "$U5" \
-            | tr -d '\r' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | tr -s '[:space:]' '\n' \
             | grep -E '^https?://' \
             | awk '!seen[$0]++' || true)
 
@@ -87,16 +94,24 @@ jobs:
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
 
+          # Tag: job-<job_id> when the app gives a job_id, otherwise run-<run_id>
+          if [ -n "$JOB_ID" ]; then
+            echo "tag=job-$JOB_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=run-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.collect.outputs.tag }}
           JOB_ID: ${{ inputs.job_id }}
           RUN_TITLE: ${{ inputs.run_title }}
           COUNT: ${{ steps.collect.outputs.count }}
         run: |
           set -euo pipefail
-          TITLE="Upload ${RUN_TITLE:-$JOB_ID}"
-          gh release create "job-$JOB_ID" \
+          TITLE="Upload ${RUN_TITLE:-${JOB_ID:-$GITHUB_RUN_ID}}"
+          gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --prerelease \
             --title "$TITLE" \
@@ -106,7 +121,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 340
-    name: file ${{ matrix.idx }} [${{ inputs.job_id }}]
+    name: file ${{ matrix.idx }}
     strategy:
       fail-fast: false
       matrix:
@@ -175,13 +190,11 @@ jobs:
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_ID: ${{ inputs.job_id }}
+          TAG: ${{ needs.prepare.outputs.tag }}
           IDX: ${{ matrix.idx }}
           FILENAME: ${{ steps.dl.outputs.filename }}
         run: |
           set -euo pipefail
-          TAG="job-$JOB_ID"
-
           # Normal upload; if a file with the same name already exists in the
           # release, fall back to adding the link number to the start of the name.
           if ! gh release upload "$TAG" "release_asset/$FILENAME" --repo "$GITHUB_REPOSITORY"; then
