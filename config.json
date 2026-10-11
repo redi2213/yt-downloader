@@ -1,5 +1,5 @@
 {
-  "config_version": 11,
+  "config_version": 12,
   "actions": [
     {
       "id": "youtube_generic",
@@ -437,6 +437,41 @@
         "quality": "{quality}",
         "subtitle": "{subtitle}",
         "output_mode": "GitHub Release"
+      }
+    },
+    {
+      "id": "upload_links",
+      "title": "Upload files from direct links",
+      "icon": "mediafire",
+      "enabled": true,
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Direct links",
+          "hint": "One or more links, one per line"
+        },
+        {
+          "key": "zip",
+          "type": "choice",
+          "label": "Zip each file?",
+          "choices": [
+            {
+              "label": "No",
+              "value": "false"
+            },
+            {
+              "label": "Yes",
+              "value": "true"
+            }
+          ],
+          "default": "false"
+        }
+      ],
+      "workflow": "upload-file.yml",
+      "workflow_inputs": {
+        "file_url": "{url}",
+        "zip_it": "{zip}"
       }
     }
   ]
