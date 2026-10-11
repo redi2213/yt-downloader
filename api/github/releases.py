@@ -21,6 +21,22 @@ def get_release_link(run_id=None, tag: str = None, attempts: int = 10, delay: fl
     return None
 
 
+def get_release_links(run_id=None, tag: str = None, attempts: int = 10, delay: float = 2):
+    """Download links of ALL assets of a release (a multi-file upload puts
+    several files in one release). [] when there is no release/asset yet."""
+    if tag is None:
+        tag = f"run-{run_id}"
+    url = f"{API_BASE}/releases/tags/{tag}"
+    for _ in range(attempts):
+        r = client.get_allow_missing(url)
+        if r.status_code == 200:
+            assets = sorted(r.json().get("assets", []), key=lambda a: a.get("id", 0))
+            if assets:
+                return [a["browser_download_url"] for a in assets]
+        time.sleep(delay)
+    return []
+
+
 # A release whose only asset is this file carries a link as its *content*
 # (e.g. Filimo's temporary HLS link), not a file to download.
 TEXT_LINK_ASSET = "direct-link.txt"
@@ -69,17 +85,19 @@ def get_live_history():
         assets = rel.get("assets", [])
         if not assets:
             continue
-        items.append({
-            "title": assets[0]["name"],
-            "link": assets[0]["browser_download_url"],
-            # published_at, not created_at: GitHub's created_at for a release is
-            # the date of the commit its tag points to, not when it was made.
-            "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
-            "release_id": rel["id"],
-            "asset_id": assets[0]["id"],
-            "tag_name": tag,
-            "size": assets[0].get("size", 0),
-        })
+        # One item per file: a multi-file upload keeps all its files in one release
+        for asset in sorted(assets, key=lambda a: a.get("id", 0)):
+            items.append({
+                "title": asset["name"],
+                "link": asset["browser_download_url"],
+                # published_at, not created_at: GitHub's created_at for a release is
+                # the date of the commit its tag points to, not when it was made.
+                "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
+                "release_id": rel["id"],
+                "asset_id": asset["id"],
+                "tag_name": tag,
+                "size": asset.get("size", 0),
+            })
     return items
 
 
@@ -93,6 +111,20 @@ def delete_release(release_id, tag_name) -> None:
         client.delete(tag_url)
     except Exception:
         pass
+
+
+def delete_history_item(item) -> None:
+    """Deletes one file from History. When it is the release's last file the
+    whole release (and its tag) goes; otherwise only that file is removed, so
+    the other files of a multi-file upload stay."""
+    r = client.get_allow_missing(f"{API_BASE}/releases/{item['release_id']}")
+    if r.status_code != 200:
+        return  # already gone
+    assets = r.json().get("assets", [])
+    if len(assets) <= 1:
+        delete_release(item["release_id"], item["tag_name"])
+    else:
+        client.delete(f"{API_BASE}/releases/assets/{item['asset_id']}")
 
 
 def rename_release_asset(release_id, asset_id, new_filename):

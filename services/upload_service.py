@@ -4,12 +4,15 @@ import uuid
 from api.github import workflows, releases
 from core.async_utils import run_in_background
 from core.exceptions import AuthenticationError
+from core.links import split_links
 from core.jobs.job_manager import JobManager
 from core.models.job import Job, JOB_TYPE_UPLOAD
 from services.notify_service import notify
 
 
 def create_upload_job(job_manager: JobManager, file_url: str) -> Job:
+    # The box may hold several links: one clean link per line, duplicates dropped
+    file_url = "\n".join(split_links(file_url)) or file_url
     job = Job(job_id=uuid.uuid4().hex[:12], type=JOB_TYPE_UPLOAD, input=file_url)
     job_manager.start(job)
     return job
@@ -33,8 +36,8 @@ def start_upload(job_manager: JobManager, file_url: str, zip_it: bool, custom_na
 def _upload_thread(job_manager, job, zip_it, custom_name, on_status, on_complete):
     try:
         _emit(on_status, "Starting workflow...")
-        # job_id doubles as the lookup token (the workflow puts it in its
-        # run-name) and as the release tag, so it is passed in explicitly.
+        # job_id is the lookup token (the workflow puts it in its run-name).
+        # The release tag is run-<run_id>, like every other workflow.
         run_id = workflows.dispatch_and_find_run("upload-file.yml", {
             "file_url": job.input,
             "zip_it": "true" if zip_it else "false",
@@ -88,11 +91,11 @@ def _track_upload_run(job_manager, run_id, job, on_status, on_complete):
             _emit_complete(on_complete, job)
             return
 
-        tag = f"job-{job.job_id}"
-        link = releases.get_release_link(tag=tag)
-        if link:
-            notify("YT Bridge Git", "Upload link ready!")
-            job_manager.complete(job, ok=True, result_data={"link": link})
+        tag = f"run-{run_id}"
+        links = releases.get_release_links(tag=tag)
+        if links:
+            notify("YT Bridge Git", "Upload link ready!" if len(links) == 1 else f"{len(links)} upload links ready!")
+            job_manager.complete(job, ok=True, result_data=_links_result(links))
             _emit_complete(on_complete, job)
         else:
             retry = _make_retry_fetch_upload_link(job_manager, tag, job, on_complete)
@@ -106,7 +109,7 @@ def _track_upload_run(job_manager, run_id, job, on_status, on_complete):
         # The GitHub Actions run itself may have already succeeded even if
         # this network call failed (e.g. mobile connection drop) - offer a
         # retry that just re-fetches the link instead of a dead end.
-        tag = f"job-{job.job_id}"
+        tag = f"run-{run_id}"
         retry = _make_retry_fetch_upload_link(job_manager, tag, job, on_complete)
         job_manager.complete(job, ok=False, error=f"Network error: {str(e)[:60]}", retry=retry)
         _emit_complete(on_complete, job)
@@ -122,14 +125,20 @@ def _make_retry_fetch_upload_link(job_manager, tag, job, on_complete):
 
 
 def _retry_fetch_upload_link_thread(job_manager, tag, job, on_complete):
-    link = releases.get_release_link(tag=tag)
-    if link:
-        job_manager.complete(job, ok=True, result_data={"link": link})
+    links = releases.get_release_links(tag=tag)
+    if links:
+        job_manager.complete(job, ok=True, result_data=_links_result(links))
         _emit_complete(on_complete, job)
     else:
         retry = _make_retry_fetch_upload_link(job_manager, tag, job, on_complete)
         job_manager.complete(job, ok=False, error="Still could not get link.", retry=retry)
         _emit_complete(on_complete, job)
+
+
+def _links_result(links):
+    # "link" stays the first file (single-file screens keep working);
+    # "links" carries every file for the multi-file result screen.
+    return {"link": links[0], "links": links}
 
 
 def _status_relay(job, on_status):

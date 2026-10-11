@@ -76,6 +76,43 @@ def card_box(child_heights, padding=None, spacing=None):
     return box
 
 
+def paste_row(text_input, append=False):
+    """A "Paste" / "Clear" button row for a text box.
+
+    The phone's own long-press Paste bubble does not appear inside the app,
+    so the app reads the clipboard itself. ``append=True`` (several links in
+    one box): pasted text goes on a new line after what is already there.
+    Otherwise it replaces the box content (newlines become spaces)."""
+    from kivy.core.clipboard import Clipboard
+
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=GAP)
+    paste_btn = Button(text="Paste")
+    clear_btn = Button(text="Clear")
+
+    def _paste(_instance):
+        try:
+            data = Clipboard.paste() or ""
+        except Exception:
+            data = ""
+        data = data.replace("\r", "").strip()
+        if not data:
+            return
+        if append:
+            current = text_input.text.rstrip()
+            text_input.text = f"{current}\n{data}" if current else data
+        else:
+            text_input.text = " ".join(data.split())
+
+    def _clear(_instance):
+        text_input.text = ""
+
+    paste_btn.bind(on_press=_paste)
+    clear_btn.bind(on_press=_clear)
+    row.add_widget(paste_btn)
+    row.add_widget(clear_btn)
+    return row
+
+
 def back_button(nav, text="Back"):
     btn = Button(text=text, size_hint_y=None, height=BTN_H)
     btn.bind(on_press=lambda i: nav.show_home())

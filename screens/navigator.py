@@ -117,7 +117,8 @@ class Navigator:
             job=job
         )
 
-    def show_result(self, message, link=None, retry=None, retry_message="Working...", extra_buttons=None):
+    def show_result(self, message, link=None, retry=None, retry_message="Working...", extra_buttons=None,
+                    links=None):
         from screens import result
         result.build(
             self,
@@ -125,7 +126,8 @@ class Navigator:
             link=link,
             retry=retry,
             retry_message=retry_message,
-            extra_buttons=extra_buttons
+            extra_buttons=extra_buttons,
+            links=links
         )
 
     def show_about(self):
@@ -226,7 +228,8 @@ class Navigator:
         else:  # download, upload
             self.show_result(
                 "Ready!",
-                link=job.result.get("link")
+                link=job.result.get("link"),
+                links=job.result.get("links")
             )
 
     def _handle_job_complete(self, job):

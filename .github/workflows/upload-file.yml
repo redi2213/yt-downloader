@@ -39,7 +39,7 @@ on:
         default: ''
         type: string
       job_id:
-        description: 'Unique id used to find this run and tag the release (set by the app). Empty = use run id'
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
         required: false
         default: ''
         type: string
@@ -70,7 +70,6 @@ jobs:
           U3: ${{ inputs.url_3 }}
           U4: ${{ inputs.url_4 }}
           U5: ${{ inputs.url_5 }}
-          JOB_ID: ${{ inputs.job_id }}
         run: |
           set -euo pipefail
 
@@ -94,12 +93,8 @@ jobs:
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
 
-          # Tag: job-<job_id> when the app gives a job_id, otherwise run-<run_id>
-          if [ -n "$JOB_ID" ]; then
-            echo "tag=job-$JOB_ID" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=run-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
-          fi
+          # The app finds the release by the run id (same rule as every workflow)
+          echo "tag=run-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Create the release
         env:

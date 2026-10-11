@@ -27,7 +27,7 @@ def job_title(job):
         value = first
     elif isinstance(value, (list, tuple)):
         value = f"{len(value)} videos"
-    value = str(value) if value else ""
+    value = " ".join(str(value).split()) if value else ""
     if len(value) > 45:
         value = value[:42] + "..."
     return f"[{kind}] {value}".strip()

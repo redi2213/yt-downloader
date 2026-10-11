@@ -34,7 +34,7 @@ def build(nav):
         else:
             outcome = result.get("error", "Unknown error")
 
-        label_text = job.input or "(upload)"
+        label_text = " ".join(str(job.input or "(upload)").split())  # several links -> one line
         if len(label_text) > 45:
             label_text = label_text[:42] + "..."
 

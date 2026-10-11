@@ -29,7 +29,7 @@ def start_delete_release(item, on_complete=None):
 
 def _delete_thread(item, on_complete):
     try:
-        releases.delete_release(item["release_id"], item["tag_name"])
+        releases.delete_history_item(item)
         _emit_complete(on_complete, {"ok": True})
     except AuthenticationError:
         _emit_complete(on_complete, {"ok": False, "error": _TOKEN_ERROR})
@@ -46,7 +46,7 @@ def _bulk_delete_thread(items, on_status, on_complete):
     failed = 0
     for item in items:
         try:
-            releases.delete_release(item["release_id"], item["tag_name"])
+            releases.delete_history_item(item)
         except Exception:
             failed += 1
         done += 1

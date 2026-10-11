@@ -262,8 +262,10 @@ def build_input(nav, action, prefill=None, share_url=None):
             choice_buttons[key] = buttons
         else:
             hint = field.get("hint", "")
-            text_input = TextInput(hint_text=hint, multiline=False,
-                                    size_hint_y=None, height=48)
+            # "multiline": true in config.json -> a tall box taking one item per line
+            multiline = bool(field.get("multiline"))
+            text_input = TextInput(hint_text=hint, multiline=multiline,
+                                    size_hint_y=None, height=dp(150) if multiline else 48)
 
             def _on_text(instance, value, k=key):
                 values[k] = value
@@ -275,6 +277,7 @@ def build_input(nav, action, prefill=None, share_url=None):
                 values[key] = prefill
                 prefill_pending = False
             nav.add(text_input)
+            nav.add(common.paste_row(text_input, append=multiline))
 
     start_btn = Button(text="Start", size_hint_y=None, height=56)
     start_btn.bind(on_press=lambda i: nav.start_dynamic_action(action, values))

@@ -112,7 +112,15 @@ def _finish_action(job_manager, run_id, job, on_complete):
         return
     if link:
         notify("YT Bridge", "Link ready!")
-        job_manager.complete(job, ok=True, result_data={"link": link})
+        result = {"link": link}
+        try:
+            # A release can hold several files (multi-file upload, Aparat "upload files")
+            links = releases.get_release_links(run_id, attempts=1, delay=0)
+            if len(links) > 1:
+                result["links"] = links
+        except Exception:
+            pass
+        job_manager.complete(job, ok=True, result_data=result)
         _emit_complete(on_complete, job)
     else:
         retry = _make_retry_fetch_link(job_manager, run_id, job, on_complete)

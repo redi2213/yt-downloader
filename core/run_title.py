@@ -8,6 +8,7 @@ import re
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from core import translit
+from core.links import split_links
 
 # Workflow input that carries a URL, by priority
 URL_INPUT_KEYS = ("video_url", "url", "aparat_url", "telegram_url", "file_url", "playlist_url", "play_url")
@@ -71,6 +72,11 @@ def build_title(inputs, fetch=_default_fetch):
     url = next((inputs[k] for k in URL_INPUT_KEYS if inputs.get(k)), "")
     if not url or not isinstance(url, str):
         return ""
+    # Several links in one box: name the run after the first one (+N more)
+    links = split_links(url)
+    extra = max(0, len(links) - 1)
+    if links:
+        url = links[0]
     title = ""
     if inputs.get("play_url"):
         title = _play_package(url)
@@ -85,4 +91,6 @@ def build_title(inputs, fetch=_default_fetch):
         title = translit.ascii_title(_file_name(url))
     if not title:
         title = translit.ascii_title(_url_slug(url))
+    if title and extra:
+        title = f"{title} +{extra}"
     return title
