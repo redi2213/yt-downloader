@@ -1,11 +1,12 @@
 """Splitting pasted text into links. Pure Python (no Kivy, no network).
 
-The upload box accepts several links at once, one per line; people also paste
-them separated by spaces or commas, so every whitespace/comma splits.
+The upload box accepts several links at once, one per line (or separated by
+spaces). Only whitespace splits: a comma can be part of a link itself - signed
+links end like "...secure=abc==,1791772209" and cutting there gives HTTP 403.
 """
 import re
 
-_SPLIT_RE = re.compile(r"[\s,]+")
+_SPLIT_RE = re.compile(r"\s+")
 
 
 def split_links(text):
