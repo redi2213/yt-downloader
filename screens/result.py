@@ -4,7 +4,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 
-def build(nav, message, link=None, retry=None, retry_message="Working..."):
+def build(nav, message, link=None, retry=None, retry_message="Working...", extra_buttons=None):
     nav.clear()
     nav.add(Label(text=message, size_hint_y=None, height=60))
     if link:
@@ -13,6 +13,11 @@ def build(nav, message, link=None, retry=None, retry_message="Working..."):
         copy_btn = Button(text="Copy link", size_hint_y=None, height=48)
         copy_btn.bind(on_press=lambda i: Clipboard.copy(link))
         nav.add(copy_btn)
+    # extra_buttons: [(text, callable)] shown under "Copy link"
+    for text, callback in (extra_buttons or []):
+        extra_btn = Button(text=text, size_hint_y=None, height=48)
+        extra_btn.bind(on_press=lambda i, cb=callback: cb())
+        nav.add(extra_btn)
     if retry:
         retry_btn = Button(text="Try again", size_hint_y=None, height=48)
         retry_btn.bind(on_press=lambda i: nav.retry_action(retry, retry_message))

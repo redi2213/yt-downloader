@@ -117,14 +117,15 @@ class Navigator:
             job=job
         )
 
-    def show_result(self, message, link=None, retry=None, retry_message="Working..."):
+    def show_result(self, message, link=None, retry=None, retry_message="Working...", extra_buttons=None):
         from screens import result
         result.build(
             self,
             message,
             link=link,
             retry=retry,
-            retry_message=retry_message
+            retry_message=retry_message,
+            extra_buttons=extra_buttons
         )
 
     def show_about(self):
@@ -567,18 +568,39 @@ class Navigator:
             return
         self.handle_shared_text(url)
 
-    def start_filimo_phone_link(self, values):
-        """Filimo link requested from the phone's own network (not GitHub)."""
+    def start_filimo_phone_link(self, values, message="Getting link from this phone's network..."):
+        """Filimo link requested from the phone's own network (not GitHub).
+        The result screen offers Copy, Open in downloader and Refresh (the
+        link expires, so Refresh asks Filimo for a new one with the same
+        link and quality)."""
+        from core import android_actions
         from services import filimo_link_service
-        self.show_working("Getting link from this phone's network...")
+        self.show_working(message)
 
         def _done(res):
             def _show():
                 if res.get("ok"):
+                    link = res["link"]
                     msg = f"{res['title']} - {res['quality']}".strip(" -")
-                    self.show_result(msg or "Link ready", link=res["link"])
+                    self.show_result(
+                        msg or "Link ready",
+                        link=link,
+                        extra_buttons=[
+                            ("Open in downloader",
+                             lambda: android_actions.share_text(link)),
+                            ("Refresh link",
+                             lambda: self.start_filimo_phone_link(
+                                 values, "Refreshing link...")),
+                        ],
+                    )
                 else:
-                    self.show_result(res.get("error", "Failed"))
+                    self.show_result(
+                        res.get("error", "Failed"),
+                        extra_buttons=[
+                            ("Try again",
+                             lambda: self.start_filimo_phone_link(values)),
+                        ],
+                    )
             self.schedule(_show)
 
         filimo_link_service.start_fetch_link(
@@ -607,7 +629,9 @@ class Navigator:
                     return
             cleaned[key] = value
 
-        if action.get("handler") == "filimo_phone":
+        # One Filimo button, two modes: "phone" gets the link from this
+        # phone's network; anything else goes through the GitHub workflow.
+        if action.get("handler") == "filimo_phone" and cleaned.get("mode") == "phone":
             return self.start_filimo_phone_link(cleaned)
 
         job = generic_action_service.create_action_job(
