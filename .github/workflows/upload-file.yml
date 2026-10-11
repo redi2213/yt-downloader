@@ -1,23 +1,42 @@
 name: Upload File
-run-name: ${{ inputs.run_title || inputs.file_url }} [${{ inputs.job_id }}]
+run-name: ${{ inputs.run_title || 'Upload' }} [${{ inputs.job_id }}]
 
 on:
   workflow_dispatch:
     inputs:
-      file_url:
-        description: 'Direct link to the file to download and upload'
+      url_1:
+        description: 'Link(s) - one or more, one per line'
         required: true
-      zip_it:
-        description: 'true to zip the file before uploading'
-        required: false
-        default: 'false'
-      custom_name:
-        description: 'Optional new filename (no extension). Leave blank to keep the original name.'
+        type: string
+      url_2:
+        description: 'Link 2 (optional, can hold several lines)'
         required: false
         default: ''
+        type: string
+      url_3:
+        description: 'Link 3 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      url_4:
+        description: 'Link 4 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      url_5:
+        description: 'Link 5 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      zip_it:
+        description: 'true to zip each file before uploading'
+        required: false
+        default: 'false'
+        type: string
       job_id:
         description: 'Unique id used to find this run and tag the release (set by the app)'
         required: true
+        type: string
       run_title:
         description: 'Short name for this run, set by the app (leave empty when running by hand)'
         required: false
@@ -28,25 +47,81 @@ permissions:
   contents: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: prepare ${{ inputs.job_id }}
+    outputs:
+      matrix: ${{ steps.collect.outputs.matrix }}
+      count: ${{ steps.collect.outputs.count }}
+    steps:
+      - name: Collect links
+        id: collect
+        env:
+          U1: ${{ inputs.url_1 }}
+          U2: ${{ inputs.url_2 }}
+          U3: ${{ inputs.url_3 }}
+          U4: ${{ inputs.url_4 }}
+          U5: ${{ inputs.url_5 }}
+        run: |
+          set -euo pipefail
+
+          ALL=$(printf '%s\n' "$U1" "$U2" "$U3" "$U4" "$U5" \
+            | tr -d '\r' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | grep -E '^https?://' \
+            | awk '!seen[$0]++' || true)
+
+          if [ -z "$ALL" ]; then
+            echo "::error::No valid link found. Links must start with http:// or https://"
+            exit 1
+          fi
+
+          MATRIX=$(printf '%s\n' "$ALL" | jq -R -s -c \
+            'split("\n") | map(select(length>0)) | to_entries | map({idx: (.key+1), url: .value})')
+          COUNT=$(printf '%s\n' "$ALL" | wc -l)
+
+          echo "Found $COUNT unique link(s):"
+          printf '%s\n' "$ALL"
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_ID: ${{ inputs.job_id }}
+          RUN_TITLE: ${{ inputs.run_title }}
+          COUNT: ${{ steps.collect.outputs.count }}
+        run: |
+          set -euo pipefail
+          TITLE="Upload ${RUN_TITLE:-$JOB_ID}"
+          gh release create "job-$JOB_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "$TITLE" \
+            --notes "$COUNT file(s)"
+
   upload:
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 340
-    name: ${{ github.event.inputs.job_id }}
+    name: file ${{ matrix.idx }} [${{ inputs.job_id }}]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - name: Install aria2
         run: sudo apt-get update && sudo apt-get install -y aria2
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-requests-${{ runner.os }}
-
       - name: Download the file
         id: dl
+        env:
+          URL: ${{ matrix.url }}
+          ZIP_IT: ${{ inputs.zip_it }}
         run: |
           set -euo pipefail
-          URL="${{ github.event.inputs.file_url }}"
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
           HEADERS=$(curl -sIL -A "$UA" "$URL" || true)
@@ -56,12 +131,17 @@ jobs:
             ORIGINAL_NAME="$CD_NAME"
           else
             ORIGINAL_NAME=$(basename "${URL%%\?*}")
+            ORIGINAL_NAME=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$ORIGINAL_NAME")
           fi
-          if [ -z "$ORIGINAL_NAME" ] || [ "$ORIGINAL_NAME" = "/" ]; then
+          ORIGINAL_NAME=$(echo "$ORIGINAL_NAME" | tr -d '/')
+          if [ -z "$ORIGINAL_NAME" ]; then
             ORIGINAL_NAME="downloaded_file"
           fi
 
           echo "Detected original filename: $ORIGINAL_NAME"
+
+          mkdir -p work release_asset
+          cd work
 
           set +e
           aria2c \
@@ -81,34 +161,32 @@ jobs:
             exit 1
           fi
 
-          CUSTOM_NAME="${{ github.event.inputs.custom_name }}"
-          if [ -n "$CUSTOM_NAME" ]; then
-            EXT="${ORIGINAL_NAME##*.}"
-            if [ "$EXT" = "$ORIGINAL_NAME" ]; then
-              FINAL_NAME="$CUSTOM_NAME"
-            else
-              FINAL_NAME="${CUSTOM_NAME}.${EXT}"
-            fi
-            mv "$ORIGINAL_NAME" "$FINAL_NAME"
-          else
-            FINAL_NAME="$ORIGINAL_NAME"
-          fi
-
-          if [ "${{ github.event.inputs.zip_it }}" = "true" ]; then
+          FINAL_NAME="$ORIGINAL_NAME"
+          if [ "$ZIP_IT" = "true" ]; then
             ZIP_NAME="${FINAL_NAME%.*}.zip"
-            zip -r "$ZIP_NAME" "$FINAL_NAME"
+            zip -q -r "$ZIP_NAME" "$FINAL_NAME"
+            rm -f "$FINAL_NAME"
             FINAL_NAME="$ZIP_NAME"
           fi
 
-          mkdir -p release_asset
-          mv "$FINAL_NAME" "release_asset/$FINAL_NAME"
-
+          mv "$FINAL_NAME" "../release_asset/$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Create Release with direct link
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: job-${{ github.event.inputs.job_id }}
-          files: release_asset/*
-          prerelease: true
-          name: "Upload ${{ steps.dl.outputs.filename }}"
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_ID: ${{ inputs.job_id }}
+          IDX: ${{ matrix.idx }}
+          FILENAME: ${{ steps.dl.outputs.filename }}
+        run: |
+          set -euo pipefail
+          TAG="job-$JOB_ID"
+
+          # Normal upload; if a file with the same name already exists in the
+          # release, fall back to adding the link number to the start of the name.
+          if ! gh release upload "$TAG" "release_asset/$FILENAME" --repo "$GITHUB_REPOSITORY"; then
+            echo "Upload failed, retrying with a numbered name"
+            NEW_NAME="${IDX}_${FILENAME}"
+            mv "release_asset/$FILENAME" "release_asset/$NEW_NAME"
+            gh release upload "$TAG" "release_asset/$NEW_NAME" --repo "$GITHUB_REPOSITORY"
+          fi
