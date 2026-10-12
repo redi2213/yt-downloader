@@ -1,0 +1,237 @@
+name: TNAFlix Extract and Upload
+run-name: TNAFlix ${{ inputs.mode }} [${{ github.run_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "direct = لینک مستقیم | release = آپلود به ریلیز"
+        required: true
+        default: "release"
+        type: choice
+        options: ["direct", "release"]
+      urls:
+        description: "لینک‌ها (هر خط یکی). اگر خالی باشد، Tna.txt مخزن خوانده می‌شود"
+        required: false
+        type: string
+      quality:
+        description: "کیفیت هدف"
+        required: true
+        default: "720"
+        type: choice
+        options: ["144", "240", "360", "480", "720", "1080", "highest"]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.collect.outputs.matrix }}
+      tag: ${{ steps.collect.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect links
+        id: collect
+        env:
+          URLS: ${{ inputs.urls }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys
+          from pathlib import Path
+
+          raw = os.environ.get("URLS", "").strip()
+          if not raw and Path("Tna.txt").is_file():
+              raw = Path("Tna.txt").read_text(encoding="utf-8-sig")
+
+          pat = re.compile(r"^https?://(?:www\.)?tnaflix\.com/", re.I)
+          urls = [u.strip() for u in raw.splitlines()
+                  if u.strip() and not u.lstrip().startswith("#")]
+          urls = [u for u in dict.fromkeys(urls) if pat.match(u)]
+          if not urls:
+              print("::error::No valid TNAFlix links found.")
+              sys.exit(1)
+
+          print(f"Found {len(urls)} link(s)")
+          matrix = [{"idx": i, "url": u} for i, u in enumerate(urls, 1)]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps(matrix, separators=(",", ":")) + "\n")
+              f.write("tag=run-" + os.environ["GITHUB_RUN_ID"] + "\n")
+          PY
+
+      - name: Create the release
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.collect.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "TNAFlix $GITHUB_RUN_ID" \
+            --notes "Auto upload"
+
+  process:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    name: link ${{ matrix.idx }}
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
+
+      - name: Pick format
+        id: pick
+        env:
+          URL: ${{ matrix.url }}
+          QUALITY: ${{ inputs.quality }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess, sys
+
+          url = os.environ["URL"]
+          q = os.environ["QUALITY"]
+          mode = os.environ["MODE"]
+          target = 0 if q == "highest" else int(q)
+
+          def ytdlp(args):
+              return subprocess.run(
+                  ["yt-dlp", "--no-warnings", "--no-playlist"] + args,
+                  capture_output=True, text=True, timeout=180)
+
+          def fail(msg):
+              msg = (msg or "unknown error")[-300:].replace("\n", " ")
+              print(f"::error::{msg}")
+              sys.exit(1)
+
+          r = ytdlp(["-J", url])
+          if r.returncode:
+              fail(r.stderr or r.stdout)
+
+          fmts = []
+          for f in json.loads(r.stdout).get("formats", []):
+              if f.get("vcodec") == "none":
+                  continue
+              fid = str(f.get("format_id", ""))
+              h = f.get("height")
+              if not h:
+                  m = re.search(r"(\d+)p", fid)
+                  h = int(m.group(1)) if m else None
+              if h and fid:
+                  fmts.append((fid, int(h), f.get("ext", ""), f.get("acodec")))
+
+          if not fmts:
+              fail("No video formats found.")
+
+          t = target or max(f[1] for f in fmts)
+          fmts.sort(key=lambda f: (abs(f[1] - t),
+                                   0 if f[2] == "mp4" else 1, -f[1]))
+          fid, h, _, acodec = fmts[0]
+          fsel = f"{fid}+ba/{fid}" if acodec == "none" else fid
+          print(f"Chosen: {fid} ({h}p) -> {fsel}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"fsel={fsel}\nheight={h}\n")
+
+          if mode == "direct":
+              r = ytdlp(["-g", "-f", fsel, url])
+              if r.returncode:
+                  fail(r.stderr or r.stdout)
+              links = [l.strip() for l in r.stdout.splitlines()
+                       if l.strip().startswith(("http://", "https://"))]
+              if not links:
+                  fail("No media URL returned.")
+              open("link.txt", "w").write("\n".join(links) + "\n")
+          PY
+
+      - name: Save direct link
+        if: ${{ inputs.mode == 'direct' }}
+        run: |
+          N=$(printf '%04d' "${{ matrix.idx }}")
+          mv link.txt "link_$N.txt"
+          echo "NAME=link_$N.txt" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.mode == 'direct' }}
+        with:
+          name: link-${{ matrix.idx }}
+          path: ${{ env.NAME }}
+          retention-days: 1
+
+      - name: Download the video
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          URL: ${{ matrix.url }}
+          FSEL: ${{ steps.pick.outputs.fsel }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          yt-dlp --no-warnings --no-playlist \
+            -f "$FSEL" \
+            --merge-output-format mp4 \
+            --concurrent-fragments 8 \
+            --retries 5 --fragment-retries 5 \
+            --restrict-filenames --trim-filenames 150 \
+            -o "work/%(title)s.%(ext)s" \
+            "$URL"
+
+          FILE=$(ls -S work | head -1)
+          if [ -z "$FILE" ] || [ ! -s "work/$FILE" ]; then
+            echo "::error::Download failed or file is empty"
+            exit 1
+          fi
+          echo "FILE=$FILE" >> "$GITHUB_ENV"
+          ls -lh work
+
+      - name: Upload to the release
+        if: ${{ inputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IDX: ${{ matrix.idx }}
+        run: |
+          set -euo pipefail
+          if ! gh release upload "$TAG" "work/$FILE" --repo "$GITHUB_REPOSITORY"; then
+            echo "Upload failed, retrying with a numbered name"
+            mv "work/$FILE" "work/${IDX}_${FILE}"
+            gh release upload "$TAG" "work/${IDX}_${FILE}" --repo "$GITHUB_REPOSITORY"
+          fi
+
+  collect:
+    needs: process
+    if: ${{ !cancelled() && inputs.mode == 'direct' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: link-*
+          merge-multiple: true
+
+      - name: Merge links
+        run: |
+          ls link_*.txt 2>/dev/null | sort | xargs cat > links.txt || true
+          {
+            echo "**Links:** $(wc -l < links.txt)"
+            echo '```'
+            cat links.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: links
+          path: links.txt
+          retention-days: 1
