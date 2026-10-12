@@ -1,0 +1,127 @@
+name: TNAFlix Link Extractor
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "لینک‌ها (هر خط یکی). اگر خالی باشد، فایل Tna.txt مخزن خوانده می‌شود"
+        required: false
+        type: string
+      quality:
+        description: "کیفیت هدف"
+        required: true
+        default: "720"
+        type: choice
+        options: ["144", "240", "360", "480", "720", "1080", "highest"]
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yt-dlp
+        run: pip install -U yt-dlp
+
+      - name: Extract links
+        env:
+          URLS: ${{ inputs.urls }}
+          QUALITY: ${{ inputs.quality }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess, sys
+          from pathlib import Path
+          from concurrent.futures import ThreadPoolExecutor
+
+          WORKERS = 3
+          raw = os.environ.get("URLS", "").strip()
+          if not raw and Path("Tna.txt").is_file():
+              raw = Path("Tna.txt").read_text(encoding="utf-8-sig")
+
+          q = os.environ["QUALITY"]
+          target = 0 if q == "highest" else int(q)
+
+          pat = re.compile(r"^https?://(?:www\.)?tnaflix\.com/", re.I)
+          urls = [u.strip() for u in raw.splitlines()
+                  if u.strip() and not u.lstrip().startswith("#")]
+          urls = list(dict.fromkeys(urls))
+          urls = [u for u in urls if pat.match(u)]
+          if not urls:
+              sys.exit("No valid URLs found.")
+
+          def ytdlp(args):
+              return subprocess.run(
+                  ["yt-dlp", "--no-warnings", "--no-playlist"] + args,
+                  capture_output=True, text=True, timeout=120)
+
+          def extract(url):
+              r = ytdlp(["-J", url])
+              if r.returncode:
+                  raise RuntimeError((r.stderr or r.stdout)[-500:])
+              fmts = []
+              for f in json.loads(r.stdout).get("formats", []):
+                  if f.get("vcodec") == "none":
+                      continue
+                  fid = str(f.get("format_id", ""))
+                  h = f.get("height")
+                  if not h:
+                      m = re.search(r"(\d+)p", fid)
+                      h = int(m.group(1)) if m else None
+                  if h and fid:
+                      fmts.append((fid, int(h), f.get("ext", "")))
+              if not fmts:
+                  raise RuntimeError("No video formats found.")
+              t = target or max(f[1] for f in fmts)
+              fmts.sort(key=lambda f: (abs(f[1] - t),
+                                       0 if f[2] == "mp4" else 1, -f[1]))
+              fid, h, _ = fmts[0]
+              r = ytdlp(["-g", "-f", fid, url])
+              if r.returncode:
+                  raise RuntimeError((r.stderr or r.stdout)[-500:])
+              links = [l.strip() for l in r.stdout.splitlines()
+                       if l.strip().startswith(("http://", "https://"))]
+              if not links:
+                  raise RuntimeError("No media URL returned.")
+              return links, h
+
+          def work(item):
+              i, url = item
+              try:
+                  return i, url, *extract(url), None
+              except Exception as e:
+                  return i, url, [], None, str(e)
+
+          with ThreadPoolExecutor(WORKERS) as pool:
+              results = list(pool.map(work, enumerate(urls, 1)))
+
+          all_links, failed = [], 0
+          for i, url, links, h, err in results:
+              if err:
+                  failed += 1
+                  print(f"[{i}/{len(urls)}] FAILED: {url}\n  {err}")
+              else:
+                  print(f"[{i}/{len(urls)}] OK {h}p {url}")
+                  all_links += links
+
+          Path("links.txt").write_text(
+              "\n".join(all_links) + ("\n" if all_links else ""), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
+              s.write(f"**OK:** {len(urls)-failed} | **Failed:** {failed}\n\n```\n")
+              s.write("\n".join(all_links) + "\n```\n")
+
+          if not all_links:
+              sys.exit(1)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: links
+          path: links.txt
+          if-no-files-found: ignore
+          retention-days: 1
