@@ -3,6 +3,12 @@ name: TNAFlix Link Extractor
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "خروجی: direct = لینک مستقیم | release = آپلود خودکار به ریلیز"
+        required: true
+        default: "direct"
+        type: choice
+        options: ["direct", "release"]
       urls:
         description: "لینک‌ها (هر خط یکی). اگر خالی باشد، فایل Tna.txt مخزن خوانده می‌شود"
         required: false
@@ -13,6 +19,13 @@ on:
         default: "720"
         type: choice
         options: ["144", "240", "360", "480", "720", "1080", "highest"]
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  UPLOAD_WORKFLOW: "Upload File"   # اسم یا نام فایل ورکفلوی آپلود
 
 jobs:
   extract:
@@ -31,6 +44,8 @@ jobs:
         env:
           URLS: ${{ inputs.urls }}
           QUALITY: ${{ inputs.quality }}
+          MODE: ${{ inputs.mode }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
           import json, os, re, subprocess, sys
@@ -38,6 +53,7 @@ jobs:
           from concurrent.futures import ThreadPoolExecutor
 
           WORKERS = 3
+          MODE = os.environ["MODE"]
           raw = os.environ.get("URLS", "").strip()
           if not raw and Path("Tna.txt").is_file():
               raw = Path("Tna.txt").read_text(encoding="utf-8-sig")
@@ -111,15 +127,46 @@ jobs:
               "\n".join(all_links) + ("\n" if all_links else ""), encoding="utf-8")
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as s:
-              s.write(f"**OK:** {len(urls)-failed} | **Failed:** {failed}\n\n```\n")
-              s.write("\n".join(all_links) + "\n```\n")
+              s.write(f"**OK:** {len(urls)-failed} | **Failed:** {failed}\n\n")
+              if MODE == "direct":
+                  s.write("```\n" + "\n".join(all_links) + "\n```\n")
 
           if not all_links:
               sys.exit(1)
+
+          # ---- حالت release: اجرای ورکفلوی آپلود ----
+          if MODE == "release":
+              LIMIT = 60000  # سقف طول هر ورودی workflow_dispatch
+              runs, slots, sizes = [], [[]], [0]
+              for l in all_links:
+                  if sizes[-1] + len(l) + 1 > LIMIT:
+                      if len(slots) == 5:
+                          runs.append(slots)
+                          slots, sizes = [[]], [0]
+                      else:
+                          slots.append([])
+                          sizes.append(0)
+                  slots[-1].append(l)
+                  sizes[-1] += len(l) + 1
+              runs.append(slots)
+
+              names = ["file_url", "url_2", "url_3", "url_4", "url_5"]
+              run_id = os.environ["GITHUB_RUN_ID"]
+              for n, sl in enumerate(runs, 1):
+                  cmd = ["gh", "workflow", "run", os.environ["UPLOAD_WORKFLOW"],
+                         "--repo", os.environ["GITHUB_REPOSITORY"],
+                         "-f", f"run_title=TNAFlix {n}/{len(runs)}",
+                         "-f", f"job_id=tna-{run_id}-{n}"]
+                  for name, chunk in zip(names, sl):
+                      cmd += ["-f", f"{name}=" + "\n".join(chunk)]
+                  r = subprocess.run(cmd, capture_output=True, text=True)
+                  if r.returncode:
+                      sys.exit(f"Dispatch failed: {r.stderr[-500:]}")
+                  print(f"Upload workflow started ({n}/{len(runs)})")
           PY
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ always() && inputs.mode == 'direct' }}
         with:
           name: links
           path: links.txt
