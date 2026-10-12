@@ -38,8 +38,16 @@ jobs:
               exit 1
             fi
           done
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ytbridge.keystore"
-          test -s "$RUNNER_TEMP/ytbridge.keystore" || { echo "::error::KEYSTORE_BASE64 is not valid base64"; exit 1; }
+          # Tolerate line breaks / spaces / quotes that sneak in when pasting a long secret
+          printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > "$RUNNER_TEMP/ytbridge.keystore" || true
+          echo "Keystore size after decoding: $(stat -c %s "$RUNNER_TEMP/ytbridge.keystore" 2>/dev/null || echo 0) bytes (normally 2000-3000)"
+          if ! keytool -list -keystore "$RUNNER_TEMP/ytbridge.keystore" \
+                 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null 2>"$RUNNER_TEMP/keytool.err"; then
+            echo "::error::The keystore could not be opened. Possible causes: KEYSTORE_BASE64 is cut off or has extra text, KEYSTORE_PASSWORD or KEY_ALIAS is wrong."
+            cat "$RUNNER_TEMP/keytool.err" | sed 's/^/keytool: /' | head -5
+            exit 1
+          fi
+          echo "Keystore OK (alias $KEY_ALIAS found)"
 
       - name: Embed source branch into build (not committed to repo)
         run: |
