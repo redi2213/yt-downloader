@@ -27,6 +27,7 @@ class Navigator:
         self.job_manager = JobManager()
         self.audio_only = False
         self.show_token_field = False
+        self.show_filimo_field = False
         # Remote action list loaded for the Share flow (None until loaded).
         self._share_actions = None
         # Timer behind the run progress panel (see start_progress_timer).

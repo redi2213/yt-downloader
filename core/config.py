@@ -64,7 +64,31 @@ MAX_PARALLEL_JOBS = 5
 REQUEST_TIMEOUT = 15
 
 # Local settings/token storage file (Kivy JsonStore).
-SETTINGS_STORE_FILE = "ytdl_settings.json"
+_SETTINGS_FILE_NAME = "ytdl_settings.json"
+
+
+def _settings_store_path() -> str:
+    """Where tokens are kept. A bare file name lands in the app's code folder
+    (files/app on Android), which Android wipes on every APK update - that
+    is why tokens were lost after an update. ANDROID_PRIVATE (the app's files
+    folder) survives updates. On desktop the file stays in the working folder."""
+    import os
+    private = os.environ.get("ANDROID_PRIVATE")
+    if not private:
+        return _SETTINGS_FILE_NAME
+    new_path = os.path.join(private, _SETTINGS_FILE_NAME)
+    old_path = _SETTINGS_FILE_NAME
+    # if an old file is still there (not wiped yet), carry it over once
+    if not os.path.exists(new_path) and os.path.exists(old_path):
+        try:
+            import shutil
+            shutil.copyfile(old_path, new_path)
+        except OSError:
+            pass
+    return new_path
+
+
+SETTINGS_STORE_FILE = _settings_store_path()
 
 # Cap on how many finished jobs are kept in the in-memory job history.
 MAX_JOB_HISTORY = 5
