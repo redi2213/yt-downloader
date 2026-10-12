@@ -38,13 +38,17 @@ jobs:
               exit 1
             fi
           done
-          # Tolerate line breaks / spaces / quotes that sneak in when pasting a long secret
-          printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > "$RUNNER_TEMP/ytbridge.keystore" || true
-          echo "Keystore size after decoding: $(stat -c %s "$RUNNER_TEMP/ytbridge.keystore" 2>/dev/null || echo 0) bytes (normally 2000-3000)"
+          # Tolerate line breaks / spaces / quotes that sneak in when pasting a long secret,
+          # and restore "=" padding that a copy can drop from the end.
+          CLEAN=$(printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=')
+          while [ $(( ${#CLEAN} % 4 )) -ne 0 ]; do CLEAN="${CLEAN}="; done
+          echo "KEYSTORE_BASE64 length after cleaning: ${#CLEAN} characters (compare with: wc -c ytbridge.b64 in Termux)"
+          printf '%s' "$CLEAN" | base64 -d > "$RUNNER_TEMP/ytbridge.keystore" || echo "::warning::base64 decoding reported a problem"
+          echo "Keystore size after decoding: $(stat -c %s "$RUNNER_TEMP/ytbridge.keystore" 2>/dev/null || echo 0) bytes"
           if ! keytool -list -keystore "$RUNNER_TEMP/ytbridge.keystore" \
-                 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null 2>"$RUNNER_TEMP/keytool.err"; then
-            echo "::error::The keystore could not be opened. Possible causes: KEYSTORE_BASE64 is cut off or has extra text, KEYSTORE_PASSWORD or KEY_ALIAS is wrong."
-            cat "$RUNNER_TEMP/keytool.err" | sed 's/^/keytool: /' | head -5
+                 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > "$RUNNER_TEMP/keytool.out" 2>&1; then
+            echo "::error::The keystore could not be opened (details below)."
+            sed 's/^/keytool: /' "$RUNNER_TEMP/keytool.out" | head -8
             exit 1
           fi
           echo "Keystore OK (alias $KEY_ALIAS found)"
