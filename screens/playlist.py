@@ -19,7 +19,7 @@ def build_quality_picker(nav, urls):
         btn = Button(text=name, size_hint_y=None, height=50)
         btn.bind(on_press=lambda inst, h=target_height, hd=want_hdr: nav.start_playlist_download(urls, h, hd))
         nav.add(btn)
-    nav.add(back_button(nav))
+    nav.add(back_button(nav, to=nav.show_youtube_download))
 
 
 def build_results(nav, links, errors=None):

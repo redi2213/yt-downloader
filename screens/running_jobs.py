@@ -77,7 +77,7 @@ def build(nav):
     history_count = len(nav.job_manager.history)
     if history_count:
         recent_btn = Button(text=f"Recent jobs ({history_count})", size_hint_y=None, height=48)
-        recent_btn.bind(on_press=lambda i: nav.show_job_history())
+        recent_btn.bind(on_press=lambda i: nav.show_job_history("running"))
         nav.add(recent_btn)
 
     refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)

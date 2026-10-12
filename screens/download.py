@@ -18,4 +18,5 @@ def build_quality_list(nav, url, formats):
         btn.bind(on_press=lambda inst, fid=fmt_id: nav.start_download(
             url, fid, False, formats_for_reselect=formats))
         nav.add(btn)
-    nav.add(back_button(nav))
+    # back to the YouTube Download screen, with the link still filled in
+    nav.add(back_button(nav, to=lambda: nav.show_youtube_download(video_url=url)))

@@ -18,6 +18,7 @@ TOOL_LABELS = {
     "google-play-download.yml": "Google Play",
     "cleanup-releases.yml": "Cleanup",
     "build-apk.yml": "Build APK",
+    "backup-project.yml": "Project backup",
 }
 
 _URL_RE = re.compile(r"https?://[^\s\]]+", re.IGNORECASE)

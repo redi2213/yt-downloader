@@ -10,7 +10,7 @@ from screens.common import (
 from core.models.job import JOB_TYPE_PLAYLIST_DOWNLOAD, JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS
 
 
-def build(nav):
+def build(nav, origin="status"):
     nav.clear()
     history = nav.job_manager.history
     nav.add(Label(text=f"Recent jobs ({len(history)})", size_hint_y=None, height=40))
@@ -61,4 +61,6 @@ def build(nav):
         row.add_widget(buttons)
         nav.add(row)
 
-    nav.add(back_button(nav))
+    # opened from Running jobs or from the Actions status screen -> back there
+    parent = nav.show_running_jobs if origin == "running" else nav.show_actions_status
+    nav.add(back_button(nav, to=parent))

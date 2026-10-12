@@ -19,7 +19,7 @@ def build_start(nav):
     start_btn.bind(on_press=lambda i: nav.start_github_signin())
     nav.add(start_btn)
 
-    nav.add(common.back_button(nav))
+    nav.add(common.back_button(nav, to=nav.show_settings))
 
 
 def build_waiting(nav, user_code, verification_uri):
@@ -41,4 +41,4 @@ def build_waiting(nav, user_code, verification_uri):
     nav.add(status_label)
     nav.set_status_label(status_label)
 
-    nav.add(common.back_button(nav, text="Cancel"))
+    nav.add(common.back_button(nav, text="Cancel", to=nav.show_settings))

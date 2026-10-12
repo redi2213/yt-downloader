@@ -18,6 +18,7 @@ _DANGER = (1.0, 0.55, 0.55, 1)   # tint for buttons that delete things
 def build_loading(nav):
     nav.clear()
     nav.add(Label(text="Loading...", size_hint_y=None, height=40))
+    nav.add(back_button(nav))
 
 
 def build(nav, items):
@@ -146,7 +147,7 @@ def build_delete_confirm(nav, item):
     confirm_btn.bind(on_press=lambda i: nav.do_delete_release(item))
     nav.add(confirm_btn)
     cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-    cancel_btn.bind(on_press=lambda i: nav.show_job_history())
+    cancel_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(cancel_btn)
 
 
@@ -161,14 +162,14 @@ def build_bulk_delete_confirm(nav, items, scope="shown"):
     confirm_btn.bind(on_press=lambda i: nav.do_bulk_delete(items, scope=scope))
     nav.add(confirm_btn)
     cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-    cancel_btn.bind(on_press=lambda i: nav.show_live_history() if selected else nav.show_job_history())
+    cancel_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(cancel_btn)
 
 
 def build_deleting(nav):
     nav.clear()
     nav.add(Label(text="Deleting...", size_hint_y=None, height=60))
-    nav.add(back_button(nav))
+    nav.add(back_button(nav, to=nav.show_live_history))
 
 
 def build_bulk_deleting(nav, count):
@@ -177,14 +178,14 @@ def build_bulk_deleting(nav, count):
     nav.add(status_label)
     nav.set_status_label(status_label)
     back_btn = Button(text="Back (keeps deleting)", size_hint_y=None, height=48)
-    back_btn.bind(on_press=lambda i: nav.show_home())
+    back_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(back_btn)
 
 
 def build_renaming(nav):
     nav.clear()
     nav.add(Label(text="Renaming...", size_hint_y=None, height=60))
-    nav.add(back_button(nav))
+    nav.add(back_button(nav, to=nav.show_live_history))
 
 
 def build_rename_prompt(nav, item):
@@ -196,5 +197,5 @@ def build_rename_prompt(nav, item):
     confirm_btn.bind(on_press=lambda i: nav.do_rename_release(item, name_input.text.strip()))
     nav.add(confirm_btn)
     cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
-    cancel_btn.bind(on_press=lambda i: nav.show_job_history())
+    cancel_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(cancel_btn)

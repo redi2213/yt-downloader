@@ -34,6 +34,9 @@ class Navigator:
         self._progress_event = None
         # True while the home screen is showing (the phone's Back key closes the app there).
         self.on_home = False
+        # Rebuilds the last menu-type screen the user was on. A job's "Back"
+        # button returns there (see back_from_working).
+        self._last_menu = None
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
@@ -88,6 +91,19 @@ class Navigator:
     def load_run_progress(self, run_id, on_complete):
         run_progress_service.start_load_progress(run_id, on_complete=on_complete)
 
+    def remember(self, rebuild):
+        """Called by every menu-type screen opener: ``rebuild`` re-opens that
+        screen. The working screen's Back button uses it to return to where
+        the job was started, instead of always jumping to the home menu."""
+        self._last_menu = rebuild
+
+    def back_from_working(self):
+        rebuild = self._last_menu
+        if rebuild is None:
+            self.show_home()
+        else:
+            rebuild()
+
     def add(self, widget):
         common.fit_height(widget)
         self.app.add_widget_to_content(widget)
@@ -104,6 +120,7 @@ class Navigator:
     # -- generic screens ----------------------------------------------------
     def show_home(self):
         from screens import home
+        self.remember(None)
         home.build(self)
         self.on_home = True
 
@@ -137,6 +154,7 @@ class Navigator:
 
     def show_settings(self):
         from screens import settings
+        self.remember(self.show_settings)
         settings.build(self)
 
     # -- opening runs on GitHub / running jobs ----------------------------------
@@ -158,6 +176,7 @@ class Navigator:
 
     def show_running_jobs(self):
         from screens import running_jobs
+        self.remember(self.show_running_jobs)
         running_jobs.build(self)
 
     def show_job_steps(self, job):
@@ -171,7 +190,7 @@ class Navigator:
     # -- job lifecycle -------------------------------------------------------
     def cancel_job(self, job):
         job_service.cancel(self.job_manager, job)
-        self.show_home()
+        self.back_from_working()
 
     def reselect_quality(self, job, url, formats):
         """Abandons the in-progress download run (if any) and goes straight
@@ -425,6 +444,7 @@ class Navigator:
     # -- quality / upload / playlist screens ----------------------------------
     def show_quality_list(self, url, formats):
         from screens import download as download_screen
+        self.remember(lambda: self.show_quality_list(url, formats))
         download_screen.build_quality_list(
             self,
             url,
@@ -433,6 +453,7 @@ class Navigator:
 
     def show_youtube_download(self, video_url="", playlist_url=""):
         from screens import youtube_download
+        self.remember(lambda: self.show_youtube_download(video_url, playlist_url))
         youtube_download.build(self, video_url=video_url, playlist_url=playlist_url)
 
     def start_playlist_from_link(self, playlist_url, target_height, want_hdr, audio_only):
@@ -460,6 +481,7 @@ class Navigator:
 
     def show_upload_screen(self, url=""):
         from screens import upload as upload_screen
+        self.remember(lambda: self.show_upload_screen(url))
         upload_screen.build(self, url=url)
 
     def show_quick_download(self):
@@ -501,6 +523,7 @@ class Navigator:
     # -- dynamic/remote-config actions --------------------------------------
     def show_dynamic_actions(self):
         from screens import actions_dynamic
+        self.remember(self.show_dynamic_actions)
         actions_dynamic.build_loading(self)
 
         remote_config_service.start_load_actions(
@@ -518,6 +541,7 @@ class Navigator:
 
     def show_action_input(self, action, prefill=None, share_url=None):
         from screens import actions_dynamic
+        self.remember(lambda: self.show_action_input(action, prefill, share_url))
         actions_dynamic.build_input(
             self,
             action,
@@ -560,6 +584,18 @@ class Navigator:
         action = {"id": "build_apk", "workflow": "build-apk.yml", "workflow_inputs": {}}
         job = generic_action_service.create_action_job(self.job_manager, action, {"input": "Build APK"})
         self.show_working("Starting the build (takes about 15-30 minutes)...", job=job)
+        on_status, on_complete = self._status_and_complete_callbacks(job)
+        generic_action_service.run_action_job(
+            self.job_manager, job, on_status=on_status, on_complete=on_complete
+        )
+
+    def start_project_backup(self):
+        """Settings > Backup project: a workflow zips the latest main and
+        config branches (folders main-branch/ and config-branch/) and
+        uploads the zip to a release; the result screen shows the link."""
+        action = {"id": "backup_project", "workflow": "backup-project.yml", "workflow_inputs": {}}
+        job = generic_action_service.create_action_job(self.job_manager, action, {"input": "Project backup"})
+        self.show_working("Starting the project backup (takes about a minute)...", job=job)
         on_status, on_complete = self._status_and_complete_callbacks(job)
         generic_action_service.run_action_job(
             self.job_manager, job, on_status=on_status, on_complete=on_complete
@@ -699,6 +735,7 @@ class Navigator:
 
     def show_playlist_quality_picker(self, urls):
         from screens import playlist as playlist_screen
+        self.remember(lambda: self.show_playlist_quality_picker(urls))
         playlist_screen.build_quality_picker(
             self,
             urls
@@ -715,6 +752,7 @@ class Navigator:
     # -- GitHub Actions status -------------------------------------------------
     def show_actions_status(self):
         from screens import actions_status as actions_screen
+        self.remember(self.show_actions_status)
         actions_screen.build_loading(self)
 
         actions_service.start_load_recent_runs(
@@ -785,7 +823,7 @@ class Navigator:
         """The last lines of one step's log. Refresh (at the bottom) reloads
         both the step's status and its log."""
         from screens import actions_status as actions_screen
-        actions_screen.build_step_loading(self)
+        actions_screen.build_step_loading(self, run_id, origin)
         run_progress_service.start_load_step_view(
             run_id,
             job_id,
@@ -798,14 +836,18 @@ class Navigator:
         )
 
     # -- job history -------------------------------------------------------
-    def show_job_history(self):
+    def show_job_history(self, origin="status"):
+        """Recent jobs. ``origin`` ("status" or "running") is the screen it
+        was opened from - Back returns there."""
         from screens import job_history as job_history_screen
-        job_history_screen.build(self)
+        self.remember(lambda: self.show_job_history(origin))
+        job_history_screen.build(self, origin)
 
     # -- live release history + delete/rename/zip -----------------------------
     def show_live_history(self):
         from screens import history as history_screen
 
+        self.remember(self.show_live_history)
         history_screen.build_loading(self)
 
         history_service.start_load_live_history(
@@ -866,15 +908,12 @@ class Navigator:
         history_service.start_bulk_delete_releases(
             items,
             on_status=lambda text: self.set_status(text),
-            on_complete=lambda res: self.schedule(
-                lambda: (self.show_live_history() if scope == "selected"
-                         else self.show_job_history())
-            )
+            on_complete=lambda res: self.schedule(self.show_live_history)
         )
 
     def do_rename_release(self, item, new_name):
         if not new_name or new_name == item["title"]:
-            self.show_job_history()
+            self.show_live_history()
             return
 
         from screens import history as history_screen
@@ -904,7 +943,7 @@ class Navigator:
 
     def _after_release_action(self, res):
         if res.get("ok"):
-            self.show_job_history()
+            self.show_live_history()
         else:
             self.show_result(
                 res.get("error")

@@ -113,9 +113,13 @@ def paste_row(text_input, append=False):
     return row
 
 
-def back_button(nav, text="Back"):
+def back_button(nav, text="Back", to=None):
+    """A Back button. ``to`` is a function (no arguments) that opens the
+    PARENT screen - every screen passes its own parent so Back goes exactly
+    one screen back. Without ``to`` it goes to the home menu (only right for
+    screens that are opened straight from home)."""
     btn = Button(text=text, size_hint_y=None, height=BTN_H)
-    btn.bind(on_press=lambda i: nav.show_home())
+    btn.bind(on_press=lambda i: (to or nav.show_home)())
     return btn
 
 
@@ -172,8 +176,8 @@ def fit_height(widget):
 
 def build_working_screen(nav, message, back_text="Back (job keeps running)",
                           on_cancel=None, extra_buttons=None, job=None):
-    """The screen shown while a background job runs. "Back" just navigates
-    home - the job keeps running regardless, and writes its result into the
+    """The screen shown while a background job runs. "Back" returns to the
+    screen the job was started from - the job keeps running regardless, and writes its result into the
     job manager so 'check on last job' can pick it up later. If on_cancel is
     given, a Cancel button is also shown."""
     nav.clear()
@@ -187,7 +191,7 @@ def build_working_screen(nav, message, back_text="Back (job keeps running)",
         nav.add(github_btn)
 
     back_btn = Button(text=back_text, size_hint_y=None, height=BTN_H)
-    back_btn.bind(on_press=lambda i: nav.show_home())
+    back_btn.bind(on_press=lambda i: nav.back_from_working())
     nav.add(back_btn)
 
     if on_cancel is not None:

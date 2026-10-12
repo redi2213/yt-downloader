@@ -1,0 +1,67 @@
+name: Backup Project
+run-name: Backup Project [${{ inputs.job_id }}]
+
+# Zips the latest main and config branches into ONE zip and uploads it to a
+# release (tag run-<run id>, so the app finds the link like for every other tool):
+#
+#   project-backup-<date>.zip
+#   +-- main-branch/     all files of the main branch
+#   +-- config-branch/   all files of the config branch (config.json)
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Ignored (kept so the app can send it)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-branch
+          persist-credentials: false
+
+      - name: Checkout config branch
+        uses: actions/checkout@v4
+        with:
+          ref: config
+          path: config-branch
+          persist-credentials: false
+
+      - name: Zip both branches
+        run: |
+          set -euo pipefail
+          STAMP=$(TZ=Asia/Tehran date +%Y-%m-%d_%H-%M)
+          ZIP="project-backup-${STAMP}.zip"
+          # the git history is not part of the backup, only the files
+          zip -r -q "$ZIP" main-branch config-branch -x "*/.git/*"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          ls -la "$ZIP"
+          unzip -l "$ZIP" | tail -n 1
+
+      - name: Publish zip to a release (the app finds it by run id)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "run-${{ github.run_id }}" "$ZIP" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Project backup ${STAMP}" \
+            --notes "Folders: main-branch (main) and config-branch (config)."

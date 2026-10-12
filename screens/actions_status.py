@@ -24,7 +24,7 @@ def _add_job_status_section(nav):
     history_count = len(nav.job_manager.history)
     if history_count:
         recent_btn = Button(text=f"Recent jobs ({history_count})", size_hint_y=None, height=48)
-        recent_btn.bind(on_press=lambda i: nav.show_job_history())
+        recent_btn.bind(on_press=lambda i: nav.show_job_history("status"))
         nav.add(recent_btn)
 
 
@@ -123,9 +123,17 @@ def build_run_detail(nav, run_id, jobs, origin="status"):
     nav.add(back_btn)
 
 
-def build_step_loading(nav):
+def build_step_loading(nav, run_id=None, origin="status"):
     nav.clear()
     nav.add(Label(text="Loading step...", size_hint_y=None, height=60))
+    if run_id is not None:
+        back_btn = Button(text="Back", size_hint_y=None, height=48)
+        if isinstance(origin, str) and origin.startswith("job:"):
+            back_btn.bind(on_press=lambda i: nav.back_from_run_detail(origin))
+        else:
+            back_btn.bind(on_press=lambda i: nav.show_run_detail(
+                {"run_id": run_id, "workflow": "", "origin": origin}))
+        nav.add(back_btn)
 
 
 def build_step_log(nav, run_id, job_id, step_number, res, origin="status"):

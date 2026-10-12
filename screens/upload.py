@@ -33,7 +33,7 @@ def build(nav, url=""):
         url_input.text, zip_toggle.state == "down", ""))
     nav.add(start_btn)
 
-    nav.add(back_button(nav))
+    nav.add(back_button(nav, to=nav.show_dynamic_actions))
 
 
 def _toggle_zip(instance):

@@ -13,7 +13,7 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from screens.common import back_button
+from screens.common import back_button, paste_row
 
 # (label, format_id) for the single-video Quick Download row. Height-capped
 # selectors so yt-dlp itself picks the closest available quality at or
@@ -47,6 +47,7 @@ def build(nav, video_url="", playlist_url=""):
         size_hint_y=None, height=48,
     )
     nav.add(single_url_input)
+    nav.add(paste_row(single_url_input))
 
     fetch_btn = Button(text="Get qualities (single video)", size_hint_y=None, height=56)
     fetch_btn.bind(on_press=lambda i: nav.handle_fetch_single(single_url_input.text, False))
@@ -67,6 +68,7 @@ def build(nav, video_url="", playlist_url=""):
         size_hint_y=None, height=48,
     )
     nav.add(playlist_url_input)
+    nav.add(paste_row(playlist_url_input))
 
     nav.add(Label(text="This is a playlist", size_hint_y=None, height=32))
     for label, target_height, want_hdr in _PLAYLIST_QUALITIES:

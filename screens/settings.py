@@ -59,6 +59,9 @@ def build(nav):
     build_btn = Button(text="Build APK", size_hint_y=None, height=48)
     build_btn.bind(on_press=lambda i: nav.start_build_apk())
     nav.add(build_btn)
+    backup_btn = Button(text="Backup project (zip to release)", size_hint_y=None, height=48)
+    backup_btn.bind(on_press=lambda i: nav.start_project_backup())
+    nav.add(backup_btn)
 
     github_signin_btn = Button(text="Sign in with GitHub", size_hint_y=None, height=48)
     github_signin_btn.bind(on_press=lambda i: nav.show_github_signin())

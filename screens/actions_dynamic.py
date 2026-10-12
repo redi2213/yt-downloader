@@ -283,7 +283,10 @@ def build_input(nav, action, prefill=None, share_url=None):
     start_btn.bind(on_press=lambda i: nav.start_dynamic_action(action, values))
     nav.add(start_btn)
 
-    nav.add(common.back_button(nav, text="Back"))
+    # opened from the Download Anything list -> back to it; opened by a shared
+    # link (tool chosen automatically) there is no list behind it -> home
+    parent = nav.show_home if share_url else nav.show_dynamic_actions
+    nav.add(common.back_button(nav, text="Back", to=parent))
 
     status_label = Label(text="", size_hint_y=None, height=40)
     nav.add(status_label)
