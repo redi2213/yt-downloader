@@ -18,6 +18,10 @@ import zipfile
 SKIP_DIRS = {".git", "__pycache__", ".buildozer", "bin", ".idea", ".vscode", "__MACOSX"}
 SKIP_FILES = {"core/_branch.py"}  # generated at build time
 SKIP_SUFFIXES = (".pyc", ".pyo", ".apk", ".aab")
+# Secret-like files: the repo is public, so these are never sent, even if a
+# zip contains them by mistake (signing keystore, its base64 copy, keys).
+SKIP_SECRET_SUFFIXES = (".keystore", ".jks", ".b64", ".pem", ".p12", ".pfx", ".key")
+SKIP_SECRET_NAMES = {".env", "cookies.txt", "local.properties", "keystore.properties"}
 MAX_FILE_BYTES = 25 * 1024 * 1024
 DEFAULT_BRANCHES = ("main", "config")
 
@@ -80,6 +84,8 @@ def read_update_zip(data: bytes, known_branches=None) -> dict:
         if ".." in inner or any(p in SKIP_DIRS for p in inner[:-1]) or path in SKIP_FILES:
             continue
         if path.endswith(SKIP_SUFFIXES) or inner[-1] == ".DS_Store":
+            continue
+        if path.lower().endswith(SKIP_SECRET_SUFFIXES) or inner[-1] in SKIP_SECRET_NAMES:
             continue
         if info.file_size > MAX_FILE_BYTES:
             raise ZipError(f"{name} is too large ({info.file_size // (1024 * 1024)} MB).")

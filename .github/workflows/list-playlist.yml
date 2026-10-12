@@ -34,7 +34,13 @@ jobs:
         run: pip install -U yt-dlp
 
       - name: Write cookies file
-        run: echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
+        env:
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+        run: |
+          # The secret goes in through an environment variable, so the shell
+          # never parses its content (quotes, $ or backticks are harmless).
+          printf '%s\n' "$YTDLP_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
 
       - name: List playlist entries
         run: |
