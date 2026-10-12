@@ -1,5 +1,5 @@
-name: TNAFlix Extract and Upload
-run-name: TNAFlix ${{ inputs.mode }} [${{ github.run_id }}]
+name: Any Site Extract and Upload
+run-name: Media ${{ inputs.mode }} [${{ github.run_id }}]
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
         type: choice
         options: ["direct", "release"]
       urls:
-        description: "لینک‌ها (هر خط یکی). اگر خالی باشد، Tna.txt مخزن خوانده می‌شود"
+        description: "لینک‌ها (هر خط یکی). اگر خالی باشد، urls.txt مخزن خوانده می‌شود"
         required: false
         type: string
       quality:
@@ -40,19 +40,19 @@ jobs:
           URLS: ${{ inputs.urls }}
         run: |
           python3 - <<'PY'
-          import json, os, re, sys
+          import json, os, sys
           from pathlib import Path
 
           raw = os.environ.get("URLS", "").strip()
-          if not raw and Path("Tna.txt").is_file():
-              raw = Path("Tna.txt").read_text(encoding="utf-8-sig")
+          if not raw and Path("urls.txt").is_file():
+              raw = Path("urls.txt").read_text(encoding="utf-8-sig")
 
-          pat = re.compile(r"^https?://(?:www\.)?tnaflix\.com/", re.I)
-          urls = [u.strip() for u in raw.splitlines()
-                  if u.strip() and not u.lstrip().startswith("#")]
-          urls = [u for u in dict.fromkeys(urls) if pat.match(u)]
+          lines = [l for l in raw.splitlines() if not l.lstrip().startswith("#")]
+          urls = [u for u in " ".join(lines).split()
+                  if u.lower().startswith(("http://", "https://"))]
+          urls = list(dict.fromkeys(urls))
           if not urls:
-              print("::error::No valid TNAFlix links found.")
+              print("::error::No valid links found (must start with http:// or https://)")
               sys.exit(1)
 
           print(f"Found {len(urls)} link(s)")
@@ -71,7 +71,7 @@ jobs:
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --prerelease \
-            --title "TNAFlix $GITHUB_RUN_ID" \
+            --title "Media $GITHUB_RUN_ID" \
             --notes "Auto upload"
 
   process:
@@ -89,27 +89,38 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install yt-dlp
-        run: pip install -U yt-dlp
+      - name: Install tools
+        run: |
+          pip install -U yt-dlp
+          sudo apt-get update -qq && sudo apt-get install -y -qq aria2
 
-      - name: Pick format
+      # اختیاری: اگر Secret به اسم COOKIES_TXT (فرمت Netscape) بسازی استفاده می‌شود
+      - name: Prepare cookies (optional)
+        env:
+          COOKIES: ${{ secrets.COOKIES_TXT }}
+        run: |
+          if [ -n "$COOKIES" ]; then
+            printf '%s\n' "$COOKIES" > cookies.txt
+            echo "Cookies loaded"
+          fi
+
+      - name: Extract direct link
         id: pick
         env:
           URL: ${{ matrix.url }}
           QUALITY: ${{ inputs.quality }}
-          MODE: ${{ inputs.mode }}
         run: |
           python3 - <<'PY'
           import json, os, re, subprocess, sys
 
           url = os.environ["URL"]
           q = os.environ["QUALITY"]
-          mode = os.environ["MODE"]
           target = 0 if q == "highest" else int(q)
+          cookie = ["--cookies", "cookies.txt"] if os.path.isfile("cookies.txt") else []
 
           def ytdlp(args):
               return subprocess.run(
-                  ["yt-dlp", "--no-warnings", "--no-playlist"] + args,
+                  ["yt-dlp", "--no-warnings", "--no-playlist"] + cookie + args,
                   capture_output=True, text=True, timeout=180)
 
           def fail(msg):
@@ -120,9 +131,10 @@ jobs:
           r = ytdlp(["-J", url])
           if r.returncode:
               fail(r.stderr or r.stdout)
+          data = json.loads(r.stdout)
 
           fmts = []
-          for f in json.loads(r.stdout).get("formats", []):
+          for f in data.get("formats") or []:
               if f.get("vcodec") == "none":
                   continue
               fid = str(f.get("format_id", ""))
@@ -133,67 +145,113 @@ jobs:
               if h and fid:
                   fmts.append((fid, int(h), f.get("ext", ""), f.get("acodec")))
 
-          if not fmts:
-              fail("No video formats found.")
+          ext = ""
+          if fmts:
+              t = target or max(f[1] for f in fmts)
+              fmts.sort(key=lambda f: (abs(f[1] - t),
+                                       0 if f[2] == "mp4" else 1, -f[1]))
+              fid, h, ext, acodec = fmts[0]
+              fsel = f"{fid}+ba/{fid}" if acodec == "none" else fid
+              print(f"Chosen: {fid} ({h}p) -> {fsel}")
+          else:
+              # سایت‌هایی که ارتفاع نمی‌دهند: بهترین کیفیت
+              fsel = "bv*+ba/b"
+              print("No height info, using best available")
 
-          t = target or max(f[1] for f in fmts)
-          fmts.sort(key=lambda f: (abs(f[1] - t),
-                                   0 if f[2] == "mp4" else 1, -f[1]))
-          fid, h, _, acodec = fmts[0]
-          fsel = f"{fid}+ba/{fid}" if acodec == "none" else fid
-          print(f"Chosen: {fid} ({h}p) -> {fsel}")
+          r = ytdlp(["-g", "-f", fsel, url])
+          if r.returncode:
+              fail(r.stderr or r.stdout)
+          links = [l.strip() for l in r.stdout.splitlines()
+                   if l.strip().startswith(("http://", "https://"))]
+          if not links:
+              fail("No media URL returned.")
+          open("link.txt", "w").write("\n".join(links) + "\n")
+
+          title = re.sub(r"[^A-Za-z0-9._-]+", "_", data.get("title") or "video")
+          title = title.strip("._-")[:120] or "video"
+          if len(links) > 1 or any(".m3u8" in l for l in links) or ext not in ("mp4", "webm", "mkv", "mov", "m4v"):
+              ext = "mp4"
+          name = f"{title}.{ext}"
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"fsel={fsel}\nheight={h}\n")
-
-          if mode == "direct":
-              r = ytdlp(["-g", "-f", fsel, url])
-              if r.returncode:
-                  fail(r.stderr or r.stdout)
-              links = [l.strip() for l in r.stdout.splitlines()
-                       if l.strip().startswith(("http://", "https://"))]
-              if not links:
-                  fail("No media URL returned.")
-              open("link.txt", "w").write("\n".join(links) + "\n")
+              f.write(f"fsel={fsel}\nname={name}\n")
           PY
 
+      # ---------- حالت direct ----------
       - name: Save direct link
         if: ${{ inputs.mode == 'direct' }}
         run: |
           N=$(printf '%04d' "${{ matrix.idx }}")
           mv link.txt "link_$N.txt"
-          echo "NAME=link_$N.txt" >> "$GITHUB_ENV"
+          echo "LINKFILE=link_$N.txt" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.mode == 'direct' }}
         with:
           name: link-${{ matrix.idx }}
-          path: ${{ env.NAME }}
+          path: ${{ env.LINKFILE }}
           retention-days: 1
 
-      - name: Download the video
+      # ---------- حالت release ----------
+      - name: Download (aria2, fallback yt-dlp)
         if: ${{ inputs.mode == 'release' }}
         env:
           URL: ${{ matrix.url }}
           FSEL: ${{ steps.pick.outputs.fsel }}
+          NAME: ${{ steps.pick.outputs.name }}
         run: |
           set -euo pipefail
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          mapfile -t LINKS < link.txt
           mkdir -p work
-          yt-dlp --no-warnings --no-playlist \
-            -f "$FSEL" \
-            --merge-output-format mp4 \
-            --concurrent-fragments 8 \
-            --retries 5 --fragment-retries 5 \
-            --restrict-filenames --trim-filenames 150 \
-            -o "work/%(title)s.%(ext)s" \
-            "$URL"
 
-          FILE=$(ls -S work | head -1)
-          if [ -z "$FILE" ] || [ ! -s "work/$FILE" ]; then
+          COOKIE_ARGS=()
+          if [ -s cookies.txt ]; then COOKIE_ARGS=(--cookies cookies.txt); fi
+
+          USE_YTDLP=0
+          if printf '%s\n' "${LINKS[@]}" | grep -qi '\.m3u8'; then
+            echo "HLS stream detected, using yt-dlp"
+            USE_YTDLP=1
+          else
+            PARTS=()
+            i=0
+            for L in "${LINKS[@]}"; do
+              i=$((i+1))
+              if aria2c -x 16 -s 16 -k 1M \
+                  --file-allocation=none \
+                  --connect-timeout=20 \
+                  --max-tries=5 --retry-wait=5 \
+                  --user-agent="$UA" \
+                  --referer="$URL" \
+                  -d work -o "part$i" "$L"; then
+                PARTS+=("work/part$i")
+              else
+                echo "aria2 failed, falling back to yt-dlp"
+                USE_YTDLP=1
+                break
+              fi
+            done
+          fi
+
+          if [ "$USE_YTDLP" = "1" ]; then
+            rm -rf work && mkdir -p work
+            yt-dlp --no-warnings --no-playlist "${COOKIE_ARGS[@]}" \
+              -f "$FSEL" \
+              --merge-output-format mp4 \
+              --concurrent-fragments 16 \
+              --retries 5 --fragment-retries 5 \
+              -o "work/$NAME" "$URL"
+          elif [ "${#PARTS[@]}" -eq 1 ]; then
+            mv "${PARTS[0]}" "work/$NAME"
+          else
+            ffmpeg -y -loglevel error -i "${PARTS[0]}" -i "${PARTS[1]}" -c copy "work/$NAME"
+            rm -f "${PARTS[@]}"
+          fi
+
+          if [ ! -s "work/$NAME" ]; then
             echo "::error::Download failed or file is empty"
             exit 1
           fi
-          echo "FILE=$FILE" >> "$GITHUB_ENV"
           ls -lh work
 
       - name: Upload to the release
@@ -202,12 +260,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           IDX: ${{ matrix.idx }}
+          NAME: ${{ steps.pick.outputs.name }}
         run: |
           set -euo pipefail
-          if ! gh release upload "$TAG" "work/$FILE" --repo "$GITHUB_REPOSITORY"; then
+          if ! gh release upload "$TAG" "work/$NAME" --repo "$GITHUB_REPOSITORY"; then
             echo "Upload failed, retrying with a numbered name"
-            mv "work/$FILE" "work/${IDX}_${FILE}"
-            gh release upload "$TAG" "work/${IDX}_${FILE}" --repo "$GITHUB_REPOSITORY"
+            mv "work/$NAME" "work/${IDX}_${NAME}"
+            gh release upload "$TAG" "work/${IDX}_${NAME}" --repo "$GITHUB_REPOSITORY"
           fi
 
   collect:
