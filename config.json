@@ -1,21 +1,6 @@
 {
-  "config_version": 13,
+  "config_version": 14,
   "actions": [
-    {
-      "id": "youtube_generic",
-      "title": "Download from YouTube (Anything)",
-      "icon": "youtube",
-      "enabled": true,
-      "input_type": "url",
-      "input_hint": "Enter the YouTube video link",
-      "workflow": "download-anything.yml",
-      "workflow_inputs": {
-        "url": "{input}",
-        "mode": "upload_release",
-        "format_id": "bv*+ba/best",
-        "audio_only": "false"
-      }
-    },
     {
       "id": "tiktok_download",
       "title": "Download from TikTok",
@@ -26,30 +11,68 @@
       ],
       "input_type": "url",
       "input_hint": "Enter the TikTok video link",
-      "workflow": "download-anything.yml",
+      "workflow": "Any-Site-Upload.yml",
       "workflow_inputs": {
-        "url": "{input}",
-        "mode": "upload_release",
-        "format_id": "bv*+ba/best",
-        "audio_only": "false"
+        "mode": "release",
+        "urls": "{input}",
+        "quality": "highest"
       }
     },
     {
-      "id": "mediafire_download",
-      "title": "Download from Mediafire",
-      "icon": "mediafire",
+      "id": "any_site_upload",
+      "title": "Any site (extract & upload)",
+      "icon": "download",
       "enabled": true,
-      "domains": [
-        "mediafire.com"
+      "fields": [
+        {
+          "key": "urls",
+          "type": "text",
+          "label": "Video links (one per line)",
+          "hint": "Paste one or more page links",
+          "multiline": true
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Highest",
+              "value": "highest"
+            },
+            {
+              "label": "1080p",
+              "value": "1080"
+            },
+            {
+              "label": "720p",
+              "value": "720"
+            },
+            {
+              "label": "480p",
+              "value": "480"
+            },
+            {
+              "label": "360p",
+              "value": "360"
+            },
+            {
+              "label": "240p",
+              "value": "240"
+            },
+            {
+              "label": "144p",
+              "value": "144"
+            }
+          ],
+          "default": "720"
+        }
       ],
-      "input_type": "url",
-      "input_hint": "Enter the Mediafire link",
-      "workflow": "download-anything.yml",
+      "workflow": "Any-Site-Upload.yml",
       "workflow_inputs": {
-        "url": "{input}",
-        "mode": "upload_release",
-        "format_id": "bv*+ba/best",
-        "audio_only": "false"
+        "mode": "release",
+        "urls": "{urls}",
+        "quality": "{quality}"
       }
     },
     {
