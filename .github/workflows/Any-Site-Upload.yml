@@ -1,5 +1,5 @@
 name: Any Site Extract and Upload
-run-name: Media ${{ inputs.mode }} [${{ github.run_id }}]
+run-name: Media ${{ inputs.mode }} [${{ inputs.job_id }}]
 
 on:
   workflow_dispatch:
@@ -20,6 +20,11 @@ on:
         default: "720"
         type: choice
         options: ["144", "240", "360", "480", "720", "1080", "highest"]
+      job_id:
+        description: "Set by the app so it can find this exact run (leave empty when running by hand)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write

@@ -12,7 +12,7 @@ TOOL_LABELS = {
     "list-playlist.yml": "YouTube playlist",
     "upload-file.yml": "Upload",
     "zip-release.yml": "Zip",
-    "download-anything.yml": "Download anything",
+    "Any-Site-Upload.yml": "Any site",
     "aparat-download.yml": "Aparat",
     "telegram-download.yml": "Telegram",
     "google-play-download.yml": "Google Play",
