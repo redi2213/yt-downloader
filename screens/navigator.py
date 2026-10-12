@@ -525,6 +525,45 @@ class Navigator:
         )
 
     # -- links shared into the app (Android Share menu) -----------------------
+    # -- app update (Settings): update.zip and the APK build -------------------
+    def pick_file_for_update(self):
+        from core import android_files
+        android_files.pick_file(on_data=self.handle_shared_file, on_error=self.set_status)
+
+    def handle_shared_file(self, data):
+        """update.zip from the picker or shared into the app."""
+        from core import zip_tools
+        from screens import app_update
+        if not zip_tools.is_zip(data):
+            self.show_result("This file is not a zip. Use update.zip (folders named like branches: main, config).")
+            return
+        app_update.build_zip_confirm(self, data)
+
+    def start_repo_update(self, data):
+        from services import repo_update_service
+        self.show_working("Updating...", job=None, back_text="Back")
+        repo_update_service.start_repo_update(
+            data,
+            on_status=lambda text: self.set_status(text),
+            on_done=lambda res: self.schedule(lambda: self._after_repo_update(res)),
+        )
+
+    def _after_repo_update(self, res):
+        extra = None
+        if res.get("ok") and res.get("changed"):
+            # "Build now?" - new code only reaches the phone through a new APK
+            extra = [("Build APK now", self.start_build_apk)]
+        self.show_result(res["message"], extra_buttons=extra)
+
+    def start_build_apk(self):
+        action = {"id": "build_apk", "workflow": "build-apk.yml", "workflow_inputs": {}}
+        job = generic_action_service.create_action_job(self.job_manager, action, {"input": "Build APK"})
+        self.show_working("Starting the build (takes about 15-30 minutes)...", job=job)
+        on_status, on_complete = self._status_and_complete_callbacks(job)
+        generic_action_service.run_action_job(
+            self.job_manager, job, on_status=on_status, on_complete=on_complete
+        )
+
     def handle_shared_text(self, text):
         """Entry point for text/links shared from other apps. YouTube links
         go straight to the YouTube Download screen; links matching an action's

@@ -33,10 +33,30 @@ def text_from_intent(intent):
     return text or None
 
 
-def setup(on_text):
+_EXTRA_STREAM = "android.intent.extra.STREAM"
+
+
+def stream_uri_from_intent(intent):
+    """The content:// Uri of a file shared with ACTION_SEND, or None."""
+    if intent is None:
+        return None
+    try:
+        if intent.getAction() != _ACTION_SEND:
+            return None
+        parcel = intent.getParcelableExtra(_EXTRA_STREAM)
+        if parcel is None:
+            return None
+        from jnius import cast
+        return cast("android.net.Uri", parcel)
+    except Exception:
+        return None
+
+
+def setup(on_text, on_file=None):
     """Starts listening. ``on_text(text)`` is called on the Kivy thread with
-    the shared text, each time something is shared. Returns True if the
-    Android hooks could be installed."""
+    the shared text, each time something is shared; ``on_file(bytes)`` with
+    the content of a shared file (a project zip or config.json). Returns
+    True if the Android hooks could be installed."""
     try:
         from jnius import autoclass
         from android import activity
@@ -48,7 +68,21 @@ def setup(on_text):
         Intent = autoclass("android.content.Intent")
         main_activity = PythonActivity.mActivity
 
+        def _deliver_file(uri):
+            from core import android_files
+            try:
+                data = android_files.read_uri_bytes(uri)
+            except Exception:
+                return
+            Clock.schedule_once(lambda dt: on_file(data))
+
         def _deliver(intent):
+            if on_file is not None:
+                uri = stream_uri_from_intent(intent)
+                if uri is not None:
+                    from core.async_utils import run_in_background
+                    run_in_background(_deliver_file, uri)
+                    return
             text = text_from_intent(intent)
             if text:
                 # runs on Android's UI thread -> hop onto Kivy's thread
