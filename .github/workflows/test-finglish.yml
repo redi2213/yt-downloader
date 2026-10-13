@@ -13,23 +13,33 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install candidates and inspect them
+      - name: Inspect parstalk
+        continue-on-error: true
         run: |
-          pip install parstalk
-          pip show parstalk | head -n 3
-          python3 -c "import parstalk; print('parstalk exports:', [n for n in dir(parstalk) if not n.startswith('_')])"
-          git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f || true
-          echo "=== persian-to-finglish files ==="
-          find /tmp/p2f -not -path '*/.git*' -type f | head -n 30
-          echo "=== py file heads ==="
-          for f in $(find /tmp/p2f -name '*.py' -not -path '*/.git*' | head -n 3); do echo "--- $f"; head -n 40 "$f"; done
+          pip install parstalk > /dev/null 2>&1
+          python3 - << 'PYEOF'
+          import parstalk.core as c, inspect
+          print("core names:", [n for n in dir(c) if not n.startswith('_')])
+          print(inspect.getsource(c)[:2500])
+          PYEOF
+
+      - name: Inspect persian-to-finglish
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f
+          cd /tmp/p2f
+          echo "=== README ==="; head -n 60 README.md
+          echo "=== bestPersianTofinglish.py ==="; head -n 80 bestPersianTofinglish.py
+          echo "=== dataset sizes ==="; wc -l farsi-Words-DATASET.txt english-Words-DATASET.txt
+          paste -d '  ' farsi-Words-DATASET.txt english-Words-DATASET.txt | head -n 10
 
       - name: Compare
+        continue-on-error: true
         env:
           TITLES: ${{ github.event.inputs.titles }}
         run: |
           cat > cmp.py << 'PYEOF'
-          import os, traceback
+          import os
 
           M = {"ا":"a","آ":"a","ب":"b","پ":"p","ت":"t","ث":"s","ج":"j","چ":"ch","ح":"h","خ":"kh",
                "د":"d","ذ":"z","ر":"r","ز":"z","ژ":"zh","س":"s","ش":"sh","ص":"s","ض":"z","ط":"t",
@@ -39,11 +49,11 @@ jobs:
               return "".join(M.get(c, c) for c in t)
 
           def parstalk(t):
-              import parstalk as p
-              fn = next((getattr(p, n) for n in dir(p)
-                         if callable(getattr(p, n)) and "finglish" in n.lower()), None)
+              import parstalk.core as c
+              fn = next((getattr(c, n) for n in dir(c)
+                         if callable(getattr(c, n)) and "finglish" in n.lower()), None)
               if fn is None:
-                  raise RuntimeError("no finglish function in parstalk")
+                  raise RuntimeError("no finglish function in parstalk.core")
               return fn(t)
 
           for title in os.environ["TITLES"].split("|"):
@@ -57,4 +67,5 @@ jobs:
                   except Exception as e:
                       print(f"  {name:9}: ERROR {e}")
           PYEOF
+          pip install parstalk > /dev/null 2>&1
           python3 cmp.py
