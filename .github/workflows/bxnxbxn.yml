@@ -1,0 +1,65 @@
+name: Test Finglish
+run-name: Test Finglish
+
+on:
+  workflow_dispatch:
+    inputs:
+      titles:
+        description: 'Persian titles separated by |'
+        required: true
+        default: 'سخت ترین قسمت بازی|سلام دنیا|بهترین ماشین های ایران|ساخت ماشین در خانه'
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fetch dictionary
+        run: git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f
+
+      - name: Dictionary transliteration test
+        env:
+          TITLES: ${{ github.event.inputs.titles }}
+        run: |
+          cat > dict_test.py << 'PYEOF'
+          import os, re
+
+          D = {}
+          with open("/tmp/p2f/farsi-Words-DATASET.txt", encoding="utf-8") as f, \
+               open("/tmp/p2f/english-Words-DATASET.txt", encoding="utf-8") as e:
+              for fa, en in zip(f, e):
+                  fa, en = fa.strip(), en.strip()
+                  if fa and en:
+                      D.setdefault(fa, en)
+          print("dictionary words:", len(D))
+
+          M = {"ا":"a","آ":"a","ب":"b","پ":"p","ت":"t","ث":"s","ج":"j","چ":"ch","ح":"h","خ":"kh",
+               "د":"d","ذ":"z","ر":"r","ز":"z","ژ":"zh","س":"s","ش":"sh","ص":"s","ض":"z","ط":"t",
+               "ظ":"z","ع":"","غ":"gh","ف":"f","ق":"gh","ک":"k","گ":"g","ل":"l","م":"m","ن":"n",
+               "ه":"h","و":"v","ی":"y","ئ":"","ي":"y","ك":"k"}
+          def fallback(w):
+              return "".join(M.get(c, c) for c in w)
+
+          # common suffixes written separately or attached
+          SUFFIX = {"ترین": "tarin", "تر": "tar", "ها": "ha", "های": "haye"}
+
+          def word(w):
+              if w in D:
+                  return D[w], "HIT"
+              for suf, lat in SUFFIX.items():
+                  if w.endswith(suf) and w[:-len(suf)] in D:
+                      return D[w[:-len(suf)]] + lat, "HIT+suffix"
+              return fallback(w), "MISS"
+
+          for title in os.environ["TITLES"].split("|"):
+              title = title.strip()
+              if not title:
+                  continue
+              print("\n>>", title)
+              out = []
+              for w in re.split(r"[\s\u200c]+", title):
+                  lat, status = word(w)
+                  print(f"   {w:10} -> {lat:14} {status}")
+                  out.append(lat)
+              print("   RESULT:", " ".join(out).capitalize())
+          PYEOF
+          python3 dict_test.py
