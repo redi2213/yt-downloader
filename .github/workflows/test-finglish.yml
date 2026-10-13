@@ -7,65 +7,59 @@ on:
       titles:
         description: 'Persian titles separated by |'
         required: true
-        default: 'سخت ترین قسمت بازی|سلام دنیا|بهترین ماشین های ایران'
+        default: 'سخت ترین قسمت بازی|سلام دنیا|بهترین ماشین های ایران|ساخت ماشین در خانه'
 
 jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - name: Inspect parstalk
-        continue-on-error: true
-        run: |
-          pip install parstalk > /dev/null 2>&1
-          python3 - << 'PYEOF'
-          import parstalk.core as c, inspect
-          print("core names:", [n for n in dir(c) if not n.startswith('_')])
-          print(inspect.getsource(c)[:2500])
-          PYEOF
+      - name: Fetch dictionary
+        run: git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f
 
-      - name: Inspect persian-to-finglish
-        continue-on-error: true
-        run: |
-          git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f
-          cd /tmp/p2f
-          echo "=== README ==="; head -n 60 README.md
-          echo "=== bestPersianTofinglish.py ==="; head -n 80 bestPersianTofinglish.py
-          echo "=== dataset sizes ==="; wc -l farsi-Words-DATASET.txt english-Words-DATASET.txt
-          paste -d '  ' farsi-Words-DATASET.txt english-Words-DATASET.txt | head -n 10
-
-      - name: Compare
-        continue-on-error: true
+      - name: Dictionary transliteration test
         env:
           TITLES: ${{ github.event.inputs.titles }}
         run: |
-          cat > cmp.py << 'PYEOF'
-          import os
+          cat > dict_test.py << 'PYEOF'
+          import os, re
+
+          D = {}
+          with open("/tmp/p2f/farsi-Words-DATASET.txt", encoding="utf-8") as f, \
+               open("/tmp/p2f/english-Words-DATASET.txt", encoding="utf-8") as e:
+              for fa, en in zip(f, e):
+                  fa, en = fa.strip(), en.strip()
+                  if fa and en:
+                      D.setdefault(fa, en)
+          print("dictionary words:", len(D))
 
           M = {"ا":"a","آ":"a","ب":"b","پ":"p","ت":"t","ث":"s","ج":"j","چ":"ch","ح":"h","خ":"kh",
                "د":"d","ذ":"z","ر":"r","ز":"z","ژ":"zh","س":"s","ش":"sh","ص":"s","ض":"z","ط":"t",
                "ظ":"z","ع":"","غ":"gh","ف":"f","ق":"gh","ک":"k","گ":"g","ل":"l","م":"m","ن":"n",
-               "ه":"h","و":"v","ی":"y","ئ":"","\u200c":""}
-          def baseline(t):
-              return "".join(M.get(c, c) for c in t)
+               "ه":"h","و":"v","ی":"y","ئ":"","ي":"y","ك":"k"}
+          def fallback(w):
+              return "".join(M.get(c, c) for c in w)
 
-          def parstalk(t):
-              import parstalk.core as c
-              fn = next((getattr(c, n) for n in dir(c)
-                         if callable(getattr(c, n)) and "finglish" in n.lower()), None)
-              if fn is None:
-                  raise RuntimeError("no finglish function in parstalk.core")
-              return fn(t)
+          # common suffixes written separately or attached
+          SUFFIX = {"ترین": "tarin", "تر": "tar", "ها": "ha", "های": "haye"}
+
+          def word(w):
+              if w in D:
+                  return D[w], "HIT"
+              for suf, lat in SUFFIX.items():
+                  if w.endswith(suf) and w[:-len(suf)] in D:
+                      return D[w[:-len(suf)]] + lat, "HIT+suffix"
+              return fallback(w), "MISS"
 
           for title in os.environ["TITLES"].split("|"):
               title = title.strip()
               if not title:
                   continue
               print("\n>>", title)
-              for name, fn in (("baseline", baseline), ("parstalk", parstalk)):
-                  try:
-                      print(f"  {name:9}: {fn(title)}")
-                  except Exception as e:
-                      print(f"  {name:9}: ERROR {e}")
+              out = []
+              for w in re.split(r"[\s\u200c]+", title):
+                  lat, status = word(w)
+                  print(f"   {w:10} -> {lat:14} {status}")
+                  out.append(lat)
+              print("   RESULT:", " ".join(out).capitalize())
           PYEOF
-          pip install parstalk > /dev/null 2>&1
-          python3 cmp.py
+          python3 dict_test.py
