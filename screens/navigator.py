@@ -237,7 +237,10 @@ class Navigator:
             self.show_quality_list(job.input, job.result["formats"])
 
         elif job.type == JOB_TYPE_PLAYLIST_LINKS:
-            self.show_playlist_quality_picker(job.result["urls"])
+            if job.extra.get("pick") and job.result.get("entries"):
+                self.show_playlist_pick(job.result["entries"], job.input)
+            else:
+                self.show_playlist_quality_picker(job.result["urls"])
 
         elif job.type == JOB_TYPE_PLAYLIST_DOWNLOAD:
             self.show_playlist_results(
@@ -381,10 +384,11 @@ class Navigator:
             custom_name.strip()
         )
 
-    def start_fetch_playlist(self, url):
+    def start_fetch_playlist(self, url, pick=False):
         job = playlist_service.create_playlist_links_job(
             self.job_manager,
-            url
+            url,
+            pick=pick
         )
 
         self.show_working(
@@ -410,7 +414,18 @@ class Navigator:
 
         self.start_fetch_playlist(url)
 
-    def start_playlist_download(self, urls, target_height, want_hdr):
+    def handle_pick_playlist(self, url):
+        """"Choose videos" button: reads the playlist, then shows its video
+        titles to tick before anything is downloaded."""
+        url = url.strip()
+
+        if not url:
+            self.set_status("Enter a playlist link")
+            return
+
+        self.start_fetch_playlist(url, pick=True)
+
+    def start_playlist_download(self, urls, target_height, want_hdr, audio_only=False, quality_screen=None):
         job = playlist_service.create_playlist_download_job(
             self.job_manager,
             urls
@@ -419,7 +434,7 @@ class Navigator:
         extra_buttons = [
             (
                 "Pick a different quality",
-                lambda: self.show_playlist_quality_picker(urls)
+                quality_screen or (lambda: self.show_playlist_quality_picker(urls))
             )
         ]
 
@@ -437,6 +452,7 @@ class Navigator:
             urls,
             target_height,
             want_hdr,
+            audio_only=audio_only,
             on_status=on_status,
             on_complete=on_complete
         )
@@ -796,6 +812,23 @@ class Navigator:
         playlist_screen.build_quality_picker(
             self,
             urls
+        )
+
+    def show_playlist_pick(self, entries, playlist_url, selected=None):
+        """The tick list of a playlist's videos. ``selected`` (one bool per
+        video) is kept when the user comes back from the quality screen."""
+        from screens import playlist as playlist_screen
+        if selected is None or len(selected) != len(entries):
+            selected = [False] * len(entries)
+        self.remember(lambda: self.show_playlist_pick(entries, playlist_url, selected))
+        playlist_screen.build_picker(self, entries, playlist_url, selected)
+
+    def show_playlist_selected_quality(self, entries, playlist_url, selected, urls):
+        from screens import playlist as playlist_screen
+        self.remember(lambda: self.show_playlist_selected_quality(entries, playlist_url, selected, urls))
+        playlist_screen.build_selected_quality(
+            self, urls,
+            back=lambda: self.show_playlist_pick(entries, playlist_url, selected),
         )
 
     def show_playlist_results(self, links, errors=None):

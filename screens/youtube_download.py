@@ -5,9 +5,11 @@ screen, now behind one menu button.
 Two independent link boxes:
   - single video link -> "Get qualities" (full flow) or "Quick Download"
     (skip the list-formats step, jump straight to a height-capped format)
-  - playlist link -> "This is a playlist" quick-quality buttons, which
-    download every video in the playlist at the closest available quality
-    with no per-video prompting
+  - playlist link -> "Choose videos from playlist" lists the video titles to
+    tick (Select all / Clear), then downloads only the chosen ones; or the
+    "This is a playlist" quick-quality buttons, which download every video
+    in the playlist at the closest available quality with no per-video
+    prompting
 """
 from kivy.uix.button import Button
 from kivy.uix.label import Label
@@ -70,7 +72,11 @@ def build(nav, video_url="", playlist_url=""):
     nav.add(playlist_url_input)
     nav.add(paste_row(playlist_url_input))
 
-    nav.add(Label(text="This is a playlist", size_hint_y=None, height=32))
+    pick_btn = Button(text="Choose videos from playlist", size_hint_y=None, height=56)
+    pick_btn.bind(on_press=lambda i: nav.handle_pick_playlist(playlist_url_input.text))
+    nav.add(pick_btn)
+
+    nav.add(Label(text="This is a playlist (all videos)", size_hint_y=None, height=32))
     for label, target_height, want_hdr in _PLAYLIST_QUALITIES:
         btn = Button(text=label, size_hint_y=None, height=48)
         btn.bind(on_press=lambda i, h=target_height, hd=want_hdr:

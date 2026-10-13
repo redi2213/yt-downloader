@@ -17,6 +17,8 @@ from services.notify_service import notify
 _YOUTUBE_URL_RE = re.compile(
     r"https://(?:www\.)?youtube\.com/watch\?v=[\w-]+|https://youtu\.be/[\w-]+"
 )
+# list-playlist.yml prints one "ITEM|<video id>|<title>" line per video
+_ITEM_RE = re.compile(r"ITEM\|([\w-]{11})\|([^\r\n]*)")
 
 
 def start_playlist_quick(job_manager: JobManager, playlist_url: str, target_height: int, want_hdr: bool,
@@ -58,8 +60,12 @@ def _playlist_quick_thread(job_manager, job, playlist_url, target_height, want_h
     _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, audio_only, on_status, on_complete)
 
 
-def create_playlist_links_job(job_manager: JobManager, playlist_url: str) -> Job:
+def create_playlist_links_job(job_manager: JobManager, playlist_url: str, pick: bool = False) -> Job:
+    """``pick=True``: the result is shown as a list of titles to choose from
+    (the "Choose videos" button) instead of going straight to the quality
+    picker for the whole playlist."""
     job = Job(job_id=_new_job_id(), type=JOB_TYPE_PLAYLIST_LINKS, input=playlist_url)
+    job.extra["pick"] = pick
     job_manager.start(job)
     return job
 
@@ -81,30 +87,51 @@ def start_fetch_playlist_links(job_manager: JobManager, playlist_url: str,
 def _fetch_playlist_thread(job_manager, job, on_status, on_complete):
     try:
         _emit(on_status, "Reading playlist...")
-        urls = get_playlist_links(job.input)
+        entries = get_playlist_entries(job.input)
         if job.cancel_requested:
             return  # job already marked done by the caller's cancel action
-        if not urls:
+        if not entries:
             job_manager.complete(job, ok=False, error="No videos found in playlist")
             _emit_complete(on_complete, job)
             return
-        job_manager.complete(job, ok=True, result_data={"urls": urls})
+        urls = [e["url"] for e in entries]
+        job_manager.complete(job, ok=True, result_data={"urls": urls, "entries": entries})
         _emit_complete(on_complete, job)
     except Exception as e:
         job_manager.complete(job, ok=False, error=f"Error: {str(e)[:60]}")
         _emit_complete(on_complete, job)
 
 
-def get_playlist_links(playlist_url: str):
+def parse_playlist_entries(log_text: str) -> list:
+    """[{"url", "title"}] from a list-playlist run's log, in playlist order.
+    Falls back to plain links (title = link) if the workflow is the old one
+    that printed only links."""
+    entries, seen = [], set()
+    for video_id, title in _ITEM_RE.findall(log_text):
+        if video_id in seen:
+            continue
+        seen.add(video_id)
+        entries.append({
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "title": title.strip() or video_id,
+        })
+    if entries:
+        return entries
+    return [{"url": u, "title": u} for u in dict.fromkeys(_YOUTUBE_URL_RE.findall(log_text))]
+
+
+def get_playlist_entries(playlist_url: str) -> list:
     run_id = workflows.dispatch_and_find_run("list-playlist.yml", {"playlist_url": playlist_url})
     if run_id is None:
         return []
     conclusion = workflows.wait_for_run(run_id)
     if conclusion != "success":
         return []
-    log_text = gh_logs.get_run_log_text(run_id)
-    urls = _YOUTUBE_URL_RE.findall(log_text)
-    return list(dict.fromkeys(urls))
+    return parse_playlist_entries(gh_logs.get_run_log_text(run_id))
+
+
+def get_playlist_links(playlist_url: str):
+    return [e["url"] for e in get_playlist_entries(playlist_url)]
 
 
 def create_playlist_download_job(job_manager: JobManager, urls) -> Job:

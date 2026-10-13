@@ -45,7 +45,7 @@ jobs:
       - name: List playlist entries
         run: |
           yt-dlp --cookies cookies.txt --remote-components ejs:github \
-            --flat-playlist --print "%(webpage_url)s" \
+            --flat-playlist --print "ITEM|%(id)s|%(title)s" \
             "${{ github.event.inputs.playlist_url }}" | tee -a $GITHUB_STEP_SUMMARY
 
       - name: Clean up cookies
