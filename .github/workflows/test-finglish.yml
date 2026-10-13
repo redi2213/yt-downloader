@@ -5,23 +5,24 @@ on:
   workflow_dispatch:
     inputs:
       titles:
-        description: 'Persian titles, one per line'
+        description: 'Persian titles separated by |'
         required: true
-        default: |
-          سخت ترین قسمت بازی
-          سلام دنیا
-          بهترین ماشین های ایران
+        default: 'سخت ترین قسمت بازی|سلام دنیا|بهترین ماشین های ایران'
 
 jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install candidates
+      - name: Install candidates and inspect them
         run: |
           pip install parstalk
+          pip show parstalk | head -n 3
+          python3 -c "import parstalk; print('parstalk exports:', [n for n in dir(parstalk) if not n.startswith('_')])"
           git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f || true
           echo "=== persian-to-finglish files ==="
-          ls -R /tmp/p2f | head -n 40
+          find /tmp/p2f -not -path '*/.git*' -type f | head -n 30
+          echo "=== py file heads ==="
+          for f in $(find /tmp/p2f -name '*.py' -not -path '*/.git*' | head -n 3); do echo "--- $f"; head -n 40 "$f"; done
 
       - name: Compare
         env:
@@ -30,7 +31,6 @@ jobs:
           cat > cmp.py << 'PYEOF'
           import os, traceback
 
-          # Baseline: the current letter-by-letter mapping (drops short vowels)
           M = {"ا":"a","آ":"a","ب":"b","پ":"p","ت":"t","ث":"s","ج":"j","چ":"ch","ح":"h","خ":"kh",
                "د":"d","ذ":"z","ر":"r","ز":"z","ژ":"zh","س":"s","ش":"sh","ص":"s","ض":"z","ط":"t",
                "ظ":"z","ع":"","غ":"gh","ف":"f","ق":"gh","ک":"k","گ":"g","ل":"l","م":"m","ن":"n",
@@ -39,10 +39,14 @@ jobs:
               return "".join(M.get(c, c) for c in t)
 
           def parstalk(t):
-              from parstalk import farsi_to_finglish_with_vowels
-              return farsi_to_finglish_with_vowels(t)
+              import parstalk as p
+              fn = next((getattr(p, n) for n in dir(p)
+                         if callable(getattr(p, n)) and "finglish" in n.lower()), None)
+              if fn is None:
+                  raise RuntimeError("no finglish function in parstalk")
+              return fn(t)
 
-          for title in os.environ["TITLES"].splitlines():
+          for title in os.environ["TITLES"].split("|"):
               title = title.strip()
               if not title:
                   continue
@@ -50,8 +54,7 @@ jobs:
               for name, fn in (("baseline", baseline), ("parstalk", parstalk)):
                   try:
                       print(f"  {name:9}: {fn(title)}")
-                  except Exception:
-                      print(f"  {name:9}: ERROR")
-                      traceback.print_exc()
+                  except Exception as e:
+                      print(f"  {name:9}: ERROR {e}")
           PYEOF
           python3 cmp.py
