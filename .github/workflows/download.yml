@@ -486,6 +486,10 @@ jobs:
           # title became "_._"). So: Persian/Arabic letters are transliterated to
           # Finglish, anything else non-ASCII is removed, and if nothing readable
           # is left the YouTube video id is used instead.
+          # Persian word dictionary (~6k words with vowels) for correct Finglish.
+          # If the clone fails, safe_name.py silently falls back to letter-by-letter.
+          git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f 2>/dev/null || true
+
           cat > safe_name.py << 'PYEOF'
           import os, re, sys, unicodedata
           src, quality, url, run_id = sys.argv[1:5]
@@ -493,7 +497,8 @@ jobs:
           ext = ext.lstrip(".") or "mkv"
           base = unicodedata.normalize("NFKC", base)
 
-          # Persian/Arabic -> Finglish (approximate: short vowels are not written in Persian)
+          # Letter-by-letter fallback (approximate: short vowels are not written in Persian).
+          # Only used for words that are not in the dictionary below.
           M = {
               "\u0627": "a", "\u0622": "a", "\u0623": "a", "\u0625": "e", "\u0621": "", "\u0624": "o", "\u0626": "",
               "\u0628": "b", "\u067E": "p", "\u062A": "t", "\u062B": "s", "\u062C": "j", "\u0686": "ch",
@@ -511,18 +516,93 @@ jobs:
               M[chr(0x0660 + i)] = str(i)
           VOWELISH = {"\u0648": ("v", "o"), "\u06CC": ("y", "i"), "\u064A": ("y", "i"), "\u0649": ("y", "i")}
 
-          out, prev_letter = [], False
-          for ch in base:
-              if ch in VOWELISH:
-                  out.append(VOWELISH[ch][0 if not prev_letter else 1])
-                  prev_letter = True
-              elif ch in M:
-                  out.append(M[ch])
-                  prev_letter = ch not in "\u064E\u0650\u064F\u064B\u064C\u064D\u0651\u0652\u0653\u0640\u200C\u200D" or prev_letter
-              else:
-                  out.append(ch)
-                  prev_letter = False
+          def fallback(text):
+              out, prev_letter = [], False
+              for ch in text:
+                  if ch in VOWELISH:
+                      out.append(VOWELISH[ch][0 if not prev_letter else 1])
+                      prev_letter = True
+                  elif ch in M:
+                      out.append(M[ch])
+                      prev_letter = ch not in "\u064E\u0650\u064F\u064B\u064C\u064D\u0651\u0652\u0653\u0640\u200C\u200D" or prev_letter
+                  else:
+                      out.append(ch)
+                      prev_letter = False
+              return "".join(out)
+
+          # ---- Word dictionary (correct Finglish with vowels) ----
+          # Normalise Arabic yeh/kaf, drop diacritics and Persian punctuation for lookups.
+          FIX = {0x064A: "\u06CC", 0x0649: "\u06CC", 0x0643: "\u06A9"}
+          STRIP = re.compile("[\u061F\u060C\u061B\u064B-\u065F\u0640]")
+          def key(w):
+              return STRIP.sub("", w.translate(FIX))
+
+          D = {}
+          try:
+              with open("/tmp/p2f/farsi-Words-DATASET.txt", encoding="utf-8") as f, \
+                   open("/tmp/p2f/english-Words-DATASET.txt", encoding="utf-8") as e:
+                  for fa, en in zip(f, e):
+                      fa, en = key(fa.strip()), en.strip()
+                      if fa and en:
+                          D.setdefault(fa, en)
+          except OSError:
+              pass  # dataset not available: everything uses the fallback
+
+          # Your own corrections / missing words. Add more as "persian": "finglish".
+          # These always win over the dataset.
+          EXTRA = {
+              "\u0633\u062E\u062A": "sakht",
+              "\u0648\u06CC\u062F\u06CC\u0648": "video",
+              "\u0648\u06CC\u062F\u0626\u0648": "video",
+              "\u06CC\u0648\u062A\u06CC\u0648\u0628": "youtube",
+          }
+          D.update({key(k): v for k, v in EXTRA.items()})
+
+          # suffixes that can be attached to a known word
+          SUFFIX = (
+              ("\u062A\u0631\u06CC\u0646", "tarin"),  # ترین
+              ("\u0647\u0627\u06CC", "hay"),          # های
+              ("\u0647\u0627", "ha"),                 # ها
+              ("\u062A\u0631", "tar"),                # تر
+          )
+          SUPERLATIVE = {"\u062A\u0631\u06CC\u0646": "tarin", "\u062A\u0631": "tar"}
+
+          def attach(stem, suf):
+              # sakht + tarin -> sakhtarin (merge the doubled letter)
+              return stem + (suf[1:] if stem and stem[-1] == suf[0] else suf)
+
+          def tr_part(p):
+              k = key(p)
+              if k in D:
+                  return D[k], True
+              for suf, lat in SUFFIX:
+                  if k.endswith(suf) and k[:-len(suf)] in D:
+                      return attach(D[k[:-len(suf)]], lat), True
+              return fallback(p), False
+
+          def tr_word(w):
+              res = [tr_part(p) for p in re.split("[\u200C\u200D]+", w) if p]
+              return "".join(r[0] for r in res), all(r[1] for r in res)
+
+          toks = re.split("([\u0600-\u06FF\u200C\u200D]+)", base)
+          out, last_p, last_hit = [], -1, False
+          for i, t in enumerate(toks):
+              if i % 2 == 0:
+                  out.append(t)
+                  continue
+              sup = SUPERLATIVE.get(key(t))
+              # "سخت ترین" (separate words) -> "sakhtarin"
+              if sup and last_hit and last_p == len(out) - 2 and out[-1] == " ":
+                  out.pop()
+                  out[-1] = attach(out[-1], sup)
+                  last_p = len(out) - 1
+                  continue
+              text, hit = tr_word(t)
+              out.append(text)
+              last_p, last_hit = len(out) - 1, hit
           base = "".join(out)
+          if toks[0] == "" and base:
+              base = base[0].upper() + base[1:]
 
           # Anything still non-ASCII (emoji, other scripts) can't survive in a release link
           base = base.encode("ascii", "ignore").decode("ascii")
