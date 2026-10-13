@@ -552,7 +552,9 @@ class Navigator:
         from screens import actions_dynamic
         actions_dynamic.build(
             self,
-            res.get("actions", [])
+            res.get("actions", []),
+            notice=res.get("notice", ""),
+            retry=self.show_dynamic_actions,
         )
 
     def show_action_input(self, action, prefill=None, share_url=None):

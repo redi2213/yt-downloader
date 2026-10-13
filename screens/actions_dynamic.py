@@ -115,9 +115,18 @@ def build_loading(nav):
     nav.add(common.back_button(nav))
 
 
-def build(nav, actions):
+def build(nav, actions, notice="", retry=None):
+    """``notice``: why the list is not the full, fresh one (shown with a
+    Reload button that calls ``retry``)."""
     nav.clear()
     nav.add(Label(text="Download Anything", size_hint_y=None, height=48))
+
+    if notice:
+        nav.add(common.wrapped_label(notice))
+        if retry is not None:
+            reload_btn = Button(text="Reload list", size_hint_y=None, height=48)
+            reload_btn.bind(on_press=lambda i: retry())
+            nav.add(reload_btn)
 
     upload_btn = Button(text="Upload a file (any link)", size_hint_y=None, height=48)
     upload_btn.bind(on_press=lambda i: nav.show_upload_screen())

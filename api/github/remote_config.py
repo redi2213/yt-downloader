@@ -24,7 +24,7 @@ import urllib.error
 
 import certifi
 
-from core.config import REPO_OWNER, REPO_NAME
+from core.config import API_BASE, REPO_OWNER, REPO_NAME
 
 CONFIG_BRANCH = "config"
 CONFIG_PATH = "config.json"
@@ -57,3 +57,22 @@ def fetch_remote_config() -> dict:
         raw_bytes = response.read()
 
     return json.loads(raw_bytes)
+
+
+def fetch_remote_config_via_api() -> dict:
+    """Same file, read through api.github.com with the signed-in token.
+
+    raw.githubusercontent.com and api.github.com are different hosts: on
+    some networks / VPNs the first one is blocked or very slow while the
+    second one (which the workflows already depend on) works. Used when the
+    raw fetch fails."""
+    from api.github import client
+    from api.github.auth import auth_headers
+
+    headers = dict(auth_headers())
+    headers["Accept"] = "application/vnd.github.raw+json"
+    r = client.request(
+        "GET", f"{API_BASE}/contents/{CONFIG_PATH}",
+        params={"ref": CONFIG_BRANCH}, headers=headers, timeout=_TIMEOUT_SECONDS,
+    )
+    return json.loads(r.content)
