@@ -1,14 +1,18 @@
-"""Reading an update.zip for the in-app update. Pure Python (no Kivy, no
-network).
+"""Reading zips for the in-app update. Pure Python (no Kivy, no network).
 
-Layout of update.zip - one top-level folder per BRANCH, named exactly like
-the branch:
+Two kinds of zip are understood:
 
-    update.zip
-    +-- main/     files of the main branch (the whole project)
-    +-- config/   files of the config branch (config.json)
+1. A zip with one top-level folder per BRANCH (the layout of the project
+   backup and of the old update.zip)::
 
-A folder that is present is updated; a missing one is left alone.
+       update.zip
+       +-- main/     (or main-branch/)    files of the main branch
+       +-- config/   (or config-branch/)  files of the config branch
+
+   -> ``read_update_zip`` (every file goes to the same path in that branch)
+
+2. Any other zip (loose files, maybe in folders) -> ``read_loose_files``;
+   the app then works out where each file belongs (core/file_router.py).
 """
 import hashlib
 import io
@@ -24,6 +28,8 @@ SKIP_SECRET_SUFFIXES = (".keystore", ".jks", ".b64", ".pem", ".p12", ".pfx", ".k
 SKIP_SECRET_NAMES = {".env", "cookies.txt", "local.properties", "keystore.properties"}
 MAX_FILE_BYTES = 25 * 1024 * 1024
 DEFAULT_BRANCHES = ("main", "config")
+# The project backup names its folders "<branch>-branch"
+BRANCH_ALIASES = {"main-branch": "main", "config-branch": "config"}
 
 
 class ZipError(Exception):
@@ -43,12 +49,26 @@ def _clean_name(name: str) -> str:
     return name.replace("\\", "/").lstrip("/")
 
 
-def read_update_zip(data: bytes, known_branches=None) -> dict:
-    """{branch: {path: (bytes, git_mode)}} for every branch folder in the zip.
+def is_skipped_path(path: str) -> bool:
+    """True for files that are never sent to the repo (caches, build output,
+    secrets...). ``path`` may use / or \\ ."""
+    path = _clean_name(path)
+    inner = path.split("/")
+    if ".." in inner:
+        return True
+    if any(p in SKIP_DIRS for p in inner[:-1]) or path in SKIP_FILES:
+        return True
+    if path.endswith(SKIP_SUFFIXES) or inner[-1] == ".DS_Store":
+        return True
+    if path.lower().endswith(SKIP_SECRET_SUFFIXES) or inner[-1] in SKIP_SECRET_NAMES:
+        return True
+    return False
 
-    If the whole zip sits inside ONE extra folder (e.g. ``update/main/...``)
-    that folder is removed first. Raises ZipError with a readable message."""
-    known = set(known_branches or DEFAULT_BRANCHES)
+
+def _open_entries(data: bytes, known_branches=None):
+    """(ZipFile, [(info, name)]) with one wrapper folder around the branch
+    folders removed. Raises ZipError."""
+    known = set(known_branches or DEFAULT_BRANCHES) | set(BRANCH_ALIASES)
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -70,6 +90,31 @@ def read_update_zip(data: bytes, known_branches=None) -> dict:
         children = {n[len(wrapper):].split("/")[0] for _, n in entries if "/" in n[len(wrapper):]}
         if children & known:
             entries = [(i, n[len(wrapper):]) for i, n in entries if n.startswith(wrapper)]
+    return zf, entries
+
+
+def has_branch_folders(data: bytes, known_branches=None) -> bool:
+    """True if the zip has top-level folders named like branches."""
+    known = set(known_branches or DEFAULT_BRANCHES) | set(BRANCH_ALIASES)
+    try:
+        _, entries = _open_entries(data, known_branches)
+    except ZipError:
+        return False
+    return any("/" in n and n.split("/")[0] in known for _, n in entries)
+
+
+def _mode(info) -> str:
+    return "100755" if (info.external_attr >> 16) & 0o111 else "100644"
+
+
+def read_update_zip(data: bytes, known_branches=None) -> dict:
+    """{branch: {path: (bytes, git_mode)}} for every branch folder in the zip.
+
+    If the whole zip sits inside ONE extra folder (e.g. ``update/main/...``)
+    that folder is removed first. Folders ``main-branch`` / ``config-branch``
+    (the project backup) count as ``main`` / ``config``.
+    Raises ZipError with a readable message."""
+    zf, entries = _open_entries(data, known_branches)
 
     result = {}
     for info, name in entries:
@@ -79,19 +124,27 @@ def read_update_zip(data: bytes, known_branches=None) -> dict:
                 f'"{name}" is outside any folder. Put files inside folders named like '
                 'branches, e.g. main/ and config/.'
             )
-        branch, path = parts[0], "/".join(parts[1:])
-        inner = path.split("/")
-        if ".." in inner or any(p in SKIP_DIRS for p in inner[:-1]) or path in SKIP_FILES:
-            continue
-        if path.endswith(SKIP_SUFFIXES) or inner[-1] == ".DS_Store":
-            continue
-        if path.lower().endswith(SKIP_SECRET_SUFFIXES) or inner[-1] in SKIP_SECRET_NAMES:
+        branch, path = BRANCH_ALIASES.get(parts[0], parts[0]), "/".join(parts[1:])
+        if is_skipped_path(path):
             continue
         if info.file_size > MAX_FILE_BYTES:
             raise ZipError(f"{name} is too large ({info.file_size // (1024 * 1024)} MB).")
-        executable = (info.external_attr >> 16) & 0o111
-        result.setdefault(branch, {})[path] = (zf.read(info), "100755" if executable else "100644")
+        result.setdefault(branch, {})[path] = (zf.read(info), _mode(info))
 
     if not result:
         raise ZipError("No files found. Use folders named like branches, e.g. main/ and config/.")
     return result
+
+
+def read_loose_files(data: bytes) -> list:
+    """[(path_in_zip, bytes, git_mode)] of every file in a zip that has no
+    branch folders. Skipped files (caches, secrets...) are left out."""
+    zf, entries = _open_entries(data)
+    out = []
+    for info, name in entries:
+        if is_skipped_path(name):
+            continue
+        if info.file_size > MAX_FILE_BYTES:
+            raise ZipError(f"{name} is too large ({info.file_size // (1024 * 1024)} MB).")
+        out.append((name, zf.read(info), _mode(info)))
+    return out

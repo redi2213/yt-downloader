@@ -54,8 +54,9 @@ def stream_uri_from_intent(intent):
 
 def setup(on_text, on_file=None):
     """Starts listening. ``on_text(text)`` is called on the Kivy thread with
-    the shared text, each time something is shared; ``on_file(bytes)`` with
-    the content of a shared file (a project zip or config.json). Returns
+    the shared text, each time something is shared; ``on_file(bytes, name)`` with
+    the content and file name of a shared file (an update zip, config.json,
+    a workflow .yml, a .py file...). Returns
     True if the Android hooks could be installed."""
     try:
         from jnius import autoclass
@@ -74,7 +75,8 @@ def setup(on_text, on_file=None):
                 data = android_files.read_uri_bytes(uri)
             except Exception:
                 return
-            Clock.schedule_once(lambda dt: on_file(data))
+            name = android_files.read_uri_name(uri)
+            Clock.schedule_once(lambda dt: on_file(data, name))
 
         def _deliver(intent):
             if on_file is not None:

@@ -1,10 +1,18 @@
-"""Updating the app's own repo from update.zip.
+"""Updating the app's own repo from inside the app.
 
-update.zip has one top-level folder per branch (``main/``, ``config/``).
-For each folder present: read the branch -> compare -> (back the branch up
-as a dated zip on the ``backup`` branch, last 5 kept; not for ``config``) ->
-upload only the changed files -> ONE commit on that branch. Files that are
-in the repo but not in the zip are left alone.
+Two ways in (both end in the same upload code):
+
+* A zip with one top-level folder per branch (``main/``, ``config/``; the
+  names ``main-branch/`` and ``config-branch/`` of the project backup work
+  too) -> ``start_repo_update``: every file goes to the same path.
+* Loose files (one or many, or a zip without branch folders) ->
+  ``start_plan`` works out where each file belongs (core/file_router.py),
+  the user confirms on a review screen, then ``start_apply`` uploads.
+
+For each branch: read it -> compare -> (back the branch up as a dated zip on
+the ``backup`` branch, last 5 kept; not for ``config``) -> upload only the
+changed files -> ONE commit on that branch. Files that are in the repo but
+not in the update are left alone.
 """
 import json
 from datetime import datetime, timedelta, timezone
@@ -12,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from api.github import repo_files
-from core import zip_tools
+from core import file_router, zip_tools
 from core.async_utils import run_in_background
 from core.config import LOCAL_UTC_OFFSET_MINUTES
 from core.exceptions import AuthenticationError, NetworkError
@@ -30,10 +38,6 @@ def summarize_zip(data: bytes) -> dict:
     """{branch: file_count}. Raises zip_tools.ZipError."""
     update = zip_tools.read_update_zip(data)
     return {branch: len(files) for branch, files in update.items()}
-
-
-def start_repo_update(data: bytes, on_status, on_done) -> None:
-    run_in_background(_update_thread, data, on_status, on_done)
 
 
 def validate_config(data: bytes) -> dict:
@@ -65,6 +69,14 @@ def _explain(e: Exception) -> str:
     return f"Error: {str(e)[:80]}"
 
 
+def _fail(on_done, e):
+    if isinstance(e, (zip_tools.ZipError, ValueError)):
+        message = str(e)
+    else:
+        message = _explain(e)
+    on_done({"ok": False, "changed": False, "message": message})
+
+
 def _update_branch(branch, files, on_status):
     """Returns (changed_count, [changed paths])."""
     on_status(f"{branch}: reading...")
@@ -94,36 +106,103 @@ def _update_branch(branch, files, on_status):
     return total, [p for p, _, _ in changed]
 
 
+def _run_update(update, branches, on_status) -> dict:
+    """update: {branch: {path: (bytes, mode)}}. Checks EVERYTHING before
+    touching the repo, then uploads branch by branch. Returns the result dict
+    for on_done."""
+    for branch, files in update.items():
+        if branch not in branches:
+            raise zip_tools.ZipError(
+                f'The repo has no branch named "{branch}". Folder names in the zip must match branch names.')
+        if branch == repo_files.BACKUP_BRANCH:
+            raise zip_tools.ZipError("The backup branch cannot be updated from the app.")
+        if branch == "config" and CONFIG_FILE in files:
+            validate_config(files[CONFIG_FILE][0])
+
+    lines, project_changed = [], False
+    for branch in sorted(update):
+        count, paths = _update_branch(branch, update[branch], on_status)
+        if not count:
+            lines.append(f"{branch}: already up to date")
+            continue
+        if branch not in NO_BACKUP_BRANCHES:
+            project_changed = True
+        shown = ", ".join(paths[:5]) + (f" +{count - 5} more" if count > 5 else "")
+        lines.append(f"{branch}: {count} file(s) changed ({shown})")
+    return {"ok": True, "changed": project_changed, "message": "\n".join(lines)}
+
+
+# -- way 1: a zip with branch folders --------------------------------------
+def start_repo_update(data: bytes, on_status, on_done) -> None:
+    run_in_background(_update_thread, data, on_status, on_done)
+
+
 def _update_thread(data, on_status, on_done):
     try:
         on_status("Checking branches...")
         branches = repo_files.list_branches()
         update = zip_tools.read_update_zip(data, branches)
-
-        # check EVERYTHING before touching the repo
-        for branch, files in update.items():
-            if branch not in branches:
-                raise zip_tools.ZipError(
-                    f'The repo has no branch named "{branch}". Folder names in the zip must match branch names.')
-            if branch == repo_files.BACKUP_BRANCH:
-                raise zip_tools.ZipError("The backup branch cannot be updated from a zip.")
-            if branch == "config" and CONFIG_FILE in files:
-                validate_config(files[CONFIG_FILE][0])
-
-        lines, project_changed = [], False
-        for branch in sorted(update):
-            count, paths = _update_branch(branch, update[branch], on_status)
-            if not count:
-                lines.append(f"{branch}: already up to date")
-                continue
-            if branch not in NO_BACKUP_BRANCHES:
-                project_changed = True
-            shown = ", ".join(paths[:5]) + (f" +{count - 5} more" if count > 5 else "")
-            lines.append(f"{branch}: {count} file(s) changed ({shown})")
-        on_done({"ok": True, "changed": project_changed, "message": "\n".join(lines)})
-    except zip_tools.ZipError as e:
-        on_done({"ok": False, "changed": False, "message": str(e)})
-    except ValueError as e:
-        on_done({"ok": False, "changed": False, "message": str(e)})
+        on_done(_run_update(update, branches, on_status))
     except Exception as e:
-        on_done({"ok": False, "changed": False, "message": _explain(e)})
+        _fail(on_done, e)
+
+
+# -- way 2: loose files, placed by the router ------------------------------
+def start_plan(items, on_done) -> None:
+    """items: [(name, bytes, mode)]. ``on_done({"ok": True, "plan": [...],
+    "folders": [...]})`` or ``{"ok": False, "message": ...}``."""
+    run_in_background(_plan_thread, items, on_done)
+
+
+def _plan_thread(items, on_done):
+    try:
+        branches = repo_files.list_branches()
+        files_by_branch = {}
+        for branch in (file_router.MAIN_BRANCH, file_router.CONFIG_BRANCH):
+            if branch in branches:
+                _, tree_sha = repo_files.get_branch_head(branch)
+                files_by_branch[branch] = repo_files.get_tree_files(tree_sha)
+        if file_router.MAIN_BRANCH not in files_by_branch:
+            raise ValueError('The repo has no "main" branch.')
+        index = file_router.RepoIndex(files_by_branch)
+        plan = file_router.plan(items, index)
+        _fill_stats(plan, index)
+        on_done({"ok": True, "plan": plan, "folders": index.folders})
+    except Exception as e:
+        _fail(on_done, e)
+
+
+def _fill_stats(plan, index):
+    """Lines added/removed against each file a plan item may replace, so the
+    user can see at a glance if the match is wrong. Best effort."""
+    for item in plan:
+        if item["status"] not in (file_router.EXACT, file_router.SIMILAR):
+            continue
+        for ref in item["candidates"][:file_router.MAX_SIMILAR]:
+            sha = index.sha(ref)
+            if sha is None:
+                continue
+            try:
+                item["stats"][ref] = file_router.diff_stats(repo_files.get_blob(sha), item["content"])
+            except Exception:
+                pass
+
+
+def start_apply(plan, on_status, on_done) -> None:
+    run_in_background(_apply_thread, plan, on_status, on_done)
+
+
+def _apply_thread(plan, on_status, on_done):
+    try:
+        problem = file_router.conflicts(plan)
+        if problem:
+            raise ValueError(problem)
+        update = file_router.collect(plan)
+        if not update:
+            on_done({"ok": True, "changed": False, "message": "Nothing to update."})
+            return
+        on_status("Checking branches...")
+        branches = repo_files.list_branches()
+        on_done(_run_update(update, branches, on_status))
+    except Exception as e:
+        _fail(on_done, e)

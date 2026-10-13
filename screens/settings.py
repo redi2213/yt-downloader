@@ -53,7 +53,7 @@ def build(nav):
         nav.add(save_filimo_btn)
 
     nav.add(Label(text="App update", size_hint_y=None, height=32))
-    update_btn = Button(text="Update from update.zip", size_hint_y=None, height=48)
+    update_btn = Button(text="Update project (zip or files)", size_hint_y=None, height=48)
     update_btn.bind(on_press=lambda i: nav.pick_file_for_update())
     nav.add(update_btn)
     build_btn = Button(text="Build APK", size_hint_y=None, height=48)

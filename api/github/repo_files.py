@@ -42,6 +42,13 @@ def get_tree_files(tree_sha: str) -> dict:
     return {e["path"]: e["sha"] for e in data.get("tree", []) if e.get("type") == "blob"}
 
 
+def get_blob(blob_sha: str) -> bytes:
+    """Content of a file in the repo, by its blob sha (for showing what an
+    update would change)."""
+    r = client.get(f"{API_BASE}/git/blobs/{blob_sha}", timeout=_BIG_TIMEOUT).json()
+    return base64.b64decode(r.get("content", ""))
+
+
 def create_blob(content: bytes) -> str:
     r = client.post(f"{API_BASE}/git/blobs", timeout=_BIG_TIMEOUT, json={
         "content": base64.b64encode(content).decode("ascii"),

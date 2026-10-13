@@ -553,16 +553,73 @@ class Navigator:
     # -- app update (Settings): update.zip and the APK build -------------------
     def pick_file_for_update(self):
         from core import android_files
-        android_files.pick_file(on_data=self.handle_shared_file, on_error=self.set_status)
+        android_files.pick_files(on_files=self.handle_update_files, on_error=self.set_status)
 
-    def handle_shared_file(self, data):
-        """update.zip from the picker or shared into the app."""
+    def handle_shared_file(self, data, name=None):
+        """A file shared into the app from another app (zip, .yml, .py, config.json...)."""
+        self.handle_update_files([(name or "update.zip", data)])
+
+    def handle_update_files(self, files):
+        """files: [(name, bytes)] from the picker or the Share menu.
+
+        * ONE zip with main/ and config/ folders -> the zip confirmation, as before.
+        * anything else (one or many files, or a zip without branch folders)
+          -> the smart path: find where each file belongs, then ask."""
         from core import zip_tools
         from screens import app_update
-        if not zip_tools.is_zip(data):
-            self.show_result("This file is not a zip. Use update.zip (folders named like branches: main, config).")
+        from services import repo_update_service
+
+        def is_zip_name(name, data):
+            return name.lower().endswith(".zip") and zip_tools.is_zip(data)
+
+        if (len(files) == 1 and is_zip_name(*files[0])
+                and zip_tools.has_branch_folders(files[0][1])):
+            app_update.build_zip_confirm(self, files[0][1])
             return
-        app_update.build_zip_confirm(self, data)
+
+        items, skipped = [], []
+        try:
+            for name, data in files:
+                if is_zip_name(name, data):
+                    if zip_tools.has_branch_folders(data):
+                        self.show_result("A zip with main/ and config/ folders must be chosen on its own.")
+                        return
+                    for path, content, mode in zip_tools.read_loose_files(data):
+                        items.append((path, content, mode))
+                elif zip_tools.is_skipped_path(name):
+                    skipped.append(name)
+                else:
+                    mode = "100755" if name.lower().endswith(".sh") else "100644"
+                    items.append((name, data, mode))
+        except zip_tools.ZipError as e:
+            self.show_result(str(e))
+            return
+        if not items:
+            note = f" (ignored: {', '.join(skipped)})" if skipped else ""
+            self.show_result("Nothing to update" + note)
+            return
+
+        self.show_working("Reading the repo...", job=None, back_text="Back")
+        repo_update_service.start_plan(
+            items,
+            on_done=lambda res: self.schedule(lambda: self._after_update_plan(res, skipped)),
+        )
+
+    def _after_update_plan(self, res, skipped):
+        from screens import app_update
+        if not res.get("ok"):
+            self.show_result(res["message"])
+            return
+        app_update.build_review(self, res["plan"], res["folders"], skipped)
+
+    def start_apply_update(self, plan):
+        from services import repo_update_service
+        self.show_working("Updating...", job=None, back_text="Back")
+        repo_update_service.start_apply(
+            plan,
+            on_status=lambda text: self.set_status(text),
+            on_done=lambda res: self.schedule(lambda: self._after_repo_update(res)),
+        )
 
     def start_repo_update(self, data):
         from services import repo_update_service
