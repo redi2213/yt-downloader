@@ -1,0 +1,57 @@
+name: Test Finglish
+run-name: Test Finglish
+
+on:
+  workflow_dispatch:
+    inputs:
+      titles:
+        description: 'Persian titles, one per line'
+        required: true
+        default: |
+          سخت ترین قسمت بازی
+          سلام دنیا
+          بهترین ماشین های ایران
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install candidates
+        run: |
+          pip install parstalk
+          git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f || true
+          echo "=== persian-to-finglish files ==="
+          ls -R /tmp/p2f | head -n 40
+
+      - name: Compare
+        env:
+          TITLES: ${{ github.event.inputs.titles }}
+        run: |
+          cat > cmp.py << 'PYEOF'
+          import os, traceback
+
+          # Baseline: the current letter-by-letter mapping (drops short vowels)
+          M = {"ا":"a","آ":"a","ب":"b","پ":"p","ت":"t","ث":"s","ج":"j","چ":"ch","ح":"h","خ":"kh",
+               "د":"d","ذ":"z","ر":"r","ز":"z","ژ":"zh","س":"s","ش":"sh","ص":"s","ض":"z","ط":"t",
+               "ظ":"z","ع":"","غ":"gh","ف":"f","ق":"gh","ک":"k","گ":"g","ل":"l","م":"m","ن":"n",
+               "ه":"h","و":"v","ی":"y","ئ":"","\u200c":""}
+          def baseline(t):
+              return "".join(M.get(c, c) for c in t)
+
+          def parstalk(t):
+              from parstalk import farsi_to_finglish_with_vowels
+              return farsi_to_finglish_with_vowels(t)
+
+          for title in os.environ["TITLES"].splitlines():
+              title = title.strip()
+              if not title:
+                  continue
+              print("\n>>", title)
+              for name, fn in (("baseline", baseline), ("parstalk", parstalk)):
+                  try:
+                      print(f"  {name:9}: {fn(title)}")
+                  except Exception:
+                      print(f"  {name:9}: ERROR")
+                      traceback.print_exc()
+          PYEOF
+          python3 cmp.py
