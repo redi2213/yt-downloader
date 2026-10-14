@@ -48,6 +48,16 @@ on:
         required: false
         default: ''
         type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -182,19 +192,57 @@ jobs:
           mv "$FINAL_NAME" "../release_asset/$FINAL_NAME"
           echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Upload to the release
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Upload (GitHub Release and/or Arvan Cloud)
         env:
           GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
           TAG: ${{ needs.prepare.outputs.tag }}
           IDX: ${{ matrix.idx }}
-          FILENAME: ${{ steps.dl.outputs.filename }}
         run: |
-          set -euo pipefail
-          # Normal upload; if a file with the same name already exists in the
-          # release, fall back to adding the link number to the start of the name.
-          if ! gh release upload "$TAG" "release_asset/$FILENAME" --repo "$GITHUB_REPOSITORY"; then
-            echo "Upload failed, retrying with a numbered name"
-            NEW_NAME="${IDX}_${FILENAME}"
-            mv "release_asset/$FILENAME" "release_asset/$NEW_NAME"
-            gh release upload "$TAG" "release_asset/$NEW_NAME" --repo "$GITHUB_REPOSITORY"
-          fi
+          python3 _repo/scripts/storage_publish.py upload --dir release_asset --tag "$TAG" --idx "$IDX" --meta-out "meta/meta-$IDX.json"
+
+      - name: Keep the Arvan result for the final step
+        if: ${{ !cancelled() && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-meta-${{ matrix.idx }}
+          path: meta/meta-${{ matrix.idx }}.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+  finalize:
+    needs: [prepare, upload]
+    if: ${{ !cancelled() && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: arvan links
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: storage-meta-*
+          merge-multiple: true
+          path: metas
+
+      - name: Write the Arvan links into the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage }}
+          COUNT: ${{ needs.prepare.outputs.count }}
+        run: |
+          mkdir -p metas
+          python3 scripts/storage_publish.py finalize --tag "${{ needs.prepare.outputs.tag }}" --meta-dir metas --notes "$COUNT file(s)"

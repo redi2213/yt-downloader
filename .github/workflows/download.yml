@@ -25,6 +25,16 @@ on:
         required: false
         default: ''
         type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
 
 env:
   VIDEO_URL: ${{ github.event.inputs.video_url }}
@@ -635,10 +645,19 @@ jobs:
         if: always()
         run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py safe_name.py
 
-      - name: Create Release with direct link
-        uses: softprops/action-gh-release@v2
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
         with:
-          tag_name: run-${{ github.run_id }}
-          files: out/*
-          prerelease: true
-          name: "Download run-${{ github.run_id }}"
+          path: _repo
+          sparse-checkout: scripts
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "Download run-${{ github.run_id }}"

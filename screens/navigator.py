@@ -17,7 +17,7 @@ from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
-from services import auth_service
+from services import auth_service, storage_service
 from screens import common
 
 
@@ -136,7 +136,7 @@ class Navigator:
         )
 
     def show_result(self, message, link=None, retry=None, retry_message="Working...", extra_buttons=None,
-                    links=None):
+                    links=None, arvan_links=None, storage_warn=None):
         from screens import result
         result.build(
             self,
@@ -145,7 +145,9 @@ class Navigator:
             retry=retry,
             retry_message=retry_message,
             extra_buttons=extra_buttons,
-            links=links
+            links=links,
+            arvan_links=arvan_links,
+            storage_warn=storage_warn
         )
 
     def show_about(self):
@@ -156,6 +158,91 @@ class Navigator:
         from screens import settings
         self.remember(self.show_settings)
         settings.build(self)
+
+    # -- storage: GitHub / Arvan Cloud ---------------------------------------
+    def storage_mode(self):
+        return storage_service.get_mode()
+
+    def storage_mode_label(self):
+        return storage_service.mode_label()
+
+    def cycle_storage_mode(self):
+        """Home screen button: github -> arvan -> both -> github."""
+        storage_service.cycle_mode()
+        self.show_home()
+
+    def set_storage_mode(self, mode):
+        storage_service.set_mode(mode)
+        self.show_storage()
+
+    def set_active_bucket(self, bucket_id):
+        storage_service.set_active_bucket(bucket_id)
+        self.show_storage()
+
+    def show_storage(self):
+        from screens import storage
+        self.remember(self.show_storage)
+        storage.build(self, None)
+        storage_service.start_load_buckets(
+            on_complete=lambda res: self.schedule(lambda: self._render_storage(res)))
+
+    def _render_storage(self, res):
+        from screens import storage
+        storage.build(self, res)
+
+    def show_add_bucket(self):
+        from screens import storage
+        self.remember(self.show_add_bucket)
+        storage.build_add(self)
+
+    def start_add_bucket(self, access_key, secret_key, bucket, endpoint, quota_gb):
+        self.show_working("Saving the bucket keys...", job=None)
+        storage_service.start_add_bucket(
+            access_key, secret_key, bucket, endpoint, quota_gb,
+            on_complete=lambda res: self.schedule(lambda: self._after_bucket_change(res, "Bucket saved")))
+
+    def show_remove_bucket_confirm(self, bucket):
+        from screens import storage
+        storage.build_remove_confirm(self, bucket)
+
+    def start_remove_bucket(self, bucket_id):
+        self.show_working("Removing the bucket...", job=None)
+        storage_service.start_remove_bucket(
+            bucket_id,
+            on_complete=lambda res: self.schedule(lambda: self._after_bucket_change(res, "Bucket removed")))
+
+    def _after_bucket_change(self, res, ok_text):
+        if res.get("ok"):
+            self.show_storage()
+            self.set_status(ok_text)
+        else:
+            self.show_result(res.get("error", "Failed"))
+
+    def show_storage_info(self):
+        from screens import storage
+        self.show_working("Reading the Arvan buckets (about a minute)...", job=None)
+        storage_service.start_arvan_info(
+            on_status=self.set_status,
+            on_complete=lambda res: self.schedule(lambda: self._after_storage_info(res)))
+
+    def _after_storage_info(self, res):
+        from screens import storage
+        if res.get("ok"):
+            storage.build_info(self, res["data"])
+        else:
+            self.show_result(res.get("error", "Failed"))
+
+    def start_arvan_cleanup(self):
+        self.show_working("Deleting expired Arvan files...", job=None)
+        storage_service.start_arvan_cleanup(
+            on_status=self.set_status,
+            on_complete=lambda res: self.schedule(lambda: self._after_arvan_cleanup(res)))
+
+    def _after_arvan_cleanup(self, res):
+        if res.get("ok"):
+            self.show_result(storage_service.cleanup_summary(res["data"]))
+        else:
+            self.show_result(res.get("error", "Failed"))
 
     # -- opening runs on GitHub / running jobs ----------------------------------
     def open_run_on_github(self, run_id):
@@ -252,7 +339,9 @@ class Navigator:
             self.show_result(
                 "Ready!",
                 link=job.result.get("link"),
-                links=job.result.get("links")
+                links=job.result.get("links"),
+                arvan_links=job.result.get("arvan_links"),
+                storage_warn=job.result.get("storage_warn")
             )
 
     def _handle_job_complete(self, job):

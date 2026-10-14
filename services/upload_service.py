@@ -95,7 +95,7 @@ def _track_upload_run(job_manager, run_id, job, on_status, on_complete):
         links = releases.get_release_links(tag=tag)
         if links:
             notify("YT Bridge Git", "Upload link ready!" if len(links) == 1 else f"{len(links)} upload links ready!")
-            job_manager.complete(job, ok=True, result_data=_links_result(links))
+            job_manager.complete(job, ok=True, result_data=_links_result(links, tag))
             _emit_complete(on_complete, job)
         else:
             retry = _make_retry_fetch_upload_link(job_manager, tag, job, on_complete)
@@ -127,7 +127,7 @@ def _make_retry_fetch_upload_link(job_manager, tag, job, on_complete):
 def _retry_fetch_upload_link_thread(job_manager, tag, job, on_complete):
     links = releases.get_release_links(tag=tag)
     if links:
-        job_manager.complete(job, ok=True, result_data=_links_result(links))
+        job_manager.complete(job, ok=True, result_data=_links_result(links, tag))
         _emit_complete(on_complete, job)
     else:
         retry = _make_retry_fetch_upload_link(job_manager, tag, job, on_complete)
@@ -135,10 +135,17 @@ def _retry_fetch_upload_link_thread(job_manager, tag, job, on_complete):
         _emit_complete(on_complete, job)
 
 
-def _links_result(links):
+def _links_result(links, tag=None):
     # "link" stays the first file (single-file screens keep working);
     # "links" carries every file for the multi-file result screen.
-    return {"link": links[0], "links": links}
+    result = {"link": links[0], "links": links}
+    if tag:
+        try:
+            # Arvan links / warning, when the files were also (or only) put on Arvan
+            result.update(releases.get_release_extras(tag=tag))
+        except Exception:
+            pass
+    return result
 
 
 def _status_relay(job, on_status):

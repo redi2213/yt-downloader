@@ -4,13 +4,19 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
+from screens.common import wrapped_label
 
-def build(nav, message, link=None, retry=None, retry_message="Working...", extra_buttons=None, links=None):
+
+def build(nav, message, link=None, retry=None, retry_message="Working...", extra_buttons=None, links=None,
+          arvan_links=None, storage_warn=None):
     nav.clear()
     many = bool(links) and len(links) > 1
     if many:
         message = f"{message} ({len(links)} files)"
     nav.add(Label(text=message, size_hint_y=None, height=60))
+    if storage_warn:
+        # e.g. "Bucket ... is full" - the file is still safe on GitHub
+        nav.add(wrapped_label(f"Storage note: {storage_warn}"))
     if many:
         # several files: every link on its own line, one button copies them all
         all_text = "\n".join(links)
@@ -29,6 +35,20 @@ def build(nav, message, link=None, retry=None, retry_message="Working...", extra
         copy_btn = Button(text="Copy link", size_hint_y=None, height=48)
         copy_btn.bind(on_press=lambda i: Clipboard.copy(link))
         nav.add(copy_btn)
+    # Links on Arvan Cloud that are not already the main link (GitHub + Arvan mode)
+    shown = set(links or ([link] if link else []))
+    arvan_only = [u for u in (arvan_links or []) if u not in shown]
+    if arvan_only:
+        arvan_text = "\n".join(arvan_only)
+        nav.add(Label(text="Arvan link (deleted after 7 days)" if len(arvan_only) == 1
+                      else f"Arvan links ({len(arvan_only)} files, deleted after 7 days)",
+                      size_hint_y=None, height=32))
+        nav.add(TextInput(text=arvan_text, readonly=True, multiline=len(arvan_only) > 1,
+                          size_hint_y=None, height=dp(48) if len(arvan_only) == 1 else dp(160)))
+        arvan_btn = Button(text="Copy Arvan link" if len(arvan_only) == 1 else "Copy all Arvan links",
+                           size_hint_y=None, height=48)
+        arvan_btn.bind(on_press=lambda i: Clipboard.copy(arvan_text))
+        nav.add(arvan_btn)
     # extra_buttons: [(text, callable)] shown under "Copy link"
     for text, callback in (extra_buttons or []):
         extra_btn = Button(text=text, size_hint_y=None, height=48)

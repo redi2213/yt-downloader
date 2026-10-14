@@ -33,6 +33,16 @@ on:
         required: false
         default: ''
         type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -76,7 +86,8 @@ jobs:
           echo "Files to upload:"
           ls -la "$OUT"
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (links list)
+        if: ${{ inputs.output == 'links' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -93,6 +104,19 @@ jobs:
           echo "Release created:"
           echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
           echo "======================================"
+
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ inputs.output != 'links' && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        if: ${{ inputs.output != 'links' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 scripts/storage_publish.py publish --dir "$RUNNER_TEMP/aparat-out" --tag "run-${{ github.run_id }}" --title "Aparat Download $(date '+%Y-%m-%d %H:%M:%S')" --notes-file "$RUNNER_TEMP/aparat-notes.md"
 
       - name: Show direct asset URLs
         env:

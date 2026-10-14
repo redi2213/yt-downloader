@@ -1,10 +1,50 @@
 """GitHub Releases API calls (used as the file-hosting/download-link backend)."""
+import json
+import re
 import time
 
 from api.github import client
 from api.github.auth import auth_headers
 from core import timeutil
 from core.config import API_BASE
+
+# A release whose description starts with this hidden block was written by
+# scripts/storage_publish.py: it lists the files kept on Arvan Cloud (and any
+# warning). Arvan-only releases carry no asset at all, only this block.
+_STORAGE_RE = re.compile(r"<!--ytb-storage:(.*?)-->", re.S)
+# Result of the Arvan info / cleanup workflow (scripts/arvan_maintenance.py)
+_ARVAN_INFO_RE = re.compile(r"<!--ytb-arvan:(.*?)-->", re.S)
+
+
+def _parse_block(regex, body):
+    m = regex.search(body or "")
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def parse_storage_meta(body):
+    """The storage block of a release description as a dict, or None."""
+    return _parse_block(_STORAGE_RE, body)
+
+
+def parse_arvan_info(body):
+    """The info/cleanup block of an Arvan maintenance release, or None."""
+    return _parse_block(_ARVAN_INFO_RE, body)
+
+
+def _arvan_files(release_json) -> list:
+    meta = parse_storage_meta(release_json.get("body")) or {}
+    return [f for f in meta.get("files", []) if isinstance(f, dict) and f.get("url")]
+
+
+def _asset_links(release_json) -> list:
+    assets = sorted(release_json.get("assets", []), key=lambda a: a.get("id", 0))
+    return [a["browser_download_url"] for a in assets]
 
 
 def get_release_link(run_id=None, tag: str = None, attempts: int = 10, delay: float = 2):
@@ -14,9 +54,13 @@ def get_release_link(run_id=None, tag: str = None, attempts: int = 10, delay: fl
     for _ in range(attempts):
         r = client.get_allow_missing(url)
         if r.status_code == 200:
-            assets = r.json().get("assets", [])
+            rel = r.json()
+            assets = rel.get("assets", [])
             if assets:
                 return assets[0]["browser_download_url"]
+            arvan = _arvan_files(rel)   # Arvan-only release: no asset, the link is in the description
+            if arvan:
+                return arvan[0]["url"]
         time.sleep(delay)
     return None
 
@@ -30,11 +74,51 @@ def get_release_links(run_id=None, tag: str = None, attempts: int = 10, delay: f
     for _ in range(attempts):
         r = client.get_allow_missing(url)
         if r.status_code == 200:
-            assets = sorted(r.json().get("assets", []), key=lambda a: a.get("id", 0))
-            if assets:
-                return [a["browser_download_url"] for a in assets]
+            rel = r.json()
+            links = _asset_links(rel)
+            if links:
+                return links
+            arvan = _arvan_files(rel)
+            if arvan:
+                return [f["url"] for f in arvan]
         time.sleep(delay)
     return []
+
+
+def get_release_extras(run_id=None, tag: str = None) -> dict:
+    """What the app shows besides the main link(s): the Arvan links of a
+    release that also has GitHub assets, and any storage warning. {} when the
+    release has no storage block (plain GitHub run). One request, no polling."""
+    if tag is None:
+        tag = f"run-{run_id}"
+    r = client.get_allow_missing(f"{API_BASE}/releases/tags/{tag}")
+    if r.status_code != 200:
+        return {}
+    meta = parse_storage_meta(r.json().get("body"))
+    if not meta:
+        return {}
+    extras = {}
+    arvan = [f["url"] for f in meta.get("files", []) if isinstance(f, dict) and f.get("url")]
+    if arvan:
+        extras["arvan_links"] = arvan
+    warns = [str(w) for w in meta.get("warn", [])]
+    if warns:
+        extras["storage_warn"] = "\n".join(warns)
+    return extras
+
+
+def get_release_body(run_id=None, tag: str = None, attempts: int = 10, delay: float = 2):
+    """Description of a release (None while it does not exist yet). Used for
+    the Arvan info / cleanup results."""
+    if tag is None:
+        tag = f"run-{run_id}"
+    url = f"{API_BASE}/releases/tags/{tag}"
+    for _ in range(attempts):
+        r = client.get_allow_missing(url)
+        if r.status_code == 200:
+            return r.json().get("body") or ""
+        time.sleep(delay)
+    return None
 
 
 # A release whose only asset is this file carries a link as its *content*
@@ -52,12 +136,16 @@ def get_release_result(run_id=None, tag: str = None, attempts: int = 10, delay: 
     for _ in range(attempts):
         r = client.get_allow_missing(url)
         if r.status_code == 200:
-            assets = r.json().get("assets", [])
+            rel = r.json()
+            assets = rel.get("assets", [])
             if assets:
                 asset = assets[0]
                 if asset.get("name") == TEXT_LINK_ASSET:
                     return _read_text_asset(asset)
                 return asset["browser_download_url"]
+            arvan = _arvan_files(rel)
+            if arvan:
+                return arvan[0]["url"]
         time.sleep(delay)
     return None
 
@@ -84,6 +172,19 @@ def get_live_history():
             continue
         assets = rel.get("assets", [])
         if not assets:
+            # Arvan-only release: the file lives on Arvan, listed in the description
+            when = timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at"))
+            for f in _arvan_files(rel):
+                items.append({
+                    "title": f.get("name") or "file",
+                    "link": f["url"],
+                    "date": when,
+                    "release_id": rel["id"],
+                    "asset_id": None,          # not a GitHub asset
+                    "tag_name": tag,
+                    "size": f.get("size", 0),
+                    "storage": "arvan",
+                })
             continue
         # One item per file: a multi-file upload keeps all its files in one release
         for asset in sorted(assets, key=lambda a: a.get("id", 0)):
@@ -121,7 +222,9 @@ def delete_history_item(item) -> None:
     if r.status_code != 200:
         return  # already gone
     assets = r.json().get("assets", [])
-    if len(assets) <= 1:
+    if item.get("asset_id") is None or len(assets) <= 1:
+        # (an Arvan-only item has no asset: the release holds only its link;
+        # the file itself is removed from the bucket by the daily cleanup)
         delete_release(item["release_id"], item["tag_name"])
     else:
         client.delete(f"{API_BASE}/releases/assets/{item['asset_id']}")
@@ -130,6 +233,8 @@ def delete_history_item(item) -> None:
 def rename_release_asset(release_id, asset_id, new_filename):
     """Renames an existing release asset in place via GitHub's asset-update API
     (no need to re-download/re-upload the file)."""
+    if asset_id is None:
+        raise ValueError("A file kept only on Arvan cannot be renamed")
     url = f"{API_BASE}/releases/assets/{asset_id}"
     r = client.patch(url, json={"name": new_filename})
     return r.json().get("browser_download_url")

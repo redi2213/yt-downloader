@@ -149,13 +149,24 @@ def _finish_download(job_manager, run_id, job, on_complete):
         return
     if link:
         notify("YT Bridge Git", "Link ready!")
-        job_manager.complete(job, ok=True, result_data={"link": link})
+        result = {"link": link}
+        result.update(_storage_extras(run_id))
+        job_manager.complete(job, ok=True, result_data=result)
         _emit_complete(on_complete, job)
     else:
         retry = _make_retry_fetch_link(job_manager, run_id, job, on_complete)
         job_manager.complete(job, ok=False,
                               error="Could not get link (release may not be ready yet).", retry=retry)
         _emit_complete(on_complete, job)
+
+
+def _storage_extras(run_id) -> dict:
+    """Arvan links / warning of the release, when the file was also (or only)
+    put on Arvan Cloud. Never blocks the main link."""
+    try:
+        return releases.get_release_extras(run_id)
+    except Exception:
+        return {}
 
 
 def _make_retry_fetch_link(job_manager, run_id, job, on_complete):

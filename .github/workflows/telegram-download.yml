@@ -18,6 +18,16 @@ on:
         required: false
         default: ''
         type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -89,23 +99,24 @@ jobs:
           echo "Renamed to: $CLEAN_PATH"
           echo "FILE=$CLEAN_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Publish (GitHub Release and/or Arvan Cloud)
         env:
           GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
           FILE: ${{ steps.find_file.outputs.FILE }}
           TELEGRAM_URL: ${{ inputs.telegram_url }}
         run: |
-          TAG="run-${{ github.run_id }}"
-
-          gh release create "$TAG" "$FILE" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Telegram Download $(date '+%Y-%m-%d %H:%M:%S')" \
-            --notes "Downloaded from Telegram message: $TELEGRAM_URL"
-
-          echo "======================================"
-          echo "Release created:"
-          echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
-          echo "======================================"
+          python3 _repo/scripts/storage_publish.py publish --file "$FILE" --tag "run-${{ github.run_id }}" --title "Telegram Download $(date '+%Y-%m-%d %H:%M:%S')" --notes "Downloaded from Telegram message: $TELEGRAM_URL"
 
       - name: Show direct asset URL
         env:

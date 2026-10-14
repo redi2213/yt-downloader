@@ -120,6 +120,10 @@ def _finish_action(job_manager, run_id, job, on_complete):
                 result["links"] = links
         except Exception:
             pass
+        try:
+            result.update(releases.get_release_extras(run_id))
+        except Exception:
+            pass
         job_manager.complete(job, ok=True, result_data=result)
         _emit_complete(on_complete, job)
     else:

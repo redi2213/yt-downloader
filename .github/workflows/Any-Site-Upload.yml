@@ -25,6 +25,16 @@ on:
         required: false
         default: ""
         type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -259,20 +269,62 @@ jobs:
           fi
           ls -lh work
 
-      - name: Upload to the release
+      - name: Get the publish scripts
+        if: ${{ inputs.mode == 'release' }}
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ inputs.mode == 'release' && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Upload (GitHub Release and/or Arvan Cloud)
         if: ${{ inputs.mode == 'release' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
           TAG: ${{ needs.prepare.outputs.tag }}
           IDX: ${{ matrix.idx }}
           NAME: ${{ steps.pick.outputs.name }}
         run: |
-          set -euo pipefail
-          if ! gh release upload "$TAG" "work/$NAME" --repo "$GITHUB_REPOSITORY"; then
-            echo "Upload failed, retrying with a numbered name"
-            mv "work/$NAME" "work/${IDX}_${NAME}"
-            gh release upload "$TAG" "work/${IDX}_${NAME}" --repo "$GITHUB_REPOSITORY"
-          fi
+          python3 _repo/scripts/storage_publish.py upload --file "work/$NAME" --tag "$TAG" --idx "$IDX" --meta-out "meta/meta-$IDX.json"
+
+      - name: Keep the Arvan result for the final step
+        if: ${{ !cancelled() && inputs.mode == 'release' && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-meta-${{ matrix.idx }}
+          path: meta/meta-${{ matrix.idx }}.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+  finalize:
+    needs: [prepare, process]
+    if: ${{ !cancelled() && inputs.mode == 'release' && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: arvan links
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: storage-meta-*
+          merge-multiple: true
+          path: metas
+
+      - name: Write the Arvan links into the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage }}
+        run: |
+          mkdir -p metas
+          python3 scripts/storage_publish.py finalize --tag "${{ needs.prepare.outputs.tag }}" --meta-dir metas --notes "Auto upload"
 
   collect:
     needs: process

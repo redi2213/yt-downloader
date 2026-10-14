@@ -28,6 +28,10 @@ def build(nav):
     history_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(history_btn)
 
+    storage_btn = Button(text=f"Storage: {nav.storage_mode_label()}  (tap to change)", size_hint_y=None, height=52)
+    storage_btn.bind(on_press=lambda i: nav.cycle_storage_mode())
+    nav.add(storage_btn)
+
     status_btn = Button(text="Check GitHub Actions status", size_hint_y=None, height=52)
     status_btn.bind(on_press=lambda i: nav.show_actions_status())
     nav.add(status_btn)

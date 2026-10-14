@@ -52,6 +52,10 @@ def build(nav):
         save_filimo_btn.bind(on_press=lambda i: _save_filimo_and_refresh(nav, filimo_input))
         nav.add(save_filimo_btn)
 
+    storage_btn = Button(text="Storage and Arvan buckets", size_hint_y=None, height=48)
+    storage_btn.bind(on_press=lambda i: nav.show_storage())
+    nav.add(storage_btn)
+
     nav.add(Label(text="App update", size_hint_y=None, height=32))
     update_btn = Button(text="Update project (zip or files)", size_hint_y=None, height=48)
     update_btn.bind(on_press=lambda i: nav.pick_file_for_update())

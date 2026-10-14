@@ -11,6 +11,7 @@ import uuid
 
 import requests
 
+from api import storage_prefs
 from api.github import client
 from core import run_labels, run_title, timeutil
 from core.config import API_BASE, GITHUB_BRANCH
@@ -21,6 +22,16 @@ from core.config import API_BASE, GITHUB_BRANCH
 RUN_TOKEN_INPUT = "job_id"
 # Optional second input: a short ASCII name for the run (see core/run_title.py)
 RUN_TITLE_INPUT = "run_title"
+
+# Workflows that can keep their file on Arvan Cloud as well as (or instead of)
+# a GitHub Release. They all declare the two inputs below.
+STORAGE_WORKFLOWS = {
+    "download.yml", "upload-file.yml", "Any-Site-Upload.yml",
+    "filimo-direct-link.yml", "google-play-download.yml",
+    "aparat-download.yml", "telegram-download.yml",
+}
+STORAGE_INPUT = "storage"
+STORAGE_BUCKET_INPUT = "arvan_bucket"
 
 # Only used for workflows that don't know the token input yet: dispatch + find
 # must not overlap, otherwise two quick dispatches can pick each other's run.
@@ -107,7 +118,39 @@ def _dispatch_and_find_legacy(workflow_file: str, inputs: dict, attempts: int, d
         return _find_unclaimed_run_after(workflow_file, dispatch_time, attempts, delay)
 
 
+def storage_inputs(workflow_file: str) -> dict:
+    """The storage choice made in the app, as workflow inputs ({} for a
+    workflow that has nothing to store)."""
+    if workflow_file not in STORAGE_WORKFLOWS:
+        return {}
+    return {
+        STORAGE_INPUT: storage_prefs.get_mode(),
+        STORAGE_BUCKET_INPUT: storage_prefs.get_bucket(),
+    }
+
+
+def _is_422(error) -> bool:
+    return getattr(getattr(error, "response", None), "status_code", None) == 422
+
+
 def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, delay: float = 1.5):
+    """Dispatches a workflow with the app's storage choice added, and returns
+    the id of exactly that run (or None).
+
+    A workflow file that does not know the storage inputs yet (an older
+    branch) answers HTTP 422; it is then dispatched without them, so it
+    still works and simply keeps its files on GitHub."""
+    extra = storage_inputs(workflow_file)
+    if extra:
+        try:
+            return _dispatch_and_find_run(workflow_file, {**inputs, **extra}, attempts, delay)
+        except requests.exceptions.HTTPError as e:
+            if not _is_422(e):
+                raise
+    return _dispatch_and_find_run(workflow_file, inputs, attempts, delay)
+
+
+def _dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, delay: float = 1.5):
     """Dispatches a workflow and returns the id of exactly that run (or None
     if it can't be found).
 
