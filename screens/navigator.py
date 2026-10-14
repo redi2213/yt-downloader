@@ -17,8 +17,12 @@ from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
-from services import auth_service, storage_service
+from services import auth_service, storage_service, file_download_service
 from screens import common
+
+
+# Jobs whose single output file gets the link + share + download screen.
+RELEASE_FILE_KINDS = {"backup_project": "backup", "build_apk": "apk"}
 
 
 class Navigator:
@@ -167,9 +171,9 @@ class Navigator:
         return storage_service.mode_label()
 
     def cycle_storage_mode(self):
-        """Home screen button: github -> arvan -> both -> github."""
+        """Settings button: github -> arvan -> both -> github."""
         storage_service.cycle_mode()
-        self.show_home()
+        self.show_settings()
 
     def set_storage_mode(self, mode):
         storage_service.set_mode(mode)
@@ -335,6 +339,9 @@ class Navigator:
                 job.result.get("playlist_errors", [])
             )
 
+        elif RELEASE_FILE_KINDS.get((job.extra.get("action") or {}).get("id")) and job.result.get("link"):
+            self.show_release_file(job, RELEASE_FILE_KINDS[job.extra["action"]["id"]])
+
         else:  # download, upload
             self.show_result(
                 "Ready!",
@@ -351,6 +358,22 @@ class Navigator:
             return
 
         self.route_finished_job(job)
+
+    def show_release_file(self, job, kind):
+        """Backup zip / built APK: link, Copy, Share and the download to the
+        Downloads folder. The small backup zip downloads by itself, once;
+        the APK only asks (the screen's button starts it)."""
+        from screens import release_file
+        release_file.build(self, job, kind)
+        if kind == "backup" and not job.extra.get("dl_state"):
+            self.start_file_download(job)
+
+    def start_file_download(self, job):
+        from screens import release_file
+        file_download_service.start_download(
+            job, (job.result or {}).get("link"),
+            on_update=lambda: self.schedule(lambda: release_file.refresh(job)),
+        )
 
     def _relay_status(self, job, text):
         """Several jobs can run at once. A job's status line may only be

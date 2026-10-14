@@ -1,5 +1,5 @@
 """Home screen: the app's top-level menu. Everything that used to be a
-flat list of ~12 buttons is now grouped behind 5 menu entries, each
+flat list of ~12 buttons is now grouped behind a few menu entries, each
 leading to its own screen - see youtube_download.py, actions_dynamic.py
 (via Download Anything), history.py, actions_status.py, and settings.py.
 """
@@ -27,10 +27,6 @@ def build(nav):
     history_btn = Button(text="Release History", size_hint_y=None, height=52)
     history_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(history_btn)
-
-    storage_btn = Button(text=f"Storage: {nav.storage_mode_label()}  (tap to change)", size_hint_y=None, height=52)
-    storage_btn.bind(on_press=lambda i: nav.cycle_storage_mode())
-    nav.add(storage_btn)
 
     status_btn = Button(text="Check GitHub Actions status", size_hint_y=None, height=52)
     status_btn.bind(on_press=lambda i: nav.show_actions_status())
