@@ -150,6 +150,28 @@ def get_release_result(run_id=None, tag: str = None, attempts: int = 10, delay: 
     return None
 
 
+def get_release_asset(run_id, attempts: int = 3, delay: float = 2):
+    """The first file of release ``run-<run_id>`` as ``{"name", "api_url"}``,
+    or None. ``api_url`` + ``Accept: application/octet-stream`` + the token
+    downloads the file even when the repo is private (the plain
+    browser_download_url answers 404 there)."""
+    url = f"{API_BASE}/releases/tags/run-{run_id}"
+    for _ in range(attempts):
+        r = client.get_allow_missing(url)
+        if r.status_code == 200:
+            assets = r.json().get("assets", [])
+            if assets:
+                return {"name": assets[0].get("name"), "api_url": assets[0]["url"]}
+        time.sleep(delay)
+    return None
+
+
+def asset_download_headers() -> dict:
+    headers = dict(auth_headers())
+    headers["Accept"] = "application/octet-stream"
+    return headers
+
+
 def _read_text_asset(asset) -> str:
     # The asset API URL + octet-stream also works for private repos.
     headers = dict(auth_headers())

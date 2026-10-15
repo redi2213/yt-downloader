@@ -8,6 +8,7 @@ be rebuilt (or reopened from history) and still show where things are:
 ``on_update()`` is called from a background thread whenever the text changes;
 the caller hops onto the Kivy thread.
 """
+from api.github import releases
 from core import android_downloads
 from core.async_utils import run_in_background
 from services.notify_service import notify
@@ -36,7 +37,17 @@ def _run(job, link, on_update):
         on_update()
 
     try:
-        saved = android_downloads.download_to_downloads(link, on_progress=progress)
+        url, name, headers = link, None, None
+        if job.run_id:
+            # the repo is private: the plain link gives 404, the API link + token works
+            try:
+                asset = releases.get_release_asset(job.run_id)
+            except Exception:
+                asset = None
+            if asset:
+                url, name = asset["api_url"], asset["name"]
+                headers = releases.asset_download_headers()
+        saved = android_downloads.download_to_downloads(url, name=name, on_progress=progress, headers=headers)
         job.extra["dl_state"] = "done"
         job.extra["dl_text"] = f"Saved in the Downloads folder:\n{saved}"
         notify("YT Bridge", "Saved in Downloads")

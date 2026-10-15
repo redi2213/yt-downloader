@@ -5,8 +5,8 @@
 * Older Android: a plain copy into /storage/emulated/0/Download.
 * Desktop (no pyjnius): ~/Downloads, so the code can be tried on a computer.
 
-The link is fetched without any token (release assets of a public repo), in
-chunks, so a big APK never sits in memory. Pure helpers, no Kivy.
+The file is fetched in chunks (optionally with request headers, e.g. a GitHub
+token for a private repo), so a big APK never sits in memory. Pure helpers, no Kivy.
 """
 import mimetypes
 import os
@@ -36,7 +36,7 @@ def _mime_for(name):
     return _MIME.get(ext) or mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 
-def download_to_downloads(url, name=None, on_progress=None):
+def download_to_downloads(url, name=None, on_progress=None, headers=None):
     """Downloads ``url`` into the Downloads folder and returns a short text
     like ``Download/project-backup-2026-10-14_17-51.zip``. Raises on failure.
     ``on_progress(done_bytes, total_bytes)`` may be called from this thread
@@ -45,7 +45,7 @@ def download_to_downloads(url, name=None, on_progress=None):
     fd, tmp_path = tempfile.mkstemp(suffix=".part")
     os.close(fd)
     try:
-        _fetch(url, tmp_path, on_progress)
+        _fetch(url, tmp_path, on_progress, headers)
         return _save_in_downloads(tmp_path, name)
     finally:
         try:
@@ -54,8 +54,8 @@ def download_to_downloads(url, name=None, on_progress=None):
             pass
 
 
-def _fetch(url, path, on_progress):
-    with requests.get(url, stream=True, timeout=(15, 60)) as r:
+def _fetch(url, path, on_progress, headers=None):
+    with requests.get(url, stream=True, timeout=(15, 60), headers=headers) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length") or 0)
         done, last = 0, 0.0
