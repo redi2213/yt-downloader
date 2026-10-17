@@ -16,9 +16,13 @@ GitHubAuthError = AuthenticationError
 
 def _build_session() -> requests.Session:
     session = requests.Session()
+    # connect errors (nothing was sent yet) are retried longer: the waits are
+    # about 2, 4, 8, 16, 32 s, so a short VPN/mobile-data drop is survived.
     retry = Retry(
-        total=3,
-        backoff_factor=1,
+        total=6,
+        connect=6,
+        read=1,
+        backoff_factor=2,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
     )

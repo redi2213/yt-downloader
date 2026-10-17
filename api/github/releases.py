@@ -7,6 +7,7 @@ from api.github import client
 from api.github.auth import auth_headers
 from core import timeutil
 from core.config import API_BASE
+from core.exceptions import NetworkError
 
 # A release whose description starts with this hidden block was written by
 # scripts/storage_publish.py: it lists the files kept on Arvan Cloud (and any
@@ -52,7 +53,11 @@ def get_release_link(run_id=None, tag: str = None, attempts: int = 10, delay: fl
         tag = f"run-{run_id}"
     url = f"{API_BASE}/releases/tags/{tag}"
     for _ in range(attempts):
-        r = client.get_allow_missing(url)
+        try:
+            r = client.get_allow_missing(url)
+        except NetworkError:   # connection dropped: try again
+            time.sleep(delay)
+            continue
         if r.status_code == 200:
             rel = r.json()
             assets = rel.get("assets", [])

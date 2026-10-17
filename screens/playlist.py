@@ -5,9 +5,11 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
+import re
+
 from screens.common import (
-    BTN_H, CARD, CARD_ON, GAP, back_button, card_box, content_width,
-    paint_card, wrapped_label_height,
+    BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box, content_width,
+    line_height, paint_card, wrapped_label_height,
 )
 
 _QUALITY_PRESETS = [
@@ -114,25 +116,164 @@ def build_selected_quality(nav, urls, back):
     nav.add(back_button(nav, to=back))
 
 
-def build_results(nav, links, errors=None):
-    errors = errors or []
+_CARD_WORK = (0.30, 0.25, 0.08, 1)    # a video being processed
+_CARD_FAIL = (0.42, 0.12, 0.12, 1)    # a failed video
+_STATE_TEXT = {
+    "waiting": "Waiting",
+    "listing": "Checking qualities...",
+    "downloading": "Downloading...",
+    "done": "Ready",
+}
+_ID_RE = re.compile(r"(?:v=|youtu\.be/)([\w-]+)")
+
+
+def _short_id(url):
+    m = _ID_RE.search(url)
+    return m.group(1) if m else url
+
+
+def _counts(items):
+    counts = {"waiting": 0, "listing": 0, "downloading": 0, "done": 0, "failed": 0}
+    for item in items:
+        counts[item["state"]] = counts.get(item["state"], 0) + 1
+    return counts
+
+
+def _summary_text(items, final):
+    if not items:
+        return "Reading playlist..."
+    c = _counts(items)
+    total = len(items)
+    if final:
+        text = f"Finished: {c['done']} of {total} ready"
+        if c["failed"]:
+            text += f", {c['failed']} failed"
+        return text
+    busy = c["listing"] + c["downloading"]
+    text = f"{c['done']} of {total} ready - {busy} working, {c['waiting']} waiting"
+    if c["failed"]:
+        text += f", {c['failed']} failed"
+    return text
+
+
+def _item_card(nav, job, idx, item, final):
+    """One video: a coloured card with its title and state; Copy (and Retry
+    for a failed one) once it has finished."""
+    state = item["state"]
+    if state == "done":
+        color, status = CARD_ON, "Ready"
+    elif state == "failed":
+        color = _CARD_FAIL
+        status = f"Failed ({_short_id(item['url'])}): {item.get('error') or 'unknown error'}"
+    elif state in ("listing", "downloading"):
+        color, status = _CARD_WORK, _STATE_TEXT[state]
+    else:
+        color, status = CARD, _STATE_TEXT["waiting"]
+
+    text = f"{idx + 1}. {item['title']}\n{status}"
+    inner = content_width() - 2 * dp(8) - dp(16)
+    label_h = wrapped_label_height(text, extra_padding=dp(10), width=inner)
+    has_buttons = state in ("done", "failed")
+    row = card_box([label_h] + ([SMALL_BTN_H] if has_buttons else []))
+    paint_card(row, color)
+
+    label = Label(text=text, size_hint_y=None, height=label_h, halign="left", valign="middle")
+    label.text_size = (inner, None)
+    row.add_widget(label)
+
+    if has_buttons:
+        buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=GAP)
+        if state == "done":
+            copy_btn = Button(text="Copy link")
+            copy_btn.bind(on_press=lambda i, v=item["link"]: Clipboard.copy(v or ""))
+            buttons.add_widget(copy_btn)
+        else:
+            copy_btn = Button(text="Copy video link")
+            copy_btn.bind(on_press=lambda i, v=item["url"]: Clipboard.copy(v))
+            buttons.add_widget(copy_btn)
+            if final:
+                retry_btn = Button(text="Retry")
+                retry_btn.bind(on_press=lambda i, u=item["url"]: nav.retry_playlist_videos(job, [u]))
+                buttons.add_widget(retry_btn)
+        row.add_widget(buttons)
+    return row
+
+
+def build_report(nav, job):
+    """The playlist download's report: every video as a coloured card
+    (grey waiting, yellow working, green ready, red failed). While the job
+    runs it redraws itself every few seconds from the records the worker
+    threads keep up to date; once finished it is the final report with Copy
+    / Retry / Recheck buttons."""
     nav.clear()
-    nav.add(Label(text=f"{len(links)} links ready:", size_hint_y=None, height=40))
-    for link in links:
-        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=4)
-        box = TextInput(text=link, readonly=True, multiline=False, size_hint_x=0.7)
-        copy_btn = Button(text="Copy", size_hint_x=0.3)
-        copy_btn.bind(on_press=lambda i, l=link: Clipboard.copy(l))
-        row.add_widget(box)
-        row.add_widget(copy_btn)
-        nav.add(row)
+    final = job.is_done
+    # worker status lines have nowhere visible to go here; the summary below
+    # already says it all
+    nav.set_status_label(Label())
 
-    if errors:
-        nav.add(Label(text=f"{len(errors)} failed:", size_hint_y=None, height=40))
-        for url, reason in errors:
-            short_url = url if len(url) <= 45 else url[:42] + "..."
-            nav.add(Label(text=f"{short_url}\n{reason}", size_hint_y=None, height=44))
+    summary = Label(text="", size_hint_y=None, height=line_height(2) + 12, halign="center", valign="middle")
+    summary.text_size = (content_width(), None)
+    nav.add(summary)
 
-    home_btn = Button(text="Back to home", size_hint_y=None, height=48)
-    home_btn.bind(on_press=lambda i: nav.show_home())
-    nav.add(home_btn)
+    items = job.extra.get("items") or []
+    failed = [i for i in items if i["state"] == "failed"]
+    done = [i for i in items if i["state"] == "done"]
+
+    if final:
+        if done:
+            all_btn = Button(text=f"Copy all links ({len(done)})", size_hint_y=None, height=BTN_H)
+            all_btn.bind(on_press=lambda i: Clipboard.copy("\n".join(x["link"] for x in done if x["link"])))
+            nav.add(all_btn)
+        if failed:
+            retry_btn = Button(text=f"Retry failed ({len(failed)})", size_hint_y=None, height=BTN_H)
+            retry_btn.bind(on_press=lambda i: nav.retry_playlist_videos(job, [x["url"] for x in failed]))
+            nav.add(retry_btn)
+            if any(x.get("run_id") for x in failed):
+                recheck_btn = Button(text="Recheck failed", size_hint_y=None, height=BTN_H)
+
+                def recheck(inst):
+                    inst.text = "Checking releases..."
+                    nav.recheck_playlist(job)
+
+                recheck_btn.bind(on_press=recheck)
+                nav.add(recheck_btn)
+    else:
+        pick_quality = job.extra.get("pick_quality")
+        if pick_quality:
+            quality_btn = Button(text="Pick a different quality", size_hint_y=None, height=BTN_H)
+            quality_btn.bind(on_press=lambda i: pick_quality())
+            nav.add(quality_btn)
+        back_btn = Button(text="Back (job keeps running)", size_hint_y=None, height=BTN_H)
+        back_btn.bind(on_press=lambda i: nav.back_from_working())
+        nav.add(back_btn)
+        cancel_btn = Button(text="Cancel", size_hint_y=None, height=BTN_H)
+        cancel_btn.bind(on_press=lambda i: nav.cancel_job(job))
+        nav.add(cancel_btn)
+
+    rows_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
+    rows_box.height = 0
+    rows_box.bind(minimum_height=rows_box.setter("height"))
+    nav.add(rows_box)
+
+    if final:
+        home_btn = Button(text="Back to home", size_hint_y=None, height=BTN_H)
+        home_btn.bind(on_press=lambda i: nav.show_home())
+        nav.add(home_btn)
+
+    last = {"sig": None}
+
+    def refresh(*_args):
+        current = job.extra.get("items") or []
+        summary.text = _summary_text(current, final)
+        sig = tuple((i["state"], i.get("error")) for i in current)
+        if sig == last["sig"]:
+            return
+        last["sig"] = sig
+        rows_box.clear_widgets()
+        for idx, item in enumerate(current):
+            rows_box.add_widget(_item_card(nav, job, idx, item, final))
+
+    if final:
+        refresh()
+    else:
+        nav.start_progress_timer(refresh, interval=3)

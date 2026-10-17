@@ -14,7 +14,8 @@ import requests
 from api import storage_prefs
 from api.github import client
 from core import run_labels, run_title, timeutil
-from core.config import API_BASE, GITHUB_BRANCH
+from core.config import API_BASE, GITHUB_BRANCH, NETWORK_GRACE_SECONDS
+from core.exceptions import NetworkError
 
 # Name of the optional workflow input the app fills with a unique token. A
 # workflow that declares it and puts it in its ``run-name`` lets the app find
@@ -81,14 +82,23 @@ def get_run_id_by_token(workflow_file: str, token: str, attempts: int = 12, dela
     """Finds the run whose title (the workflow's ``run-name``) contains
     ``token``."""
     url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=20"
+    last_error = None
     for _ in range(attempts):
-        r = client.get(url)
+        try:
+            r = client.get(url)
+        except NetworkError as e:   # connection dropped: try again, don't give up
+            last_error = e
+            time.sleep(delay)
+            continue
+        last_error = None
         runs = r.json().get("workflow_runs", [])
         for run in runs:
             title = f"{run.get('display_title') or ''} {run.get('name') or ''}"
             if token in title:
                 return run["id"]
         time.sleep(delay)
+    if last_error is not None:
+        raise last_error
     return None
 
 
@@ -212,16 +222,32 @@ def get_run_id_by_job_id(workflow_file: str, job_id: str, attempts: int = 20, de
     return None
 
 
-def wait_for_run(run_id, on_status=None, poll_interval: float = 3, stop_event=None):
+def wait_for_run(run_id, on_status=None, poll_interval: float = 3, stop_event=None,
+                 network_grace: float = NETWORK_GRACE_SECONDS):
     """Polls until the run completes. If stop_event is set while waiting,
     returns "cancelled_locally" without cancelling the run on GitHub itself
-    (use cancel_run for that)."""
+    (use cancel_run for that).
+
+    A dropped connection does not end the wait: the run keeps going on
+    GitHub, so polling just tries again. Only if the connection stays down
+    for ``network_grace`` seconds in a row is the NetworkError raised."""
     url = f"{API_BASE}/actions/runs/{run_id}"
     last_status = None
+    offline_since = None
     while True:
         if stop_event is not None and stop_event.is_set():
             return "cancelled_locally"
-        r = client.get(url)
+        try:
+            r = client.get(url)
+        except NetworkError:
+            now = time.monotonic()
+            if offline_since is None:
+                offline_since = now
+            if now - offline_since > network_grace:
+                raise
+            time.sleep(poll_interval)
+            continue
+        offline_since = None
         data = r.json()
         status = data["status"]
         if on_status and status != last_status:

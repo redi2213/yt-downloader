@@ -306,6 +306,8 @@ class Navigator:
 
         if job.is_done:
             self.route_finished_job(job)
+        elif job.type == JOB_TYPE_PLAYLIST_DOWNLOAD:
+            self.show_playlist_report(job)
         else:
             self.show_working(f"{job.status}...", job=job)
 
@@ -328,16 +330,14 @@ class Navigator:
             self.show_quality_list(job.input, job.result["formats"])
 
         elif job.type == JOB_TYPE_PLAYLIST_LINKS:
+            self._remember_playlist_titles(job.result.get("entries"))
             if job.extra.get("pick") and job.result.get("entries"):
                 self.show_playlist_pick(job.result["entries"], job.input)
             else:
                 self.show_playlist_quality_picker(job.result["urls"])
 
         elif job.type == JOB_TYPE_PLAYLIST_DOWNLOAD:
-            self.show_playlist_results(
-                job.result.get("playlist_results", []),
-                job.result.get("playlist_errors", [])
-            )
+            self.show_playlist_report(job)
 
         elif RELEASE_FILE_KINDS.get((job.extra.get("action") or {}).get("id")) and job.result.get("link"):
             self.show_release_file(job, RELEASE_FILE_KINDS[job.extra["action"]["id"]])
@@ -537,24 +537,19 @@ class Navigator:
 
         self.start_fetch_playlist(url, pick=True)
 
-    def start_playlist_download(self, urls, target_height, want_hdr, audio_only=False, quality_screen=None):
+    def start_playlist_download(self, urls, target_height, want_hdr, audio_only=False, quality_screen=None,
+                                titles=None, previous_items=None):
+        """``previous_items``: the items of an earlier run when only some of
+        its videos are retried (the others keep their state and links)."""
         job = playlist_service.create_playlist_download_job(
             self.job_manager,
-            urls
+            urls,
+            titles=titles or getattr(self, "playlist_titles", None),
+            previous_items=previous_items
         )
+        job.extra["pick_quality"] = quality_screen or (lambda: self.show_playlist_quality_picker(urls))
 
-        extra_buttons = [
-            (
-                "Pick a different quality",
-                quality_screen or (lambda: self.show_playlist_quality_picker(urls))
-            )
-        ]
-
-        self.show_working(
-            f"Processing 0/{len(urls)}...",
-            job=job,
-            extra_buttons=extra_buttons
-        )
+        self.show_playlist_report(job)
 
         on_status, on_complete = self._status_and_complete_callbacks(job)
 
@@ -568,6 +563,32 @@ class Navigator:
             on_status=on_status,
             on_complete=on_complete
         )
+
+    def retry_playlist_videos(self, job, urls):
+        """Report screen: run the given videos of a finished playlist job
+        again, same quality; every other video keeps its state and link."""
+        settings = job.extra.get("settings") or {}
+        self.start_playlist_download(
+            urls,
+            settings.get("height", 99999),
+            settings.get("hdr", False),
+            audio_only=settings.get("audio_only", False),
+            quality_screen=job.extra.get("pick_quality"),
+            previous_items=job.extra.get("items"),
+        )
+
+    def recheck_playlist(self, job):
+        """Report screen: look again for the releases of failed videos."""
+        def done(finished):
+            self.schedule(lambda: self._reshow_playlist_report(finished))
+        playlist_service.recheck_failed(job, on_complete=done)
+
+    def _reshow_playlist_report(self, job):
+        if self.job_manager.current_job is job:
+            self.show_playlist_report(job)
+
+    def _remember_playlist_titles(self, entries):
+        self.playlist_titles = {e["url"]: e["title"] for e in (entries or [])}
 
     # -- quality / upload / playlist screens ----------------------------------
     def show_quality_list(self, url, formats):
@@ -602,10 +623,7 @@ class Navigator:
         )
         job_ref["job"] = job
 
-        self.show_working(
-            "Reading playlist...",
-            job=job
-        )
+        self.show_playlist_report(job)
 
     def show_upload_screen(self, url=""):
         from screens import upload as upload_screen
@@ -934,6 +952,7 @@ class Navigator:
         from screens import playlist as playlist_screen
         if selected is None or len(selected) != len(entries):
             selected = [False] * len(entries)
+        self._remember_playlist_titles(entries)
         self.remember(lambda: self.show_playlist_pick(entries, playlist_url, selected))
         playlist_screen.build_picker(self, entries, playlist_url, selected)
 
@@ -945,13 +964,9 @@ class Navigator:
             back=lambda: self.show_playlist_pick(entries, playlist_url, selected),
         )
 
-    def show_playlist_results(self, links, errors=None):
+    def show_playlist_report(self, job):
         from screens import playlist as playlist_screen
-        playlist_screen.build_results(
-            self,
-            links,
-            errors
-        )
+        playlist_screen.build_report(self, job)
 
     # -- GitHub Actions status -------------------------------------------------
     def show_actions_status(self):

@@ -58,10 +58,19 @@ GITHUB_BRANCH = _load_github_branch()
 
 # GitHub Actions free tier allows ~20 concurrent jobs; stay under that so
 # dispatched runs don't queue behind each other.
-MAX_PARALLEL_JOBS = 5
+MAX_PARALLEL_JOBS = 3
 
 # Seconds; avoids requests hanging forever on flaky mobile networks.
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 25
+
+# How long (seconds) a run's polling keeps trying after the connection to
+# GitHub drops (VPN hiccup, weak mobile signal) before giving up. The run
+# itself keeps going on GitHub meanwhile.
+NETWORK_GRACE_SECONDS = 300
+
+# Seconds between status checks of each playlist video (gentler than the
+# default so several videos at once don't flood a weak connection).
+PLAYLIST_POLL_INTERVAL = 6
 
 # Local settings/token storage file (Kivy JsonStore).
 _SETTINGS_FILE_NAME = "ytdl_settings.json"
