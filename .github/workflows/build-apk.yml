@@ -99,6 +99,13 @@ jobs:
         run: |
           yes | /usr/local/lib/android/sdk/tools/bin/sdkmanager "platforms;android-33" "build-tools;33.0.2"
 
+      - name: Remove stale python venv from the restored cache
+        # python-for-android builds a venv (build/venv) when a pure-Python
+        # requirement is new. One restored from an older run (made with a
+        # different Python) has a broken pip -> "cannot import name
+        # BuildDependencyInstallError". A fresh venv is created each time.
+        run: rm -rf .buildozer/android/platform/build-*/build/venv
+
       - name: Build signed APK with buildozer
         env:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
