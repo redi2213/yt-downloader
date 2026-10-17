@@ -5,7 +5,7 @@ package.domain = org.redi2213
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 2
-requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.0,python-bidi==0.4.2,six
+requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.1,python-bidi==0.4.2,six
 orientation = portrait
 fullscreen = 0
 
