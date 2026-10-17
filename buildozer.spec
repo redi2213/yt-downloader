@@ -3,9 +3,9 @@ title = YT Bridge 4
 package.name = ytbridge_v4
 package.domain = org.redi2213
 source.dir = .
-source.include_exts = py,png,jpg,kv,atlas
+source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 2
-requirements = python3,kivy,requests,certifi,plyer
+requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.0,python-bidi==0.4.2,six
 orientation = portrait
 fullscreen = 0
 

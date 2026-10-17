@@ -9,7 +9,7 @@ import re
 
 from screens.common import (
     BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box, content_width,
-    line_height, paint_card, wrapped_label_height,
+    fa_font_kwargs, fa_text, line_height, paint_card, wrapped_label_height,
 )
 
 _QUALITY_PRESETS = [
@@ -81,12 +81,14 @@ def build_picker(nav, entries, playlist_url, selected):
 
     inner_width = content_width() - 2 * dp(8)
     for idx, entry in enumerate(entries):
-        text = f"{idx + 1}. {entry['title']}"
+        raw_text = f"{idx + 1}. {entry['title']}"
+        text = fa_text(raw_text, inner_width - dp(16))
         height = wrapped_label_height(text, extra_padding=dp(14), width=inner_width - dp(16))
         row = card_box([height])
         cards.append(paint_card(row, CARD_ON if selected[idx] else CARD))
         title_btn = Button(text=text, size_hint_y=None, height=height, halign="left", valign="middle",
-                           background_normal="", background_color=(0, 0, 0, 0))
+                           background_normal="", background_color=(0, 0, 0, 0),
+                           **fa_font_kwargs(raw_text))
         title_btn.text_size = (inner_width - dp(16), None)
         title_btn.bind(on_press=lambda i, n=idx: set_selected(n, not selected[n]))
         row.add_widget(title_btn)
@@ -170,14 +172,16 @@ def _item_card(nav, job, idx, item, final):
     else:
         color, status = CARD, _STATE_TEXT["waiting"]
 
-    text = f"{idx + 1}. {item['title']}\n{status}"
     inner = content_width() - 2 * dp(8) - dp(16)
+    title_line = f"{idx + 1}. {item['title']}"
+    text = f"{fa_text(title_line, inner)}\n{status}"
     label_h = wrapped_label_height(text, extra_padding=dp(10), width=inner)
     has_buttons = state in ("done", "failed")
     row = card_box([label_h] + ([SMALL_BTN_H] if has_buttons else []))
     paint_card(row, color)
 
-    label = Label(text=text, size_hint_y=None, height=label_h, halign="left", valign="middle")
+    label = Label(text=text, size_hint_y=None, height=label_h, halign="left", valign="middle",
+                  **fa_font_kwargs(title_line))
     label.text_size = (inner, None)
     row.add_widget(label)
 

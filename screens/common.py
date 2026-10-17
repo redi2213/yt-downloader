@@ -3,6 +3,9 @@ label/button is not worth its own file per screen, but repeating the same
 five lines everywhere is worse. Nothing here knows about services or
 business logic; it only builds and wires widgets.
 """
+import os
+import textwrap
+
 from kivy.core.window import Window
 from kivy.metrics import dp, sp
 from kivy.uix.boxlayout import BoxLayout
@@ -280,3 +283,47 @@ def add_run_progress_panel(nav, job):
 
     refresh_btn.bind(on_press=refresh)
     nav.start_progress_timer(refresh)
+
+
+# ---- Persian / Arabic text ---------------------------------------------------
+# Kivy draws text left to right with every letter in its separate form, so
+# Persian shows as loose, reversed letters. For DISPLAY ONLY (the real title
+# stays untouched) the text is joined (arabic_reshaper) and put in visual
+# order (python-bidi), and drawn with a font that has the Arabic letters.
+# If those two packages are not in the build the text is shown as it is.
+_FONT_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "assets", "fonts", "DejaVuSans.ttf")
+FA_FONT = _FONT_FILE if os.path.exists(_FONT_FILE) else None
+
+try:
+    from arabic_reshaper import reshape as _reshape
+    from bidi.algorithm import get_display as _get_display
+except Exception:   # not installed: show the raw text
+    _reshape = _get_display = None
+
+
+def has_rtl(text):
+    return any("\u0600" <= c <= "\u06ff" or "\u0750" <= c <= "\u077f" or "\ufb50" <= c <= "\ufeff"
+               for c in (text or ""))
+
+
+def fa_text(text, width=None):
+    """Display form of ``text``. Text without Persian/Arabic letters is
+    returned unchanged. Otherwise it is cut into lines that fit ``width``
+    (pixels) first and each line is shaped on its own, so the lines stay in
+    the right order."""
+    if not text or not has_rtl(text) or _reshape is None:
+        return text
+    width = width or content_width()
+    chars = max(8, int(width / (font_px() * 0.65)))
+    lines = []
+    for part in text.split("\n"):
+        for line in (textwrap.wrap(part, chars) or [""]):
+            lines.append(_get_display(_reshape(line)))
+    return "\n".join(lines)
+
+
+def fa_font_kwargs(text):
+    """``font_name`` for a label/button that shows ``text`` (nothing for
+    plain English text: it keeps the app's normal font)."""
+    return {"font_name": FA_FONT} if (FA_FONT and has_rtl(text) and _reshape is not None) else {}

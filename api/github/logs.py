@@ -14,6 +14,9 @@ def get_run_log_text(run_id) -> str:
     job_id = jobs[0]["id"]
     log_url = f"{API_BASE}/actions/jobs/{job_id}/logs"
     r = client.get(log_url)
+    # GitHub sends the log without a charset; requests then guesses Latin-1
+    # and Persian titles turn into "Ú©ÛØ§..." - the log is UTF-8.
+    r.encoding = "utf-8"
     return r.text
 
 
