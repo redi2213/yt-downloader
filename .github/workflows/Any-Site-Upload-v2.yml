@@ -291,6 +291,7 @@ jobs:
       # ---------- حالت check: لیست کیفیت‌ها به صورت artifact ----------
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && inputs.quality == 'check' }}
+        continue-on-error: true
         with:
           name: formats-${{ matrix.idx }}
           path: formats_${{ matrix.idx }}.json
