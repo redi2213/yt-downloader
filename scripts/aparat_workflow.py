@@ -2,13 +2,16 @@
 """Runs inside the aparat-download.yml GitHub Actions workflow.
 
 Resolves an Aparat video / playlist / channel link, then either
-  - downloads every video into --outdir (separate files, or one zip), or
-  - writes only links.txt (output=links).
+  - downloads every video into --outdir (separate files with Finglish names,
+    or one zip whose files keep their Persian titles), or
+  - writes only links.txt and names.txt (output=links).
+With --ids only those videos (picked in the app) are used.
 Writes a release notes file for the workflow to attach to the Release.
 Exit code 0 means at least one file was produced.
 """
 import argparse
 import os
+import shutil
 import sys
 import time
 import zipfile
@@ -17,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 
 import aparat_core as core
+import finglish_name
 
 # GitHub rejects Release assets of 2 GiB or more.
 MAX_ASSET = 2 * 1024 ** 3 - 1
@@ -74,6 +78,24 @@ def download_with_retry(entry, quality, dest):
     return None, str(last)
 
 
+def ascii_file_name(out_name, n, title, uid):
+    """Release asset name: Finglish only (a Release can't keep Persian)."""
+    base = finglish_name.safe_name(out_name, fallback="aparat", max_len=60)
+    name = finglish_name.safe_name(title, fallback=uid, max_len=100)
+    return f"{base}_{n:02d} - {name}.mp4"
+
+
+def zip_member_name(title, used):
+    """Name inside a zip: the full Persian title (zip files can hold it)."""
+    base = core.clean_name(title, 150)
+    name, k = f"{base}.mp4", 2
+    while name.lower() in used:
+        name = f"{base} ({k}).mp4"
+        k += 1
+    used.add(name.lower())
+    return name
+
+
 def write_notes(path, args, out_name, entries, fallback, failed, note_lines):
     lines = [
         "Aparat download",
@@ -101,7 +123,9 @@ def main():
     p.add_argument("--url", required=True)
     p.add_argument("--quality", default="best")
     p.add_argument("--output", default="upload_separate",
-                   choices=["upload_separate", "upload_zip", "links"])
+                   choices=["upload_separate", "upload_zip", "links", "links_phone"])
+    p.add_argument("--ids", default="",
+                   help="only these video ids (comma separated), picked in the app")
     p.add_argument("--limit", default="count:5")
     p.add_argument("--outdir", required=True)
     p.add_argument("--notes", required=True)
@@ -109,7 +133,13 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
 
-    ids, out_name, info = core.resolve_simple(args.url, args.limit)
+    if args.output == "links_phone":
+        args.output = "links"  # the app handles that itself; here it is plain links
+
+    if core.parse_ids(args.ids):
+        ids, out_name, info = core.resolve_selected(args.url, args.ids)
+    else:
+        ids, out_name, info = core.resolve_simple(args.url, args.limit)
     if not ids:
         log("Nothing to download.")
         return 1
@@ -149,17 +179,31 @@ def main():
         with open(path, "w", encoding="utf-8") as f:
             for e in entries:
                 f.write(e["link"]["url"] + "\n")
-        log(f"links.txt written with {len(entries)} link(s)")
+        with open(os.path.join(args.outdir, "names.txt"), "w", encoding="utf-8") as f:
+            for e in entries:
+                f.write(f"{e['n']:02d} - {core.clean_name(e['title'], 150)}\n")
+        log(f"links.txt and names.txt written with {len(entries)} video(s)")
         note_lines.append("Links expire after a few days. Download them soon.")
         write_notes(args.notes, args, out_name, entries, fallback, failed, note_lines)
         return 0
 
     # ----- download -----
+    # Separate files go straight to outdir under a Finglish name. For a zip the
+    # files wait in a work folder under a plain number, and get their Persian
+    # titles only as names inside the zip.
+    zip_mode = args.output == "upload_zip"
+    workdir = args.outdir.rstrip("/\\") + "_work"
+    if zip_mode:
+        os.makedirs(workdir, exist_ok=True)
+
     delivered = []  # entries that ended up as files
-    paths = []
+    parts = []      # (path, ascii release name, title)
     for e in entries:
-        fname = core.make_filename(out_name, e["n"], e["title"])
-        dest = os.path.join(args.outdir, fname)
+        ascii_name = ascii_file_name(out_name, e["n"], e["title"], e["uid"])
+        if zip_mode:
+            dest = os.path.join(workdir, f"{e['n']:03d}.mp4")
+        else:
+            dest = os.path.join(args.outdir, ascii_name)
         log(f"[{e['n']}] {e['title']} ({e['link']['profile']})")
         size, err = download_with_retry(e, args.quality, dest)
         if err:
@@ -170,31 +214,39 @@ def main():
             failed.append((e["title"], "file is 2 GB or larger, too big for a Release"))
             continue
         delivered.append(e)
-        paths.append(dest)
+        parts.append((dest, ascii_name, e["title"]))
         log(f"    done, {size / 1024 / 1024:.1f} MB")
 
-    if not paths:
+    if not parts:
         log("All downloads failed.")
         write_notes(args.notes, args, out_name, delivered, fallback, failed, [])
         return 1
 
     # ----- optional zip -----
-    if args.output == "upload_zip" and len(paths) > 1:
-        total = sum(os.path.getsize(x) for x in paths)
+    if zip_mode:
+        total = sum(os.path.getsize(x[0]) for x in parts)
         if total + 1_000_000 < MAX_ASSET:
             zip_path = os.path.join(
-                args.outdir, core.clean_name(out_name, 120) + ".zip")
+                args.outdir,
+                finglish_name.safe_name(out_name, fallback="aparat", max_len=100) + ".zip")
             log("Creating zip...")
+            used = set()
+            # Python marks non-ASCII member names as UTF-8 in the zip, so
+            # Persian titles show correctly when it is opened.
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as z:
-                for x in paths:
-                    z.write(x, arcname=os.path.basename(x))
-            for x in paths:
-                os.remove(x)
+                for path, _ascii, title in parts:
+                    z.write(path, arcname=zip_member_name(title, used))
+            for path, _ascii, _title in parts:
+                os.remove(path)
             log(f"zip ready, {os.path.getsize(zip_path) / 1024 / 1024:.1f} MB")
         else:
             note_lines.append(
-                "Zip would be 2 GB or larger, so files were uploaded separately.")
+                "Zip would be 2 GB or larger, so files were uploaded separately "
+                "(Finglish names).")
             log("Zip too large, uploading separate files instead.")
+            for path, ascii_name, _title in parts:
+                shutil.move(path, os.path.join(args.outdir, ascii_name))
+        shutil.rmtree(workdir, ignore_errors=True)
 
     write_notes(args.notes, args, out_name, delivered, fallback, failed, note_lines)
     return 0

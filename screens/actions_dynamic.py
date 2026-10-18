@@ -160,13 +160,14 @@ def _fields_for(action: dict) -> list:
     }]
 
 
-def _build_amount_field(nav, field, values):
+def _build_amount_field(nav, field, values, initial=None):
     """Choices as quick buttons + a unit switch + a number box. The value is
     always "<unit>:<number>" and is kept in values[field key]."""
     key = field["key"]
     choices = field.get("choices", [])
     units = field["custom"]["units"]
-    default = parse_amount(field.get("default") or (choices[0]["value"] if choices else ""))
+    start = (initial or {}).get(key) or field.get("default") or (choices[0]["value"] if choices else "")
+    default = parse_amount(start)
     state = {"unit": default[0] if default else units[0]["value"],
              "number": str(default[1]) if default else ""}
 
@@ -219,10 +220,13 @@ def _build_amount_field(nav, field, values):
     refresh()
 
 
-def build_input(nav, action, prefill=None, share_url=None):
+def build_input(nav, action, prefill=None, share_url=None, initial=None):
     """``prefill`` (a link shared into the app) goes into the first text
     field. ``share_url`` additionally shows a note and a "Choose another
-    tool" button, for when the tool was picked automatically."""
+    tool" button, for when the tool was picked automatically. ``initial``
+    ({field_key: value}) restores what was typed / picked earlier, e.g. when
+    coming back from the Aparat video list."""
+    initial = initial or {}
     nav.clear()
     nav.add(Label(text=action.get("title", ""), size_hint_y=None, height=48))
 
@@ -250,10 +254,13 @@ def build_input(nav, action, prefill=None, share_url=None):
             nav.add(Label(text=label_text, size_hint_y=None, height=28))
 
         if ftype == "choice" and field.get("custom"):
-            _build_amount_field(nav, field, values)
+            _build_amount_field(nav, field, values, initial)
         elif ftype == "choice":
             choices = field.get("choices", [])
             default = field.get("default", choices[0]["value"] if choices else None)
+            known = [c["value"] for c in choices]
+            if initial.get(key) in known:
+                default = initial[key]
             values[key] = default
             buttons = []
 
@@ -281,12 +288,22 @@ def build_input(nav, action, prefill=None, share_url=None):
 
             text_input.bind(text=_on_text)
             values[key] = ""
-            if prefill_pending:
+            if initial.get(key):
+                text_input.text = initial[key]
+                values[key] = initial[key]
+                prefill_pending = False
+            elif prefill_pending:
                 text_input.text = prefill
                 values[key] = prefill
                 prefill_pending = False
             nav.add(text_input)
             nav.add(common.paste_row(text_input, append=multiline))
+
+    # Aparat: tick the videos of a playlist / channel before starting
+    if action.get("handler") == "aparat":
+        pick_btn = Button(text="Choose videos (playlist / channel)", size_hint_y=None, height=56)
+        pick_btn.bind(on_press=lambda i: nav.start_aparat_pick(action, values))
+        nav.add(pick_btn)
 
     start_btn = Button(text="Start", size_hint_y=None, height=56)
     start_btn.bind(on_press=lambda i: nav.start_dynamic_action(action, values))

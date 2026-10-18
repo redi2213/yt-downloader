@@ -687,14 +687,15 @@ class Navigator:
             retry=self.show_dynamic_actions,
         )
 
-    def show_action_input(self, action, prefill=None, share_url=None):
+    def show_action_input(self, action, prefill=None, share_url=None, initial=None):
         from screens import actions_dynamic
-        self.remember(lambda: self.show_action_input(action, prefill, share_url))
+        self.remember(lambda: self.show_action_input(action, prefill, share_url, initial))
         actions_dynamic.build_input(
             self,
             action,
             prefill=prefill,
-            share_url=share_url
+            share_url=share_url,
+            initial=initial
         )
 
     # -- links shared into the app (Android Share menu) -----------------------
@@ -890,7 +891,100 @@ class Navigator:
         filimo_link_service.start_fetch_link(
             values.get("url", ""), values.get("quality", "Best available"), _done)
 
-    def start_dynamic_action(self, action, field_values):
+    # -- Aparat: choose videos, links on the phone -----------------------------
+    def start_aparat_pick(self, action, values):
+        """\"Choose videos\": read the playlist / channel on the phone, then
+        show the tick list. Quality, output and channel amount stay as set on
+        the form and are used when the user starts with the selection."""
+        from screens import actions_dynamic
+        from scripts import aparat_core
+        from services import aparat_service
+        link = (values.get("url") or "").strip()
+        if not link:
+            self.set_status("Enter the Aparat link first")
+            return
+        kind, _value = aparat_core.parse_link(link)
+        if kind == "video":
+            self.set_status("Choosing videos works for playlist or channel links")
+            return
+        if kind == "channel":
+            for field in action.get("fields") or []:
+                if field.get("custom"):
+                    error = actions_dynamic.validate_custom(field, values.get(field["key"]))
+                    if error:
+                        self.set_status(error)
+                        return
+        form = dict(values)
+        self.show_working("Reading the video list from Aparat...")
+
+        def _done(res):
+            def _show():
+                if res.get("ok"):
+                    self.show_aparat_pick(action, form, res["entries"])
+                else:
+                    self.show_result(
+                        res.get("error", "Failed"),
+                        extra_buttons=[("Back to form",
+                                        lambda: self.show_action_input(action, initial=form))],
+                    )
+            self.schedule(_show)
+
+        aparat_service.start_list(link, form.get("channel_limit", "count:5"), _done)
+
+    def show_aparat_pick(self, action, form, entries, selected=None):
+        from screens import aparat_pick
+        if selected is None or len(selected) != len(entries):
+            selected = [False] * len(entries)
+        self.remember(lambda: self.show_aparat_pick(action, form, entries, selected))
+        aparat_pick.build(
+            self, entries, action, form, selected,
+            on_go=lambda ids: self.start_dynamic_action(
+                action, form, extra={"video_ids": ",".join(ids)}),
+            on_back=lambda: self.show_action_input(action, initial=form),
+        )
+
+    def start_aparat_phone_links(self, values, ids=None, message="Getting links from Aparat on this phone..."):
+        """Aparat links fetched by the phone itself (not GitHub). The result
+        screen offers Copy, Open in downloader, Copy names list and Refresh
+        (links expire after a few days)."""
+        from kivy.core.clipboard import Clipboard
+        from core import android_actions
+        from services import aparat_service
+        self.show_working(message)
+
+        def _done(res):
+            def _show():
+                if not res.get("ok"):
+                    self.show_result(
+                        res.get("error", "Failed"),
+                        extra_buttons=[("Try again",
+                                        lambda: self.start_aparat_phone_links(values, ids))],
+                    )
+                    return
+                links, names = res["links"], res["names"]
+                msg = f"{len(links)} link(s) ready"
+                if res.get("nearest"):
+                    msg += f" - nearest quality used for {res['nearest']}"
+                if res.get("failed"):
+                    msg += f", {res['failed']} failed"
+                buttons = [
+                    ("Open in downloader",
+                     lambda: android_actions.share_text("\n".join(links))),
+                    ("Copy names list", lambda: Clipboard.copy("\n".join(names))),
+                    ("Refresh links",
+                     lambda: self.start_aparat_phone_links(values, ids, "Refreshing links...")),
+                ]
+                if len(links) == 1:
+                    self.show_result(msg, link=links[0], extra_buttons=buttons)
+                else:
+                    self.show_result(msg, links=links, extra_buttons=buttons)
+            self.schedule(_show)
+
+        aparat_service.start_links(
+            values.get("url", ""), values.get("quality", "best"),
+            values.get("channel_limit", "count:5"), ids or [], _done)
+
+    def start_dynamic_action(self, action, field_values, extra=None):
         # field_values: dict of {field_key: value}. Text fields need
         # trimming and a non-empty check; choice fields (already a resolved
         # value, e.g. a format_id string) are left as-is.
@@ -917,6 +1011,16 @@ class Navigator:
         # phone's network; anything else goes through the GitHub workflow.
         if action.get("handler") == "filimo_phone" and cleaned.get("mode") == "phone":
             return self.start_filimo_phone_link(cleaned)
+
+        # Aparat: "Links on phone" never goes to GitHub; otherwise the chosen
+        # video ids (empty = everything the link gives) travel with the run.
+        if action.get("handler") == "aparat":
+            ids = (extra or {}).get("video_ids", "")
+            if cleaned.get("output") == "links_phone":
+                return self.start_aparat_phone_links(cleaned, ids.split(",") if ids else None)
+            cleaned["video_ids"] = ids
+        elif extra:
+            cleaned.update(extra)
 
         job = generic_action_service.create_action_job(
             self.job_manager,

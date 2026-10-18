@@ -6,6 +6,7 @@ files or depends on folder layout, so it can be imported anywhere.
 """
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 import requests
@@ -85,14 +86,23 @@ def get_video(uid, playlist=None):
     }
 
 
-def get_playlist(pid):
-    """Returns (video_ids, title) or (None, None) if the playlist can't load."""
+def _text_of(value):
+    """A title that may be a plain string or {'text': ...}."""
+    if isinstance(value, dict):
+        value = value.get("text")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def get_playlist_entries(pid):
+    """Returns ([{'uid', 'title'}...], playlist_title), or (None, None) if the
+    playlist can't load. A video's title is None when the playlist reply
+    doesn't carry it (see fill_titles)."""
     j = request_json(f"{API_BASE_URL}/video/playlist/one/playlist_id/{pid}")
     if not j:
         return None, None
 
-    ids = [
-        x["attributes"]["uid"]
+    entries = [
+        {"uid": x["attributes"]["uid"], "title": _text_of(x["attributes"].get("title"))}
         for x in j.get("included", [])
         if x["type"] == "Video"
     ]
@@ -106,7 +116,15 @@ def get_playlist(pid):
             title = t["text"]
             break
 
-    return ids, title
+    return entries, title
+
+
+def get_playlist(pid):
+    """Returns (video_ids, title) or (None, None) if the playlist can't load."""
+    entries, title = get_playlist_entries(pid)
+    if entries is None:
+        return None, None
+    return [e["uid"] for e in entries], title
 
 
 def fetch_channel_page(username, page, perpage, next_url=None):
@@ -143,13 +161,14 @@ def fetch_channel_page(username, page, perpage, next_url=None):
     return ordered, next_link
 
 
-def get_channel_uids_by_count(username, count):
-    uids = []
+def get_channel_entries_by_count(username, count):
+    entries = []
+    seen = set()
     page = 1
     perpage = 10
     next_url = None
 
-    while len(uids) < count:
+    while len(entries) < count:
         items, next_url = fetch_channel_page(username, page, perpage, next_url)
         if not items:
             break
@@ -157,20 +176,22 @@ def get_channel_uids_by_count(username, count):
         new_count = 0
         for a in items:
             uid = a["uid"]
-            if uid not in uids:
-                uids.append(uid)
+            if uid not in seen:
+                seen.add(uid)
+                entries.append({"uid": uid, "title": _text_of(a.get("title"))})
                 new_count += 1
 
         if new_count == 0 or not next_url:
             break
         page += 1
 
-    return uids[:count]
+    return entries[:count]
 
 
-def get_channel_uids_by_days(username, days):
+def get_channel_entries_by_days(username, days):
     cutoff = datetime.now() - timedelta(days=days)
-    uids = []
+    entries = []
+    seen = set()
     page = 1
     perpage = 10
     next_url = None
@@ -196,14 +217,23 @@ def get_channel_uids_by_days(username, days):
                 break
 
             uid = a["uid"]
-            if uid not in uids:
-                uids.append(uid)
+            if uid not in seen:
+                seen.add(uid)
+                entries.append({"uid": uid, "title": _text_of(a.get("title"))})
 
         if stop or not next_url:
             break
         page += 1
 
-    return uids
+    return entries
+
+
+def get_channel_uids_by_count(username, count):
+    return [e["uid"] for e in get_channel_entries_by_count(username, count)]
+
+
+def get_channel_uids_by_days(username, days):
+    return [e["uid"] for e in get_channel_entries_by_days(username, days)]
 
 
 # ---------- links and quality ----------
@@ -259,36 +289,96 @@ def parse_limit(spec):
     return "count", 5
 
 
-# ---------- non-interactive link resolver (used by the workflow) ----------
+# ---------- non-interactive link resolver (workflow and app) ----------
+
+_UID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def parse_ids(text):
+    """'a1b2c, d3e4f' -> ['a1b2c', 'd3e4f']. Anything that is not a plain
+    video id is ignored (so an unfilled '{video_ids}' placeholder is empty)."""
+    ids = []
+    for part in re.split(r"[\s,;]+", str(text or "")):
+        if _UID_RE.match(part) and part not in ids:
+            ids.append(part)
+    return ids
+
+
+def _resolve(link, limit="count:5"):
+    """Link -> (entries, output_basename, info), or (None, None, None).
+    Entries are {'uid', 'title'} (title may be None)."""
+    kind, value = parse_link(link)
+
+    if kind == "playlist":
+        entries, title = get_playlist_entries(value)
+        if not entries:
+            print("Could not load playlist or it is empty")
+            return None, None, None
+        name_part = clean_name(title, 30) if title else value
+        return entries, f"playlist_{value}_{name_part}", {
+            "kind": "playlist", "playlist_id": value}
+
+    if kind == "video":
+        return [{"uid": value, "title": None}], f"video_{value}", {"kind": "video"}
+
+    mode, n = parse_limit(limit)
+    if mode == "days":
+        entries = get_channel_entries_by_days(value, n)
+        out_name = f"{value}_{n}days"
+    else:
+        entries = get_channel_entries_by_count(value, n)
+        out_name = f"{value}_last{n}"
+
+    if not entries:
+        print("No videos found for this channel")
+        return None, None, None
+    return entries, out_name, {"kind": "channel", "username": value}
+
 
 def resolve_simple(link, limit="count:5"):
     """Link -> (video_ids, output_basename, info), or (None, None, None).
 
     `limit` only matters for channel links, e.g. 'count:10' or 'days:7'.
     """
-    kind, value = parse_link(link)
+    entries, out_name, info = _resolve(link, limit)
+    if not entries:
+        return None, None, None
+    return [e["uid"] for e in entries], out_name, info
 
+
+def resolve_selected(link, ids):
+    """Like resolve_simple, but for videos the user ticked in the app:
+    `ids` is the chosen list of video ids (in the order to use)."""
+    ids = parse_ids(",".join(ids)) if isinstance(ids, (list, tuple)) else parse_ids(ids)
+    if not ids:
+        return None, None, None
+    kind, value = parse_link(link)
     if kind == "playlist":
-        ids, title = get_playlist(value)
-        if not ids:
-            print("Could not load playlist or it is empty")
-            return None, None, None
+        _entries, title = get_playlist_entries(value)
         name_part = clean_name(title, 30) if title else value
         return ids, f"playlist_{value}_{name_part}", {
             "kind": "playlist", "playlist_id": value}
-
     if kind == "video":
-        return [value], f"video_{value}", {"kind": "video"}
+        return ids, f"video_{ids[0]}", {"kind": "video"}
+    return ids, f"{value}_selected{len(ids)}", {"kind": "channel", "username": value}
 
-    mode, n = parse_limit(limit)
-    if mode == "days":
-        ids = get_channel_uids_by_days(value, n)
-        out_name = f"{value}_{n}days"
-    else:
-        ids = get_channel_uids_by_count(value, n)
-        out_name = f"{value}_last{n}"
 
-    if not ids:
-        print("No videos found for this channel")
+def fill_titles(entries, playlist=None, workers=8):
+    """Gives every entry without a title the real one (asks Aparat for that
+    video). Last resort: the video id."""
+    missing = [e for e in entries if not e.get("title")]
+    if missing:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            infos = list(ex.map(lambda e: get_video(e["uid"], playlist), missing))
+        for e, info in zip(missing, infos):
+            e["title"] = (info or {}).get("title") or e["uid"]
+    return entries
+
+
+def list_entries(link, limit="count:5"):
+    """For the app's video picker: (entries with titles, output_basename, info)."""
+    entries, out_name, info = _resolve(link, limit)
+    if not entries:
         return None, None, None
-    return ids, out_name, {"kind": "channel", "username": value}
+    fill_titles(entries, info.get("playlist_id"))
+    return entries, out_name, info

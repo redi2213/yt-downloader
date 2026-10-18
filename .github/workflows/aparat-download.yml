@@ -14,7 +14,7 @@ on:
         default: "best"
         type: string
       output:
-        description: "upload_separate, upload_zip or links"
+        description: "upload_separate, upload_zip or links (links_phone: the app gets the links itself)"
         required: false
         default: "upload_separate"
         type: string
@@ -22,6 +22,11 @@ on:
         description: "Channel links only, e.g. count:10 or days:7"
         required: false
         default: "count:5"
+        type: string
+      video_ids:
+        description: "Only these videos (comma separated Aparat video ids picked in the app; empty = everything the link gives)"
+        required: false
+        default: ""
         type: string
       job_id:
         description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
@@ -65,8 +70,12 @@ jobs:
       - name: Install requests
         run: pip install requests
 
+      - name: Get Persian word dictionary (for Finglish file names)
+        run: git clone --depth 1 https://github.com/mmahdibarghi/persian-to-finglish /tmp/p2f 2>/dev/null || true
+
       - name: Fetch from Aparat
         env:
+          VIDEO_IDS: ${{ inputs.video_ids }}
           APARAT_URL: ${{ inputs.aparat_url }}
           QUALITY: ${{ inputs.quality }}
           OUTPUT: ${{ inputs.output }}
@@ -80,6 +89,7 @@ jobs:
             --quality "$QUALITY" \
             --output "$OUTPUT" \
             --limit "$CHANNEL_LIMIT" \
+            --ids "$VIDEO_IDS" \
             --outdir "$OUT" \
             --notes "$NOTES"
 
@@ -87,7 +97,7 @@ jobs:
           ls -la "$OUT"
 
       - name: Create GitHub Release (links list)
-        if: ${{ inputs.output == 'links' }}
+        if: ${{ inputs.output == 'links' || inputs.output == 'links_phone' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,10 +116,10 @@ jobs:
           echo "======================================"
 
       - name: Install boto3 (Arvan Cloud)
-        if: ${{ inputs.output != 'links' && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        if: ${{ inputs.output != 'links' && inputs.output != 'links_phone' && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
         run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
       - name: Publish (GitHub Release and/or Arvan Cloud)
-        if: ${{ inputs.output != 'links' }}
+        if: ${{ inputs.output != 'links' && inputs.output != 'links_phone' }}
         env:
           GH_TOKEN: ${{ github.token }}
           STORAGE: ${{ inputs.storage || 'github' }}
