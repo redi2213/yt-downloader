@@ -13,6 +13,7 @@ Files go to Download/Yt-bridge/APK and Download/Yt-bridge/Backup.
 The download state is kept in job.extra by services/file_download_service.py;
 ``refresh(job)`` redraws the status line and button from it.
 """
+from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.metrics import dp
 from kivy.uix.button import Button
@@ -20,6 +21,7 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 from core import android_actions, android_install
+from services import file_download_service
 from screens import common
 
 _TITLES = {"backup": "Project backup is ready", "apk": "APK is ready"}
@@ -54,6 +56,13 @@ def build(nav, job, kind):
     share_btn = Button(text="Share link", size_hint_y=None, height=48)
     share_btn.bind(on_press=share)
     nav.add(share_btn)
+
+    size_label = common.wrapped_label("", height=dp(26), halign="center", valign="middle")
+    nav.add(size_label)
+    file_download_service.start_sizes(
+        job.run_id, [link],
+        lambda items: Clock.schedule_once(
+            lambda _dt: setattr(size_label, "text", file_download_service.sizes_text(items))))
 
     nav.add(status)
     download_btn = Button(text=_ASK[kind], size_hint_y=None, height=52)

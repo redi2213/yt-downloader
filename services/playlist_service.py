@@ -6,6 +6,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from api import run_mode_prefs
 from api.github import workflows, releases, logs as gh_logs
 from core.async_utils import run_in_background
 from core.config import MAX_PARALLEL_JOBS, PLAYLIST_POLL_INTERVAL
@@ -13,6 +14,7 @@ from core.exceptions import AuthenticationError, NetworkError
 from core.jobs.job_manager import JobManager
 from core.models.job import Job, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
 from services.download_service import pick_format
+from services import phone_youtube_service
 from services.notify_service import notify
 
 _YOUTUBE_URL_RE = re.compile(
@@ -65,12 +67,14 @@ def _playlist_quick_thread(job_manager, job, playlist_url, target_height, want_h
     _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, audio_only, on_status, on_complete)
 
 
-def create_playlist_links_job(job_manager: JobManager, playlist_url: str, pick: bool = False) -> Job:
+def create_playlist_links_job(job_manager: JobManager, playlist_url: str, pick: bool = False,
+                              where: str = None) -> Job:
     """``pick=True``: the result is shown as a list of titles to choose from
     (the "Choose videos" button) instead of going straight to the quality
     picker for the whole playlist."""
     job = Job(job_id=_new_job_id(), type=JOB_TYPE_PLAYLIST_LINKS, input=playlist_url)
     job.extra["pick"] = pick
+    job.extra["where"] = where or run_mode_prefs.get_mode()
     job_manager.start(job)
     return job
 
@@ -92,7 +96,7 @@ def start_fetch_playlist_links(job_manager: JobManager, playlist_url: str,
 def _fetch_playlist_thread(job_manager, job, on_status, on_complete):
     try:
         _emit(on_status, "Reading playlist...")
-        entries = get_playlist_entries(job.input)
+        entries = get_playlist_entries(job.input, where=job.extra.get("where"), on_status=on_status)
         if job.cancel_requested:
             return  # job already marked done by the caller's cancel action
         if not entries:
@@ -125,7 +129,19 @@ def parse_playlist_entries(log_text: str) -> list:
     return [{"url": u, "title": u} for u in dict.fromkeys(_YOUTUBE_URL_RE.findall(log_text))]
 
 
-def get_playlist_entries(playlist_url: str) -> list:
+def get_playlist_entries(playlist_url: str, where: str = None, on_status=None) -> list:
+    """The playlist's videos. ``where``: "github", "phone" or "auto" (phone
+    first, GitHub when it finds nothing); None = the Settings default."""
+    where = where or run_mode_prefs.get_mode()
+    if where in ("phone", "auto"):
+        _emit(on_status, "Reading the playlist on this phone...")
+        try:
+            entries = phone_youtube_service.list_playlist(playlist_url)
+        except Exception:
+            entries = []
+        if entries or where == "phone":
+            return entries
+        _emit(on_status, "The phone could not do it - using GitHub...")
     run_id = workflows.dispatch_and_find_run("list-playlist.yml", {"playlist_url": playlist_url})
     if run_id is None:
         return []

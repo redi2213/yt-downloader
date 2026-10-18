@@ -6,8 +6,24 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 from core import android_downloads
-from screens.common import wrapped_label
+from screens.common import wrapped_label, wrapped_label_height
 from services import file_download_service
+
+
+def add_size_label(nav, run_id, all_links):
+    """A line with the size of the file(s), filled in a moment later."""
+    label = wrapped_label("", height=dp(26), halign="center", valign="middle")
+    nav.add(label)
+
+    def done(items):
+        text = file_download_service.sizes_text(items)
+
+        def apply(_dt):
+            label.text = text
+            label.height = wrapped_label_height(text, extra_padding=dp(8)) if text else dp(4)
+        Clock.schedule_once(apply)
+
+    file_download_service.start_sizes(run_id, all_links, done)
 
 
 def add_download_in_app(nav, run_id, all_links, category):
@@ -68,8 +84,11 @@ def build(nav, message, link=None, retry=None, retry_message="Working...", extra
         copy_btn = Button(text="Copy link", size_hint_y=None, height=48)
         copy_btn.bind(on_press=lambda i: Clipboard.copy(link))
         nav.add(copy_btn)
-    # "Download in app" - only for results that have files (not for error texts)
+    # file size - only for results that have files (not for error texts)
     downloadable = list(links or ([link] if link else []))
+    if downloadable and (run_id or category):
+        add_size_label(nav, run_id, downloadable)
+    # "Download in app" - only for results that have files (not for error texts)
     if category and downloadable:
         add_download_in_app(nav, run_id, downloadable, category)
     # Links on Arvan Cloud that are not already the main link (GitHub + Arvan mode)

@@ -59,3 +59,15 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
 - **یوتیوب**: کادرها چندخطی‌اند؛ چند لینک در Quick Download = برای هر لینک یک ران جدا. پلی‌لیست فقط لینک اول را می‌خواند. دکمه‌ی Best به پلی‌لیست اضافه شد.
 - **آپارات**: فرم نوع لینک را تشخیص می‌دهد (`screens/aparat_form.py`)، Output دو مرحله‌ای است، صفحه‌ی انتخاب ویدیو دکمه‌های کیفیت دارد.
 
+---
+
+## دور دوم (۱۸ مهر): لاگ، Result، حجم، اجرا روی گوشی، اسم ران‌ها
+
+- **لاگ**: هر ران (نه فقط خطادار) دکمه‌ی Copy log / Download log دارد؛ **Result** فایل‌های ریلیز همان ران را با حجم و Download in app نشان می‌دهد.
+- **گزارش پلی‌لیست** روی گوشی ذخیره می‌شود (`core/playlist_reports.py`) و از «Playlist reports» در آخرین ران‌ها دوباره باز می‌شود.
+- **حجم فایل** روی همه‌ی صفحه‌های نتیجه و APK/Backup (`file_download_service.start_sizes`).
+- **اجرا روی گوشی**: Settings > Run on (Auto / GitHub / Phone) در `api/run_mode_prefs.py`؛ فقط «لیست ویدیوهای پلی‌لیست» و «کیفیت‌های یک ویدیو» با yt-dlp داخل اپ
+  (`services/phone_youtube_service.py`). کیفیت‌های گوشی فقط ارتفاع دارند (`bestvideo[height<=N]`) چون شناسه‌های فرمت گیت‌هاب (SABR) روی گوشی نیست؛ دکمه‌ی
+  «Full list from GitHub (codecs)» لیست کامل را می‌دهد. در حالت Auto اگر گوشی نتواند، همان کار روی گیت‌هاب اجرا می‌شود. دانلود فایل همیشه روی گیت‌هاب است.
+- **اسم ران‌ها**: عنوان همان‌طور که هست (فارسی هم)، ۲ بار تلاش؛ Any-Site-Upload.yml و filimo-direct-link.yml حالا `run_title` و `job_id` را می‌شناسند.
+

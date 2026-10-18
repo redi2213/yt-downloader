@@ -179,7 +179,8 @@ def get_release_assets(run_id, attempts: int = 2, delay: float = 1.5):
     for _ in range(attempts):
         r = client.get_allow_missing(url)
         if r.status_code == 200:
-            return [{"name": a.get("name"), "api_url": a["url"]} for a in r.json().get("assets", [])]
+            return [{"name": a.get("name"), "api_url": a["url"], "size": a.get("size")}
+                    for a in r.json().get("assets", [])]
         time.sleep(delay)
     return []
 

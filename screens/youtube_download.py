@@ -67,6 +67,13 @@ def build(nav, video_url="", playlist_url=""):
     fetch_btn = Button(text="Get qualities (single video)", size_hint_y=None, height=56)
     fetch_btn.bind(on_press=lambda i: nav.handle_fetch_single(single_url_input.text, False))
     nav.add(fetch_btn)
+    # the Settings default ("Run on") decides where the buttons above run; this
+    # one runs just this step on the other side
+    other = nav.run_mode_other_side()
+    other_name = "this phone" if other == "phone" else "GitHub"
+    fetch_other = Button(text=f"Get qualities on {other_name}", size_hint_y=None, height=48)
+    fetch_other.bind(on_press=lambda i: nav.handle_fetch_single(single_url_input.text, False, where=other))
+    nav.add(fetch_other)
 
     nav.add(Label(text="Quick Download (every link = its own run)", size_hint_y=None, height=32))
     for label, format_id in _QUICK_SINGLE_QUALITIES:
@@ -88,6 +95,9 @@ def build(nav, video_url="", playlist_url=""):
     pick_btn = Button(text="Choose videos from playlist", size_hint_y=None, height=56)
     pick_btn.bind(on_press=lambda i: nav.handle_pick_playlist(_first_link(playlist_url_input.text)))
     nav.add(pick_btn)
+    pick_other = Button(text=f"Choose videos on {other_name}", size_hint_y=None, height=48)
+    pick_other.bind(on_press=lambda i: nav.handle_pick_playlist(_first_link(playlist_url_input.text), where=other))
+    nav.add(pick_other)
 
     nav.add(Label(text="This is a playlist (all videos)", size_hint_y=None, height=32))
     for label, target_height, want_hdr in _PLAYLIST_QUALITIES:

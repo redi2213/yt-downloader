@@ -9,7 +9,8 @@ from kivy.metrics import dp
 from core import run_labels
 from core.config import run_url
 from services import runs_service
-from screens.common import BTN_H, GAP, STATUS_COLORS, content_width, wrapped_label_height
+from screens.common import (BTN_H, GAP, STATUS_COLORS, content_width, fa_font_kwargs, fa_text,
+                            wrapped_label_height)
 
 
 def _add_job_status_section(nav):
@@ -39,6 +40,9 @@ def _add_browse_buttons(nav):
     by_menu = Button(text="Runs by app menu", size_hint_y=None, height=52)
     by_menu.bind(on_press=lambda i: nav.show_menu_groups_browser())
     nav.add(by_menu)
+    reports = Button(text="Playlist reports", size_hint_y=None, height=52)
+    reports.bind(on_press=lambda i: nav.show_playlist_reports())
+    nav.add(reports)
 
 
 def add_run_rows(nav, runs, origin="status"):
@@ -48,12 +52,13 @@ def add_run_rows(nav, runs, origin="status"):
         title = run.get("tool") or run["workflow"]
         if run.get("short_title"):
             title = f"{title} - {run['short_title']}"
-        row_text = f"{run['created_at']}  {title}\n{word}"
         row_width = content_width() * 0.74 - dp(16)
+        raw_text = f"{run['created_at']}  {title}\n{word}"
+        row_text = fa_text(raw_text, row_width)  # Persian titles joined and in the right order
         row_height = max(BTN_H, wrapped_label_height(row_text, extra_padding=dp(18), width=row_width))
         row = BoxLayout(orientation="horizontal", size_hint_y=None, height=row_height, spacing=dp(6))
         row_btn = Button(text=row_text, size_hint_x=0.74, halign="left", valign="middle",
-                         background_color=STATUS_COLORS[kind])
+                         background_color=STATUS_COLORS[kind], **fa_font_kwargs(raw_text))
         row_btn.text_size = (row_width, None)
         row_btn.bind(on_press=lambda inst, r=run: nav.show_run_detail({**r, "origin": origin}))
         github_btn = Button(text="GitHub", size_hint_x=0.26)
@@ -104,11 +109,35 @@ def _step_text(step):
     return run_labels.step_text(step)
 
 
+def _add_log_panel(nav, run_id, jobs, origin="status"):
+    """A run without a failure: the same Copy log / Download log buttons, and
+    Result (the files the run left behind)."""
+    info = Label(text="", size_hint_y=None, height=dp(30), halign="left", valign="top")
+    info.text_size = (content_width(), None)
+
+    def show(message):
+        def apply(_dt):
+            info.text = message
+            info.height = max(dp(30), wrapped_label_height(message, extra_padding=dp(8), width=content_width()))
+        Clock.schedule_once(apply)
+
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    copy_btn = Button(text="Copy log")
+    copy_btn.bind(on_press=lambda i: nav.copy_run_log(run_id, jobs, show))
+    log_btn = Button(text="Download log")
+    log_btn.bind(on_press=lambda i: nav.save_run_log(run_id, jobs, show))
+    row.add_widget(copy_btn)
+    row.add_widget(log_btn)
+    nav.add(row)
+    nav.add(info)
+
+
 def _add_failure_panel(nav, run_id, jobs, origin="status"):
     """A failed run: the failed step on top, a button that copies the error
     text (to paste in the chat) and one that saves the whole job log."""
     job, step = runs_service.find_failure(jobs)
     if job is None:
+        _add_log_panel(nav, run_id, jobs)
         return
     name = (step or {}).get("name") or "the job"
     text = f"Failed step: {name}"
@@ -149,6 +178,9 @@ def build_run_detail(nav, run_id, jobs, origin="status"):
     nav.add(Label(text=f"Run #{run_id}", size_hint_y=None, height=40))
     if jobs:
         _add_failure_panel(nav, run_id, jobs, origin)
+        result_btn = Button(text="Result (files of this run)", size_hint_y=None, height=BTN_H)
+        result_btn.bind(on_press=lambda i: nav.show_run_result(run_id))
+        nav.add(result_btn)
     if not jobs:
         nav.add(Label(text="Could not load steps", size_hint_y=None, height=40))
     else:

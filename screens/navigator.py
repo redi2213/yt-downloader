@@ -12,12 +12,13 @@ Nothing here imports the GitHub API layer directly.
 from kivy.clock import Clock
 from kivy.uix.button import Button
 
-from core import android_downloads, links as link_tools
+from core import android_downloads, links as link_tools, playlist_reports
 from core.jobs.job_manager import JobManager
 from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
+from api import run_mode_prefs
 from services import auth_service, storage_service, file_download_service, runs_service
 from screens import common
 
@@ -176,6 +177,18 @@ class Navigator:
     def storage_mode_label(self):
         return storage_service.mode_label()
 
+    def run_mode_label(self):
+        return run_mode_prefs.label()
+
+    def run_mode_other_side(self):
+        """"phone" or "github": what the per-tool exception buttons offer."""
+        return run_mode_prefs.other_side()
+
+    def cycle_run_mode(self):
+        """Settings button: auto -> github -> phone -> auto."""
+        run_mode_prefs.set_mode(run_mode_prefs.next_mode())
+        self.show_settings()
+
     def cycle_storage_mode(self):
         """Settings button: github -> arvan -> both -> github."""
         storage_service.cycle_mode()
@@ -333,7 +346,8 @@ class Navigator:
             return
 
         if job.type == JOB_TYPE_FORMATS:
-            self.show_quality_list(job.input, job.result["formats"])
+            self.show_quality_list(job.input, job.result["formats"],
+                                   from_phone=bool(job.extra.get("from_phone")))
 
         elif job.type == JOB_TYPE_PLAYLIST_LINKS:
             self._remember_playlist_titles(job.result.get("entries"))
@@ -370,6 +384,8 @@ class Navigator:
         return "YouTube" if job.type == "download" else "Other"
 
     def _handle_job_complete(self, job):
+        if job.type == JOB_TYPE_PLAYLIST_DOWNLOAD:
+            playlist_reports.save_report(job)  # kept on the phone for later
         # Only navigate if the user is still looking at this job - they may
         # have gone back home and started a different one in the meantime.
         if self.job_manager.current_job is not job:
@@ -415,10 +431,12 @@ class Navigator:
         return on_status, on_complete
 
     # -- starting jobs --------------------------------------------------------
-    def start_fetch_formats(self, url):
+    def start_fetch_formats(self, url, where=None):
+        """``where``: "github" / "phone" / "auto"; None = the Settings default."""
         job = download_service.create_fetch_formats_job(
             self.job_manager,
-            url
+            url,
+            where=where
         )
         on_status, on_complete = self._status_and_complete_callbacks(job)
         self.show_working("Fetching qualities...", job=job)
@@ -491,7 +509,7 @@ class Navigator:
             )
         self.show_running_jobs()
 
-    def handle_fetch_single(self, url, audio_only):
+    def handle_fetch_single(self, url, audio_only, where=None):
         urls = self.youtube_links(url)
 
         if not urls:
@@ -502,7 +520,7 @@ class Navigator:
             self.start_downloads(url, "bestaudio", True)
         else:
             # the quality list is for one video: the first link
-            self.start_fetch_formats(urls[0])
+            self.start_fetch_formats(urls[0], where=where)
 
     def start_upload(self, file_url, zip_it, custom_name):
         job = upload_service.create_upload_job(
@@ -539,11 +557,12 @@ class Navigator:
             custom_name.strip()
         )
 
-    def start_fetch_playlist(self, url, pick=False):
+    def start_fetch_playlist(self, url, pick=False, where=None):
         job = playlist_service.create_playlist_links_job(
             self.job_manager,
             url,
-            pick=pick
+            pick=pick,
+            where=where
         )
 
         self.show_working(
@@ -569,16 +588,17 @@ class Navigator:
 
         self.start_fetch_playlist(url)
 
-    def handle_pick_playlist(self, url):
+    def handle_pick_playlist(self, url, where=None):
         """"Choose videos" button: reads the playlist, then shows its video
-        titles to tick before anything is downloaded."""
+        titles to tick before anything is downloaded. ``where`` overrides the
+        Settings default for this one press."""
         url = url.strip()
 
         if not url:
             self.set_status("Enter a playlist link")
             return
 
-        self.start_fetch_playlist(url, pick=True)
+        self.start_fetch_playlist(url, pick=True, where=where)
 
     def start_playlist_download(self, urls, target_height, want_hdr, audio_only=False, quality_screen=None,
                                 titles=None, previous_items=None):
@@ -634,13 +654,15 @@ class Navigator:
         self.playlist_titles = {e["url"]: e["title"] for e in (entries or [])}
 
     # -- quality / upload / playlist screens ----------------------------------
-    def show_quality_list(self, url, formats):
+    def show_quality_list(self, url, formats, from_phone=False):
         from screens import download as download_screen
-        self.remember(lambda: self.show_quality_list(url, formats))
+        self.remember(lambda: self.show_quality_list(url, formats, from_phone))
         download_screen.build_quality_list(
             self,
             url,
-            formats
+            formats,
+            from_phone=from_phone,
+            on_github=lambda: self.start_fetch_formats(url, where="github"),
         )
 
     def show_youtube_download(self, video_url="", playlist_url=""):
@@ -1114,7 +1136,19 @@ class Navigator:
 
     def show_playlist_report(self, job):
         from screens import playlist as playlist_screen
+        if job.is_done or not job.extra.get("saved_at_start"):
+            job.extra["saved_at_start"] = True
+            playlist_reports.save_report(job)
         playlist_screen.build_report(self, job)
+
+    def show_playlist_reports(self):
+        """The saved playlist reports (newest first); a tap reopens one."""
+        from screens import runs_browser
+        self.remember(self.show_playlist_reports)
+        runs_browser.build_playlist_reports(
+            self, playlist_reports.list_reports(),
+            on_open=lambda report: self.show_playlist_report(playlist_reports.to_job(report)),
+            back=self.show_actions_status)
 
     # -- GitHub Actions status -------------------------------------------------
     def show_actions_status(self):
@@ -1166,6 +1200,7 @@ class Navigator:
     def show_run_detail(self, run):
         from screens import actions_status as actions_screen
         origin = run.get("origin", "status")
+        self._run_ctx = run
 
         actions_screen.build_run_detail_loading(
             self,
@@ -1321,6 +1356,45 @@ class Navigator:
             self.schedule(after)
 
         runs_service.start_error_text(run_id, jobs, done)
+
+    def copy_run_log(self, run_id, jobs, show):
+        """Any run: copies the (cleaned) log - its last 400 lines."""
+        from kivy.core.clipboard import Clipboard
+        show("Getting the log...")
+
+        def done(res):
+            def after():
+                if res.get("ok"):
+                    Clipboard.copy(res["text"])
+                    show(f"Log copied ({len(res['text'].splitlines())} lines).")
+                else:
+                    show(res["error"])
+            self.schedule(after)
+
+        runs_service.start_log_text(run_id, jobs, done)
+
+    def show_run_result(self, run_id):
+        """Result of a run in the runs browser: its release's link(s) with size,
+        Copy / Share and Download in app - the same result screen the job showed."""
+        run = getattr(self, "_run_ctx", None) or {"run_id": run_id}
+        back = lambda: self.show_run_detail(run)
+        self.show_working("Reading what this run left...")
+
+        def done(res):
+            def after():
+                if not res.get("ok"):
+                    self.show_result(res["error"], extra_buttons=[("Back to the run", back)])
+                    return
+                self.show_result(
+                    "Result of this run",
+                    link=res.get("link"), links=res.get("links"),
+                    arvan_links=res.get("arvan_links"), storage_warn=res.get("storage_warn"),
+                    run_id=run_id,
+                    category=android_downloads.category_for_workflow(run.get("workflow")),
+                    extra_buttons=[("Back to the run", back)])
+            self.schedule(after)
+
+        runs_service.start_run_result(run_id, done)
 
     def save_run_log(self, run_id, jobs, show):
         """Failed run: saves the whole job log as a text file in Download/Yt-bridge/Logs."""

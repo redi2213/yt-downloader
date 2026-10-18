@@ -7,7 +7,7 @@ Every ``start_*`` function works in the background and calls
 """
 import re
 
-from api.github import logs, workflows
+from api.github import logs, releases, workflows
 from core import android_downloads
 from core.async_utils import run_in_background
 from core.exceptions import AuthenticationError
@@ -179,3 +179,31 @@ def _guarded(on_done, work):
         on_done({"ok": False, "error": str(e)})
     except Exception as e:
         on_done({"ok": False, "error": _error_text(e)})
+
+
+def start_log_text(run_id, jobs, on_done):
+    """The cleaned log (last 400 lines) of the failed job, or of the first job."""
+    def work():
+        job, _step = find_failure(jobs)
+        job = job or next(iter(jobs or []), None)
+        if job is None:
+            raise ValueError("No job to read a log from.")
+        text = logs.get_job_log_text(job["id"])
+        if text is None:
+            raise ValueError("GitHub has no log for this job (yet). Try again in a minute.")
+        lines = [_TIME_PREFIX.sub("", l).rstrip() for l in text.splitlines()]
+        return {"text": _header(run_id, job, None) + "\n\n" + "\n".join(lines[-400:])}
+    run_in_background(_guarded, on_done, work)
+
+
+def start_run_result(run_id, on_done):
+    """What a finished run left behind: its release's link(s), like the result
+    screen of the job that started it. Fails clearly when the run made no release."""
+    def work():
+        link = releases.get_release_result(run_id, attempts=1, delay=0)
+        links = releases.get_release_links(run_id, attempts=1, delay=0)
+        extras = releases.get_release_extras(run_id)
+        if not link and not links:
+            raise ValueError("This run left no files (it made no release, or it is still running).")
+        return {"link": link, "links": links if len(links) > 1 else None, **extras}
+    run_in_background(_guarded, on_done, work)

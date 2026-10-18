@@ -57,6 +57,10 @@ def build(nav):
     storage_mode_btn.bind(on_press=lambda i: nav.cycle_storage_mode())
     nav.add(storage_mode_btn)
 
+    run_mode_btn = Button(text=f"Run on: {nav.run_mode_label()}  (tap to change)", size_hint_y=None, height=48)
+    run_mode_btn.bind(on_press=lambda i: nav.cycle_run_mode())
+    nav.add(run_mode_btn)
+
     storage_btn = Button(text="Storage and Arvan buckets", size_hint_y=None, height=48)
     storage_btn.bind(on_press=lambda i: nav.show_storage())
     nav.add(storage_btn)

@@ -125,3 +125,57 @@ def _run_many(run_id, links, category, on_text, on_finish):
     finally:
         if on_finish:
             on_finish()
+
+
+# -- sizes -------------------------------------------------------------------
+def format_size(size):
+    """33554432 -> '32.0 MB'; None/0 -> '?'."""
+    if not size:
+        return "?"
+    mib = size / (1024 * 1024)
+    return f"{mib / 1024:.2f} GB" if mib >= 1024 else (f"{mib:.1f} MB" if mib >= 1 else f"{size / 1024:.0f} KB")
+
+
+def _head_size(url):
+    import requests
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=8)
+        value = int(r.headers.get("Content-Length") or 0)
+        return value or None
+    except Exception:
+        return None
+
+
+def start_sizes(run_id, links, on_done):
+    """``on_done([(name, size_bytes or None)])`` from a background thread: the
+    sizes of the files behind a result - from the release (one request) when the
+    run has one, otherwise a HEAD request per link."""
+    run_in_background(_sizes_thread, run_id, list(links or []), on_done)
+
+
+def _sizes_thread(run_id, links, on_done):
+    items = []
+    try:
+        for one in (run_id if isinstance(run_id, (list, tuple)) else [run_id]):
+            if one:
+                items.extend((a["name"], a.get("size")) for a in releases.get_release_assets(one, attempts=1, delay=0))
+        if not items:
+            items = [(android_downloads.file_name_from_url(u), _head_size(u)) for u in links[:12]]
+    except Exception:
+        items = []
+    on_done(items)
+
+
+def sizes_text(items):
+    """One short text for the result screen: 'Size: 32.0 MB' or the files with their sizes."""
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    known = [s for _n, s in items if s]
+    if len(items) == 1:
+        return f"Size: {format_size(items[0][1])}"
+    lines = [f"{len(items)} files" + (f", total {format_size(sum(known))}" if known else "")]
+    lines += [f"{n} - {format_size(s)}" for n, s in items[:12]]
+    if len(items) > 12:
+        lines.append("...")
+    return "\n".join(lines)

@@ -8,16 +8,21 @@ whatever thread it needs.
 """
 import uuid
 
+from api import run_mode_prefs
 from api.github import workflows, releases, logs as gh_logs
 from core.async_utils import run_in_background
 from core.exceptions import AuthenticationError
 from core.jobs.job_manager import JobManager
 from core.models.job import Job, JOB_TYPE_FORMATS, JOB_TYPE_DOWNLOAD
+from services import phone_youtube_service
 from services.notify_service import notify
 
 
-def create_fetch_formats_job(job_manager: JobManager, url: str) -> Job:
+def create_fetch_formats_job(job_manager: JobManager, url: str, where: str = None) -> Job:
+    """``where``: "github", "phone" or "auto" (phone first, GitHub when it
+    fails); None = the Settings default."""
     job = Job(job_id=uuid.uuid4().hex[:12], type=JOB_TYPE_FORMATS, input=url)
+    job.extra["where"] = where or run_mode_prefs.get_mode()
     job_manager.start(job)
     return job
 
@@ -37,6 +42,27 @@ def start_fetch_formats(job_manager: JobManager, url: str, on_status=None, on_co
 
 def _fetch_formats_thread(job_manager, job, on_status, on_complete):
     try:
+        where = job.extra.get("where", "github")
+        if where in ("phone", "auto"):
+            _emit(on_status, "Fetching qualities on this phone...")
+            phone_error = ""
+            try:
+                formats = phone_youtube_service.list_qualities(job.input)
+            except Exception as e:
+                formats, phone_error = None, str(e)[:60]
+            if job.cancel_requested:
+                return
+            if formats:
+                job.extra["from_phone"] = True
+                job_manager.complete(job, ok=True, result_data={"formats": formats})
+                _emit_complete(on_complete, job)
+                return
+            if where == "phone":
+                job_manager.complete(job, ok=False, error=f"The phone could not read the qualities ({phone_error}). "
+                                                            "Use the GitHub button.")
+                _emit_complete(on_complete, job)
+                return
+            _emit(on_status, "The phone could not do it - using GitHub...")
         _emit(on_status, "Fetching qualities...")
         run_id = workflows.dispatch_and_find_run("list-formats.yml", {"video_url": job.input})
         job.run_id = run_id

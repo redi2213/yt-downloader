@@ -104,3 +104,32 @@ def build_manual_run(nav, wf, on_run, back, text="", message=""):
     nav.add(info)
     nav.add(common.back_button(nav, to=back))
     nav.set_status_label(info)
+
+
+def build_playlist_reports(nav, reports, on_open, back):
+    """The playlist download reports saved on the phone, newest first."""
+    from core import playlist_reports, timeutil
+    from datetime import datetime
+    nav.clear()
+    nav.add(Label(text="Playlist reports", size_hint_y=None, height=44))
+    if not reports:
+        nav.add(common.wrapped_label("No saved reports yet. A playlist download saves its report "
+                                     "here, so you can check later whether every video was downloaded."))
+    for report in reports:
+        done, failed, total = playlist_reports.counts(report)
+        try:
+            when = timeutil.datetime_to_local(datetime.fromisoformat(report.get("created")), "%m-%d %H:%M")
+        except (TypeError, ValueError):
+            when = "?"
+        first = next((i.get("title") for i in report.get("items") or [] if i.get("title")), "")
+        status = f"{done}/{total} ready" + (f", {failed} failed" if failed else "")
+        raw = f"{when}  {status}\n{first}"
+        text = common.fa_text(raw, common.content_width() - dp(16))
+        height = max(BTN_H, common.wrapped_label_height(text, extra_padding=dp(18), width=common.content_width() - dp(16)))
+        color = (0.35, 0.85, 0.45, 1) if total and done == total else (0.9, 0.55, 0.45, 1)
+        btn = Button(text=text, size_hint_y=None, height=height, halign="left", valign="middle",
+                     background_color=color, **common.fa_font_kwargs(raw))
+        btn.text_size = (common.content_width() - dp(16), None)
+        btn.bind(on_press=lambda i, r=report: on_open(r))
+        nav.add(btn)
+    nav.add(common.back_button(nav, to=back))

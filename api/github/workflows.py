@@ -275,7 +275,7 @@ def _run_item(run):
         "tool": run_labels.tool_label(workflow),
         # a run named by the app carries its title (or link) in its name;
         # a plain workflow name ("Download Video") says nothing new
-        "short_title": run_labels.short_title(name) or (run_labels.clip_title(name) if had_token else ""),
+        "short_title": run_labels.short_title(name, 60) or (run_labels.clip_title(name, 60) if had_token else ""),
         "status": run.get("status"),
         "conclusion": run.get("conclusion"),
         "created_at": timeutil.utc_iso_to_local(run.get("created_at"), "%m-%d %H:%M"),
