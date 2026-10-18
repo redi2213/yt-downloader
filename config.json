@@ -1,5 +1,5 @@
 {
-  "config_version": 14,
+  "config_version": 15,
   "actions": [
     {
       "id": "tiktok_download",
@@ -83,6 +83,7 @@
       "domains": [
         "aparat.com"
       ],
+      "handler": "aparat",
       "fields": [
         {
           "key": "url",
@@ -142,6 +143,10 @@
             {
               "label": "Links only",
               "value": "links"
+            },
+            {
+              "label": "Links on phone",
+              "value": "links_phone"
             }
           ],
           "default": "upload_separate"
@@ -202,7 +207,8 @@
         "aparat_url": "{url}",
         "quality": "{quality}",
         "output": "{output}",
-        "channel_limit": "{channel_limit}"
+        "channel_limit": "{channel_limit}",
+        "video_ids": "{video_ids}"
       }
     },
     {
