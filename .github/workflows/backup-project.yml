@@ -48,7 +48,8 @@ jobs:
         run: |
           set -euo pipefail
           STAMP=$(TZ=Asia/Tehran date +%Y-%m-%d_%H-%M)
-          ZIP="project-backup-${STAMP}.zip"
+          VER=$(tr -d ' \r\n' < main-branch/version.txt 2>/dev/null || true)
+          if [ -n "$VER" ]; then ZIP="project-backup-v${VER}-${STAMP}.zip"; else ZIP="project-backup-${STAMP}.zip"; fi
           # the git history is not part of the backup, only the files
           zip -r -q "$ZIP" main-branch config-branch -x "*/.git/*"
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"

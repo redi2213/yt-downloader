@@ -42,3 +42,20 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   Arvan usage and files) حجم مصرفی و لیست فایل‌ها را در توضیحات یک ریلیز می‌نویسد.
 - خروجی «links» آپارات و حالت «Direct link only» فیلیمو هنوز asset گیت‌هاب‌اند (اپ متن را می‌خواند).
 - API ذخیره‌سازی آروان ترافیک باقی‌مانده را نمی‌دهد؛ صفحه‌ی usage همین را می‌گوید (پنل آروان را ببین).
+
+---
+
+## نسخه، پوشه‌ی دانلود، مرورگر ران‌ها (۱۸ مهر)
+
+- **نسخه‌ی خودکار**: فایل `version.txt` (مثلاً `2.4`) با هر بیلد **موفق** یکی بالا می‌رود (۲٫۱، ۲٫۲، ...). `build-apk.yml` نسخه‌ی بعدی را حساب می‌کند،
+  `core/_version.py` (گیت‌ایگنور، مثل `_branch.py`) و `version =` در `buildozer.spec` را می‌سازد، APK را با اسم `YT-Bridge-<نسخه>.apk` منتشر می‌کند
+  و آخر کار `version.txt` را روی همان برنچ کامیت می‌کند. بیلد ناموفق شماره نمی‌سوزاند. نسخه در About و اسم بکاپ (`project-backup-v2.4-...zip`) دیده می‌شود.
+  آپدیت از داخل اپ هرگز `version.txt` را عوض نمی‌کند (`repo_update_service.PROTECTED_FILE`).
+- **پوشه‌ی دانلود**: هر چیزی که اپ دانلود می‌کند در `Download/Yt-bridge/<دسته>` ذخیره می‌شود: APK, Backup, YouTube, Aparat, Telegram, Filimo, Any-site, Logs, Other
+  (`core/android_downloads.py` ← `category_for_workflow`). دکمه‌ی «Download in app» روی همه‌ی صفحه‌های نتیجه و گزارش پلی‌لیست هست.
+- **نصب APK**: بعد از دانلود APK دکمه‌ی Install، نصب‌کننده‌ی اندروید را روی فایل ذخیره‌شده باز می‌کند (`core/android_install.py`؛ پرمیشن `REQUEST_INSTALL_PACKAGES`).
+- **آخرین ران‌ها**: دو دکمه‌ی «Runs by workflow» (همه‌ی ورک‌فلوهای ریپو) و «Runs by app menu» (گروه‌ها). ران‌ها صفحه‌به‌صفحه (Previous/Next)،
+  اجرای دستی هر ورک‌فلو با خطوط `name=value`، و در ران خطادار: قدم خطادار + Copy error + Download log (`services/runs_service.py`, `screens/runs_browser.py`).
+- **یوتیوب**: کادرها چندخطی‌اند؛ چند لینک در Quick Download = برای هر لینک یک ران جدا. پلی‌لیست فقط لینک اول را می‌خواند. دکمه‌ی Best به پلی‌لیست اضافه شد.
+- **آپارات**: فرم نوع لینک را تشخیص می‌دهد (`screens/aparat_form.py`)، Output دو مرحله‌ای است، صفحه‌ی انتخاب ویدیو دکمه‌های کیفیت دارد.
+

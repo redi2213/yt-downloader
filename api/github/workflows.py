@@ -264,32 +264,61 @@ def cancel_run(run_id) -> None:
     client.post(url)
 
 
+def _run_item(run):
+    raw_name = run.get("name") or run.get("display_title", "?")
+    had_token = bool(_TOKEN_SUFFIX_RE.search(raw_name))
+    name = _TOKEN_SUFFIX_RE.sub("", raw_name)
+    workflow = run.get("path", "").split("/")[-1]
+    return {
+        "name": name,
+        "workflow": workflow,
+        "tool": run_labels.tool_label(workflow),
+        # a run named by the app carries its title (or link) in its name;
+        # a plain workflow name ("Download Video") says nothing new
+        "short_title": run_labels.short_title(name) or (run_labels.clip_title(name) if had_token else ""),
+        "status": run.get("status"),
+        "conclusion": run.get("conclusion"),
+        "created_at": timeutil.utc_iso_to_local(run.get("created_at"), "%m-%d %H:%M"),
+        "run_id": run.get("id"),
+    }
+
+
 def get_recent_runs(limit: int = 10):
     """Fetches the most recent workflow runs across all our workflow files
     combined, sorted newest first - used for the always-available status
     check that doesn't depend on the app's own current-job tracking."""
     url = f"{API_BASE}/actions/runs?per_page={limit}"
     r = client.get(url)
-    runs = r.json().get("workflow_runs", [])
+    return [_run_item(run) for run in r.json().get("workflow_runs", [])]
+
+
+def list_workflows():
+    """Every workflow file of the repo (also the ones with no app button):
+    ``[{"file", "name", "tool"}]`` sorted by file name."""
+    r = client.get(f"{API_BASE}/actions/workflows?per_page=100")
     items = []
-    for run in runs:
-        raw_name = run.get("name") or run.get("display_title", "?")
-        had_token = bool(_TOKEN_SUFFIX_RE.search(raw_name))
-        name = _TOKEN_SUFFIX_RE.sub("", raw_name)
-        workflow = run.get("path", "").split("/")[-1]
-        items.append({
-            "name": name,
-            "workflow": workflow,
-            "tool": run_labels.tool_label(workflow),
-            # a run named by the app carries its title (or link) in its name;
-            # a plain workflow name ("Download Video") says nothing new
-            "short_title": run_labels.short_title(name) or (run_labels.clip_title(name) if had_token else ""),
-            "status": run.get("status"),
-            "conclusion": run.get("conclusion"),
-            "created_at": timeutil.utc_iso_to_local(run.get("created_at"), "%m-%d %H:%M"),
-            "run_id": run.get("id"),
-        })
+    for wf in r.json().get("workflows", []):
+        file = (wf.get("path") or "").split("/")[-1]
+        if not file:
+            continue
+        items.append({"file": file, "name": wf.get("name") or file, "tool": run_labels.tool_label(file)})
+    items.sort(key=lambda w: w["file"].lower())
     return items
+
+
+def get_workflow_runs(workflow_file: str, page: int = 1, per_page: int = 15):
+    """One page of a workflow's runs, newest first: ``(items, has_next)``."""
+    url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page={per_page}&page={page}"
+    data = client.get(url).json()
+    runs = data.get("workflow_runs", [])
+    total = data.get("total_count") or 0
+    return [_run_item(run) for run in runs], page * per_page < total
+
+
+def dispatch_manual(workflow_file: str, inputs: dict) -> str:
+    """Runs any workflow of the repo by hand with exactly ``inputs`` (no
+    storage / job-id extras). Returns the dispatch time for ``get_run_id_after``."""
+    return dispatch_workflow(workflow_file, inputs)
 
 
 def get_run_jobs(run_id):

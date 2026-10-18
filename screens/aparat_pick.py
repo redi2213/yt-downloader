@@ -12,8 +12,10 @@ from screens.common import (
 
 
 def build(nav, entries, action, values, selected, on_go, on_back):
-    """``selected``: one bool per entry, edited in place. ``on_go(ids)`` is
-    called with the chosen video ids; ``on_back()`` returns to the form."""
+    """``selected``: one bool per entry, edited in place. ``on_go(ids, quality)``
+    is called with the chosen video ids (``quality`` is None for "Start with
+    selected" = the form's quality, or the value of the quality button that was
+    pressed); ``on_back()`` returns to the form."""
     nav.clear()
     total = len(entries)
     nav.add(Label(text=f"Aparat videos ({total})", size_hint_y=None, height=BTN_H))
@@ -33,12 +35,12 @@ def build(nav, entries, action, values, selected, on_go, on_back):
         for idx in range(total):
             set_selected(idx, value)
 
-    def go(_inst):
+    def go(_inst, quality=None):
         ids = [e["uid"] for e, on in zip(entries, selected) if on]
         if not ids:
             info.text = "Tap the videos you want first"
             return
-        on_go(ids)
+        on_go(ids, quality)
 
     row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
     all_btn = Button(text="Select all")
@@ -53,6 +55,20 @@ def build(nav, entries, action, values, selected, on_go, on_back):
     go_btn = Button(text="Start with selected", size_hint_y=None, height=BTN_H)
     go_btn.bind(on_press=go)
     nav.add(go_btn)
+
+    # like the YouTube playlist: a quality button starts the selected videos at once
+    quality_field = next((f for f in (action.get("fields") or []) if f.get("key") == "quality"), None)
+    choices = (quality_field or {}).get("choices") or []
+    if choices:
+        nav.add(Label(text="or start with a quality", size_hint_y=None, height=32))
+        per_row = 4
+        for start in range(0, len(choices), per_row):
+            q_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+            for choice in choices[start:start + per_row]:
+                q_btn = Button(text=choice.get("label", str(choice["value"])))
+                q_btn.bind(on_press=lambda i, v=choice["value"]: go(i, v))
+                q_row.add_widget(q_btn)
+            nav.add(q_row)
 
     inner_width = content_width() - 2 * dp(8)
     for idx, entry in enumerate(entries):

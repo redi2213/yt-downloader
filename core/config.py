@@ -5,7 +5,20 @@ so it can be imported from core, api, services, or screens without risk of
 circular imports.
 """
 
-APP_VERSION = "2"
+def _load_app_version() -> str:
+    """The version of this build. build-apk.yml writes core/_version.py (from
+    version.txt, 2.1, 2.2, ...) right before buildozer runs; it is not
+    committed. Falls back to \"2\" for local runs without that file."""
+    try:
+        from core._version import APP_VERSION as _version
+        if _version:
+            return str(_version).strip()
+    except ImportError:
+        pass
+    return "2"
+
+
+APP_VERSION = _load_app_version()
 
 # --- GitHub backend -----------------------------------------------------
 REPO_OWNER = "redi2213"

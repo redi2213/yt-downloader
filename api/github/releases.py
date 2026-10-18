@@ -171,6 +171,19 @@ def get_release_asset(run_id, attempts: int = 3, delay: float = 2):
     return None
 
 
+def get_release_assets(run_id, attempts: int = 2, delay: float = 1.5):
+    """Every file of release ``run-<run_id>`` as ``[{"name", "api_url"}]``
+    (empty list when there is no such release / no files). Same download
+    rules as ``get_release_asset``."""
+    url = f"{API_BASE}/releases/tags/run-{run_id}"
+    for _ in range(attempts):
+        r = client.get_allow_missing(url)
+        if r.status_code == 200:
+            return [{"name": a.get("name"), "api_url": a["url"]} for a in r.json().get("assets", [])]
+        time.sleep(delay)
+    return []
+
+
 def asset_download_headers() -> dict:
     headers = dict(auth_headers())
     headers["Accept"] = "application/octet-stream"

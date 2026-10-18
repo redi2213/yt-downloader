@@ -12,14 +12,18 @@ Nothing here imports the GitHub API layer directly.
 from kivy.clock import Clock
 from kivy.uix.button import Button
 
+from core import android_downloads, links as link_tools
 from core.jobs.job_manager import JobManager
 from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
-from services import auth_service, storage_service, file_download_service
+from services import auth_service, storage_service, file_download_service, runs_service
 from screens import common
 
+
+# Most links one box may start at once (GitHub allows ~20 runs in parallel).
+MAX_LINKS_AT_ONCE = 20
 
 # Jobs whose single output file gets the link + share + download screen.
 RELEASE_FILE_KINDS = {"backup_project": "backup", "build_apk": "apk"}
@@ -140,7 +144,7 @@ class Navigator:
         )
 
     def show_result(self, message, link=None, retry=None, retry_message="Working...", extra_buttons=None,
-                    links=None, arvan_links=None, storage_warn=None):
+                    links=None, arvan_links=None, storage_warn=None, run_id=None, category=None):
         from screens import result
         result.build(
             self,
@@ -151,7 +155,9 @@ class Navigator:
             extra_buttons=extra_buttons,
             links=links,
             arvan_links=arvan_links,
-            storage_warn=storage_warn
+            storage_warn=storage_warn,
+            run_id=run_id,
+            category=category
         )
 
     def show_about(self):
@@ -348,8 +354,20 @@ class Navigator:
                 link=job.result.get("link"),
                 links=job.result.get("links"),
                 arvan_links=job.result.get("arvan_links"),
-                storage_warn=job.result.get("storage_warn")
+                storage_warn=job.result.get("storage_warn"),
+                run_id=job.run_id,
+                category=self._download_category(job)
             )
+
+    def _download_category(self, job):
+        """Subfolder of Download/Yt-bridge for the files of a finished job."""
+        action = job.extra.get("action") or {}
+        if action.get("workflow"):
+            return android_downloads.category_for_workflow(action["workflow"])
+        if job.type == JOB_TYPE_PLAYLIST_DOWNLOAD:
+            return "YouTube"
+        # plain YouTube download (download.yml) and the "Upload a file" flow
+        return "YouTube" if job.type == "download" else "Other"
 
     def _handle_job_complete(self, job):
         # Only navigate if the user is still looking at this job - they may
@@ -370,9 +388,11 @@ class Navigator:
 
     def start_file_download(self, job):
         from screens import release_file
+        kind = RELEASE_FILE_KINDS.get((job.extra.get("action") or {}).get("id"))
         file_download_service.start_download(
             job, (job.result or {}).get("link"),
             on_update=lambda: self.schedule(lambda: release_file.refresh(job)),
+            category="APK" if kind == "apk" else "Backup",
         )
 
     def _relay_status(self, job, text):
@@ -445,21 +465,44 @@ class Navigator:
             on_complete=on_complete
         )
 
-    def handle_fetch_single(self, url, audio_only):
-        url = url.strip()
+    def youtube_links(self, text):
+        """Every link in a (multi-line) box; a lone non-http text counts as one."""
+        urls = link_tools.split_links(text)
+        if not urls and (text or "").strip():
+            urls = [text.strip()]
+        return urls
 
-        if not url:
+    def start_downloads(self, text, format_id, audio_only):
+        """The Quick Download buttons: one link = the usual job screen; several
+        links (one per line) = one separate GitHub run each, all started now.
+        Their results are in Running jobs / Recent jobs."""
+        urls = self.youtube_links(text)
+        if not urls:
+            self.set_status("Enter a YouTube link")
+            return
+        if len(urls) == 1:
+            self.start_download(urls[0], format_id, audio_only)
+            return
+        for url in urls[:MAX_LINKS_AT_ONCE]:
+            job = download_service.create_download_job(self.job_manager, url)
+            download_service.run_download_job(
+                self.job_manager, job, format_id, audio_only,
+                on_status=lambda text: None, on_complete=lambda job: None
+            )
+        self.show_running_jobs()
+
+    def handle_fetch_single(self, url, audio_only):
+        urls = self.youtube_links(url)
+
+        if not urls:
             self.set_status("Enter a YouTube link")
             return
 
         if audio_only:
-            self.start_download(
-                url,
-                "bestaudio",
-                audio_only=True
-            )
+            self.start_downloads(url, "bestaudio", True)
         else:
-            self.start_fetch_formats(url)
+            # the quality list is for one video: the first link
+            self.start_fetch_formats(urls[0])
 
     def start_upload(self, file_url, zip_it, custom_name):
         job = upload_service.create_upload_job(
@@ -938,8 +981,9 @@ class Navigator:
         self.remember(lambda: self.show_aparat_pick(action, form, entries, selected))
         aparat_pick.build(
             self, entries, action, form, selected,
-            on_go=lambda ids: self.start_dynamic_action(
-                action, form, extra={"video_ids": ",".join(ids)}),
+            on_go=lambda ids, quality=None: self.start_dynamic_action(
+                action, {**form, "quality": quality} if quality else form,
+                extra={"video_ids": ",".join(ids)}),
             on_back=lambda: self.show_action_input(action, initial=form),
         )
 
@@ -975,9 +1019,9 @@ class Navigator:
                      lambda: self.start_aparat_phone_links(values, ids, "Refreshing links...")),
                 ]
                 if len(links) == 1:
-                    self.show_result(msg, link=links[0], extra_buttons=buttons)
+                    self.show_result(msg, link=links[0], extra_buttons=buttons, category="Aparat")
                 else:
-                    self.show_result(msg, links=links, extra_buttons=buttons)
+                    self.show_result(msg, links=links, extra_buttons=buttons, category="Aparat")
             self.schedule(_show)
 
         aparat_service.start_links(
@@ -1098,7 +1142,13 @@ class Navigator:
         )
 
     def back_from_run_detail(self, origin="status"):
-        if origin == "running":
+        if origin == "wf":
+            ctx = getattr(self, "_wf_ctx", None)
+            if ctx:
+                self.show_workflow_runs(ctx["wf"], ctx["page"], ctx["back"])
+            else:
+                self.show_actions_status()
+        elif origin == "running":
             self.show_running_jobs()
         elif isinstance(origin, str) and origin.startswith("job:"):
             # opened from a job's progress panel: return to that job's screen
@@ -1157,6 +1207,129 @@ class Navigator:
                 )
             )
         )
+
+    # -- browsing runs by workflow / by app menu, running one by hand ----------
+    def show_workflows_browser(self):
+        from screens import runs_browser
+        self.remember(self.show_workflows_browser)
+        runs_browser.build_loading(self, "Runs by workflow", self.show_actions_status)
+
+        def done(res):
+            def render():
+                if not res.get("ok"):
+                    self.show_result(res["error"])
+                    return
+                runs_browser.build_workflows(
+                    self, "Runs by workflow", res["workflows"],
+                    on_open=lambda wf: self.show_workflow_runs(wf, 1, self.show_workflows_browser),
+                    back=self.show_actions_status)
+            self.schedule(render)
+
+        runs_service.start_load_workflows(done)
+
+    def show_menu_groups_browser(self):
+        from screens import runs_browser
+        self.remember(self.show_menu_groups_browser)
+        runs_browser.build_loading(self, "Runs by app menu", self.show_actions_status)
+
+        def done(res):
+            def render():
+                if not res.get("ok"):
+                    self.show_result(res["error"])
+                    return
+                runs_browser.build_groups(
+                    self, runs_service.group_workflows(res["workflows"]),
+                    on_open=self.open_menu_group, back=self.show_actions_status)
+            self.schedule(render)
+
+        runs_service.start_load_workflows(done)
+
+    def open_menu_group(self, title, workflows):
+        from screens import runs_browser
+        if len(workflows) == 1:
+            self.show_workflow_runs(workflows[0], 1, self.show_menu_groups_browser)
+            return
+        here = lambda: self.open_menu_group(title, workflows)
+        self.remember(here)
+        runs_browser.build_workflows(
+            self, title, workflows,
+            on_open=lambda wf: self.show_workflow_runs(wf, 1, here),
+            back=self.show_menu_groups_browser)
+
+    def show_workflow_runs(self, wf, page, back):
+        """One page of a workflow's runs; ``back`` opens the screen it was reached from."""
+        from screens import runs_browser
+        self._wf_ctx = {"wf": wf, "page": page, "back": back}
+        here = lambda: self.show_workflow_runs(wf, page, back)
+        self.remember(here)
+        runs_browser.build_loading(self, wf["tool"], back)
+
+        def done(res):
+            def render():
+                runs_browser.build_runs(
+                    self, wf, res, page,
+                    on_page=lambda p: self.show_workflow_runs(wf, p, back),
+                    on_manual=lambda: self.show_manual_run(wf, here),
+                    on_refresh=here, back=back)
+            self.schedule(render)
+
+        runs_service.start_load_runs(wf["file"], page, done)
+
+    def show_manual_run(self, wf, back, text="", message=""):
+        from screens import runs_browser
+        self.remember(lambda: self.show_manual_run(wf, back, text, message))
+        runs_browser.build_manual_run(
+            self, wf, on_run=lambda value: self.start_manual_run(wf, value, back),
+            back=back, text=text, message=message)
+
+    def start_manual_run(self, wf, text, back):
+        inputs, error = runs_service.parse_inputs(text)
+        if error:
+            self.set_status(error)
+            return
+        self.show_working("Starting the workflow...")
+
+        def done(res):
+            def after():
+                if res.get("ok") and res.get("run_id"):
+                    self._wf_ctx = {"wf": wf, "page": 1, "back": back}
+                    self.show_run_detail({"run_id": res["run_id"], "workflow": wf["file"], "origin": "wf"})
+                elif res.get("ok"):
+                    self.show_result(
+                        "Started, but the run did not show up yet. Open the runs list in a few seconds.",
+                        extra_buttons=[("Open the runs", lambda: self.show_workflow_runs(wf, 1, back))])
+                else:
+                    self.show_manual_run(wf, back, text=text, message=res["error"])
+            self.schedule(after)
+
+        runs_service.start_manual_run(wf["file"], inputs, done)
+
+    def copy_run_error(self, run_id, jobs, show):
+        """Failed run: copies the error text (with the failed step) so it can
+        be pasted in the chat. ``show(text)`` updates the line under the buttons."""
+        from kivy.core.clipboard import Clipboard
+        show("Getting the error text...")
+
+        def done(res):
+            def after():
+                if res.get("ok"):
+                    Clipboard.copy(res["text"])
+                    preview = res["text"] if len(res["text"]) <= 500 else res["text"][:500] + "..."
+                    show("Copied - paste it in the chat.\n\n" + preview)
+                else:
+                    show(res["error"])
+            self.schedule(after)
+
+        runs_service.start_error_text(run_id, jobs, done)
+
+    def save_run_log(self, run_id, jobs, show):
+        """Failed run: saves the whole job log as a text file in Download/Yt-bridge/Logs."""
+        show("Saving the log...")
+
+        def done(res):
+            self.schedule(lambda: show("Log saved:\n" + res["saved"]) if res.get("ok") else show(res["error"]))
+
+        runs_service.start_save_log(run_id, jobs, done)
 
     # -- job history -------------------------------------------------------
     def show_job_history(self, origin="status"):

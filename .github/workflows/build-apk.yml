@@ -58,11 +58,24 @@ jobs:
           echo "GITHUB_BRANCH = \"${{ github.ref_name }}\"" > core/_branch.py
           echo "Building from branch: ${{ github.ref_name }}"
 
-      - name: Prepare buildozer.spec (APK format + rising version code)
+      - name: Next version number (version.txt is saved only after a successful build)
+        run: |
+          CUR=$(tr -d ' \r\n' < version.txt 2>/dev/null || true)
+          [ -n "$CUR" ] || CUR="2.0"
+          if [[ "$CUR" == *.* ]]; then MAJOR="${CUR%%.*}"; MINOR="${CUR#*.}"; else MAJOR="$CUR"; MINOR=0; fi
+          [[ "$MINOR" =~ ^[0-9]+$ ]] || MINOR=0
+          NEW="$MAJOR.$((MINOR+1))"
+          echo "VERSION=$NEW" >> "$GITHUB_ENV"
+          # generated like core/_branch.py: baked into this build only, never committed
+          echo "APP_VERSION = \"$NEW\"" > core/_version.py
+          echo "Version: $CUR -> $NEW"
+
+      - name: Prepare buildozer.spec (APK format + rising version code + version)
         run: |
           sed -i '/^android\.release_artifact/d;/^# *android\.release_artifact/d;/^android\.numeric_version/d' buildozer.spec
           sed -i '/^\[app\]/a android.release_artifact = apk\nandroid.numeric_version = ${{ github.run_number }}' buildozer.spec
-          grep -n "release_artifact\|numeric_version" buildozer.spec
+          sed -i "s/^version *=.*/version = ${VERSION}/" buildozer.spec
+          grep -n "release_artifact\|numeric_version\|^version" buildozer.spec
 
       - uses: actions/setup-python@v5
         with:
@@ -122,10 +135,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          APK=$(ls bin/*.apk | head -1)
+          SRC_APK=$(ls bin/*.apk | head -1)
+          APK="bin/YT-Bridge-${VERSION}.apk"
+          cp "$SRC_APK" "$APK"
           echo "APK: $APK"
           gh release create "run-${{ github.run_id }}" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
             --prerelease \
-            --title "Build APK #${{ github.run_number }}" \
-            --notes "Signed with the fixed key - installs over the previous version."
+            --title "YT Bridge ${VERSION} (build #${{ github.run_number }})" \
+            --notes "Version ${VERSION}. Signed with the fixed key - installs over the previous version."
+
+      - name: Save the new version number in the repo
+        run: |
+          git checkout -- buildozer.spec
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "$VERSION" > version.txt
+          git add version.txt
+          git commit -m "Version ${VERSION}" || exit 0
+          for i in 1 2 3; do
+            git pull --rebase origin "${{ github.ref_name }}" || true
+            if git push origin "HEAD:${{ github.ref_name }}"; then exit 0; fi
+            sleep 4
+          done
+          echo "::warning::Could not save version.txt (the APK is already published). Set it to ${VERSION} by hand."

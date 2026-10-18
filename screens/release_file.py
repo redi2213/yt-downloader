@@ -5,7 +5,10 @@ phone: the project backup zip and the built APK.
 * ``backup`` - the zip is small, so the download to the Downloads folder
   starts by itself (see Navigator.show_release_file); a button repeats it.
 * ``apk``    - bigger, so the screen only ASKS: "Download to Downloads"
-  button; nothing is downloaded until it is pressed.
+  button; nothing is downloaded until it is pressed. When it is saved an
+  "Install" button opens Android's installer for the saved file.
+
+Files go to Download/Yt-bridge/APK and Download/Yt-bridge/Backup.
 
 The download state is kept in job.extra by services/file_download_service.py;
 ``refresh(job)`` redraws the status line and button from it.
@@ -16,17 +19,17 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from core import android_actions
+from core import android_actions, android_install
 from screens import common
 
 _TITLES = {"backup": "Project backup is ready", "apk": "APK is ready"}
-_ASK = {"backup": "Download again", "apk": "Download to Downloads folder"}
+_ASK = {"backup": "Download again", "apk": "Download in app"}
 _ASK_TEXT = {
     "backup": "",
-    "apk": "Download the APK to your phone's Downloads folder?",
+    "apk": "Download the APK to Download/Yt-bridge/APK, then install it from here?",
 }
 
-# job_id -> (status label, download button, kind) of the screen being shown
+# job_id -> (status label, download button, kind, install button or None) of the screen being shown
 _active = {}
 
 
@@ -57,11 +60,23 @@ def build(nav, job, kind):
     download_btn.bind(on_press=lambda i: nav.start_file_download(job))
     nav.add(download_btn)
 
+    install_btn = None
+    if kind == "apk":
+        install_btn = Button(text="Install", size_hint_y=None, height=52)
+
+        def install(_instance):
+            problem = android_install.open_installer(job.extra.get("dl_location"))
+            if problem:
+                status.text = problem
+
+        install_btn.bind(on_press=install)
+        nav.add(install_btn)
+
     home_btn = Button(text="Back to home", size_hint_y=None, height=48)
     home_btn.bind(on_press=lambda i: nav.show_home())
     nav.add(home_btn)
 
-    _active[job.job_id] = (status, download_btn, kind)
+    _active[job.job_id] = (status, download_btn, kind, install_btn)
     refresh(job)
 
 
@@ -71,8 +86,10 @@ def refresh(job):
     entry = _active.get(job.job_id)
     if entry is None:
         return
-    status, button, kind = entry
+    status, button, kind, install_btn = entry
     state = job.extra.get("dl_state")
+    if install_btn is not None:
+        install_btn.disabled = state != "done" or not job.extra.get("dl_location")
     if state:
         status.text = job.extra.get("dl_text", "")
     else:

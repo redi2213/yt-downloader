@@ -6,6 +6,7 @@ aether.toml
 
 # Generated at build time by build-apk.yml - never commit this
 core/_branch.py
+core/_version.py
 
 # Secrets - this repo is PUBLIC, never commit these
 *.keystore

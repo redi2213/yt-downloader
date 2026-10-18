@@ -7,6 +7,7 @@ from kivy.uix.textinput import TextInput
 
 import re
 
+from screens import result as result_screen
 from screens.common import (
     BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box, content_width,
     fa_font_kwargs, fa_text, line_height, paint_card, wrapped_label_height,
@@ -228,6 +229,9 @@ def build_report(nav, job):
             all_btn = Button(text=f"Copy all links ({len(done)})", size_hint_y=None, height=BTN_H)
             all_btn.bind(on_press=lambda i: Clipboard.copy("\n".join(x["link"] for x in done if x["link"])))
             nav.add(all_btn)
+            result_screen.add_download_in_app(
+                nav, [x["run_id"] for x in done if x.get("run_id")],
+                [x["link"] for x in done if x["link"]], "YouTube")
         if failed:
             retry_btn = Button(text=f"Retry failed ({len(failed)})", size_hint_y=None, height=BTN_H)
             retry_btn.bind(on_press=lambda i: nav.retry_playlist_videos(job, [x["url"] for x in failed]))

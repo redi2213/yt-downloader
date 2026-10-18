@@ -28,6 +28,7 @@ from core.exceptions import AuthenticationError, NetworkError
 BACKUPS_KEPT = 5
 NO_BACKUP_BRANCHES = ("config",)
 CONFIG_FILE = "config.json"
+PROTECTED_FILE = "version.txt"
 _PERMISSION_HINT = (
     "GitHub refused the change. The sign-in needs write access to Contents "
     "and Workflows (GitHub App settings), then sign in again."
@@ -110,6 +111,14 @@ def _run_update(update, branches, on_status) -> dict:
     """update: {branch: {path: (bytes, mode)}}. Checks EVERYTHING before
     touching the repo, then uploads branch by branch. Returns the result dict
     for on_done."""
+    # version.txt is owned by the build (it bumps it after every build); an old
+    # file from a project backup must never put the version back
+    for branch, files in update.items():
+        if branch == "main":
+            files.pop(PROTECTED_FILE, None)
+    update = {b: f for b, f in update.items() if f}
+    if not update:
+        return {"ok": True, "changed": False, "message": "Nothing to update."}
     for branch, files in update.items():
         if branch not in branches:
             raise zip_tools.ZipError(

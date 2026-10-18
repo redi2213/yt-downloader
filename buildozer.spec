@@ -9,7 +9,7 @@ requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.1,python
 orientation = portrait
 fullscreen = 0
 
-android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,POST_NOTIFICATIONS
+android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,POST_NOTIFICATIONS,REQUEST_INSTALL_PACKAGES
 android.api = 33
 android.minapi = 21
 android.archs = arm64-v8a

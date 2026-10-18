@@ -226,6 +226,12 @@ def build_input(nav, action, prefill=None, share_url=None, initial=None):
     tool" button, for when the tool was picked automatically. ``initial``
     ({field_key: value}) restores what was typed / picked earlier, e.g. when
     coming back from the Aparat video list."""
+    if action.get("handler") == "aparat":
+        # Aparat has its own form: it shows only what fits the link (video /
+        # playlist / channel) and groups the output choices in two steps
+        from screens import aparat_form
+        return aparat_form.build(nav, action, prefill=prefill, share_url=share_url, initial=initial)
+
     initial = initial or {}
     nav.clear()
     nav.add(Label(text=action.get("title", ""), size_hint_y=None, height=48))
