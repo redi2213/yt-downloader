@@ -1,4 +1,4 @@
-name: Any Site Extrac
+name: Any Site Extract and Upload
 run-name: Media ${{ inputs.mode }} [${{ inputs.job_id }}]
 
 on:
@@ -200,7 +200,7 @@ jobs:
 
           print(f"[ok] using mode = {mode}")
 
-          # ---------- انتخاب فرمت ----------
+          # ---------- انتخاب فرمت با اولویت کیفیت درخواستی ----------
           fmts = []
           for f in data.get("formats") or []:
               if f.get("vcodec") == "none":
@@ -215,30 +215,67 @@ jobs:
 
           ext = ""
           if fmts:
-              t = target or max(f[1] for f in fmts)
-              fmts.sort(key=lambda f: (abs(f[1] - t),
-                                       0 if f[2] == "mp4" else 1, -f[1]))
-              fid, h, ext, acodec = fmts[0]
-              fsel = f"{fid}+ba/{fid}" if acodec == "none" else fid
-              print(f"Chosen: {fid} ({h}p) -> {fsel}")
-          else:
-              fsel = "bv*+ba/b"
-              print("No height info, using best available")
+              # کیفیت‌های موجود را چاپ کن (برای دیباگ)
+              print("Available video formats:")
+              for x in fmts:
+                  print(f"  - {x[0]} ({x[1]}p) ext={x[2]} acodec={x[3]}")
 
-          # ---------- گرفتن لینک با همون mode ----------
+              if q == "highest":
+                  t = max(f[1] for f in fmts)
+              else:
+                  t = int(q)
+
+              # اولویت: کمترین فاصله از کیفیت هدف، ترجیح mp4، سپس بالاترین ارتفاع
+              fmts.sort(key=lambda f: (abs(f[1] - t),
+                                       0 if f[2] == "mp4" else 1,
+                                       -f[1]))
+              fid, h, ext, acodec = fmts[0]
+              print(f"Chosen format: {fid} ({h}p) -> target was {t}p")
+          else:
+              fid = None
+              print("No height info, will use best available")
+
+          # ---------- لیست کاندیداهای fsel (به ترتیب اولویت) ----------
+          candidates = []
+          if fid:
+              if acodec == "none":
+                  # اول ساده بدون +ba (بعضی سایت‌ها مثل Eporner audio جدا ندارن)
+                  candidates.append(fid)
+                  candidates.append(f"{fid}+ba/{fid}")
+              else:
+                  candidates.append(fid)
+          candidates.append("bv*+ba/b")
+          candidates.append("b")
+
+          seen = set()
+          candidates = [c for c in candidates if not (c in seen or seen.add(c))]
+
+          # ---------- تلاش برای گرفتن لینک با هر کاندیدا ----------
           extra_dl = []
           if mode in ("impersonate", "master+impersonate"):
               extra_dl = ["--impersonate", "chrome"]
           elif mode == "proxy":
               extra_dl = ["--impersonate", "chrome", "--proxy", proxy]
 
-          r = run(["-g", "-f", fsel] + extra_dl + [url])
-          if r.returncode:
-              fail(r.stderr or r.stdout)
-          links = [l.strip() for l in r.stdout.splitlines()
-                   if l.strip().startswith(("http://", "https://"))]
+          fsel = None
+          links = []
+          for cand in candidates:
+              print(f"[try] -f {cand}")
+              r = run(["-g", "-f", cand] + extra_dl + [url])
+              if r.returncode == 0:
+                  got = [l.strip() for l in r.stdout.splitlines()
+                         if l.strip().startswith(("http://", "https://"))]
+                  if got:
+                      fsel = cand
+                      links = got
+                      print(f"[ok] format selector worked: {cand}")
+                      break
+              errline = (r.stderr or r.stdout).strip().splitlines()
+              print(f"[fail] {cand}: {errline[-1] if errline else 'unknown'}")
+
           if not links:
-              fail("No media URL returned.")
+              fail("No media URL returned (all format selectors failed).")
+
           open("link.txt", "w").write("\n".join(links) + "\n")
 
           title = re.sub(r"[^A-Za-z0-9._-]+", "_", data.get("title") or "video")
