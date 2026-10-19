@@ -1,0 +1,430 @@
+name: Series Links
+run-name: ${{ inputs.run_title || 'Series links' }} [${{ inputs.job_id }}]
+
+# Builds the links of a whole series from ONE episode link, checks them, puts
+# them in a release (links.txt + the notes) and the run Summary, and - in
+# "upload" mode - hands the healthy ones to upload-file.yml.
+#
+# The episode part of the link is found automatically (S01E01, E01, e1, Ep01,
+# Episode 01, 1x01). Put a * in the link to mark the spot yourself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'One episode link. Put a * where the episode number is to mark it yourself (optional)'
+        required: true
+        type: string
+      from_ep:
+        description: 'First episode (type 01 to keep the zero when you use *)'
+        required: true
+        default: '1'
+        type: string
+      to_ep:
+        description: 'Last episode'
+        required: true
+        default: '5'
+        type: string
+      season:
+        description: 'Season number (optional) - replaces S01 in the path and the file name'
+        required: false
+        default: ''
+        type: string
+      mode:
+        description: 'links = only make and check the links | upload = also upload the files to a release'
+        required: true
+        default: 'links'
+        type: choice
+        options: ['links', 'upload']
+      check:
+        description: 'Check that every link works'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      zip_it:
+        description: 'upload mode: true to zip each file before uploading'
+        required: false
+        default: 'false'
+        type: string
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'upload mode: where to keep the files: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'upload mode: preferred Arvan bucket id (set by the app)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  series:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    name: series ${{ inputs.job_id }}
+    steps:
+      - name: Build and check the links
+        id: build
+        env:
+          IN_URL: ${{ inputs.url }}
+          IN_FROM: ${{ inputs.from_ep }}
+          IN_TO: ${{ inputs.to_ep }}
+          IN_SEASON: ${{ inputs.season }}
+          IN_CHECK: ${{ inputs.check }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import re
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from concurrent.futures import ThreadPoolExecutor
+
+          MAX_EPISODES = 100
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+          TICKS = "`" * 3
+
+
+          def env(name, default=""):
+              return (os.environ.get(name) or default).strip()
+
+
+          def fail(msg):
+              print(f"::error::{msg}")
+              sys.exit(1)
+
+
+          # ---------------------------------------------------------------- inputs
+          found = re.search(r"https?://\S+", env("IN_URL"))
+          if not found:
+              fail("No valid link found. The link must start with http:// or https://")
+          URL = found.group(0)
+
+          from_s = env("IN_FROM", "1")
+          to_s = env("IN_TO") or from_s
+          season_s = env("IN_SEASON")
+          for label, val in (("First episode", from_s), ("Last episode", to_s)):
+              if not val.isdigit():
+                  fail(f"{label} must be a whole number, got '{val}'")
+          if season_s and not season_s.isdigit():
+              fail(f"Season must be a whole number, got '{season_s}'")
+          first, last = int(from_s), int(to_s)
+          if last < first:
+              fail("The last episode is smaller than the first one")
+          if last - first + 1 > MAX_EPISODES:
+              fail(f"At most {MAX_EPISODES} episodes per run")
+          DO_CHECK = env("IN_CHECK", "true").lower() != "false"
+
+          # ------------------------------------------------- finding the episode part
+          SEP = r"(?:%20|[ ._-])*"
+          # (name, regex, episode group, season group)
+          PATTERNS = [
+              ("S01E01", re.compile(r"(?<![0-9A-Za-z])[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})(?!\d)"), 2, 1),
+              ("1x01", re.compile(r"(?<![0-9A-Za-z])(\d{1,2})[xX](\d{2,3})(?!\d)"), 2, 1),
+              ("E01 / Ep01 / Episode 01",
+               re.compile(r"(?<![A-Za-z])(?:[Ee]pisode|[Ee]p|[Ee])" + SEP + r"(\d{1,3})(?![0-9A-Za-z])"), 1, None),
+          ]
+          SEASON_RES = [
+              re.compile(r"(?<![0-9A-Za-z])[Ss](\d{1,2})(?=[Ee/._ %-]|$)(?!\d)"),
+              re.compile(r"(?<![A-Za-z])[Ss]eason" + SEP + r"(\d{1,2})(?!\d)"),
+          ]
+          NUM_RE = re.compile(r"(?<!\d)(\d{1,3})(?!\d)(?![pPkKiI])")
+
+
+          def split_url(url):
+              """(path start, path end) inside the url string - the host and the query are never touched."""
+              parts = urllib.parse.urlsplit(url)
+              start = url.find(parts.netloc) + len(parts.netloc) if parts.netloc else 0
+              return start, start + len(parts.path)
+
+
+          def find_episode(path):
+              base = path.rfind("/") + 1
+              for scope in (base, 0):
+                  text = path[scope:]
+                  for name, rx, eg, sg in PATTERNS:
+                      m = rx.search(text)
+                      if m:
+                          return {
+                              "name": name,
+                              "ep": (scope + m.start(eg), scope + m.end(eg)),
+                              "season": (scope + m.start(sg), scope + m.end(sg)) if sg else None,
+                              "text": m.group(0),
+                          }
+              stem = path[base:]
+              if "." in stem and len(stem.rsplit(".", 1)[1]) <= 5:
+                  stem = stem.rsplit(".", 1)[0]
+              ms = list(NUM_RE.finditer(stem))
+              if ms:
+                  m = ms[-1]
+                  return {"name": "last number in the file name", "ep": (base + m.start(1), base + m.end(1)),
+                          "season": None, "text": m.group(0)}
+              return None
+
+
+          # ------------------------------------------------------ building the links
+          star = "*" in URL
+          if star:
+              star_width = len(from_s) if (from_s.startswith("0") and len(from_s) > 1) else 1
+              base_url = URL
+              spec = None
+              p_start, p_end = split_url(URL.replace("*", "0"))
+              detected_note = "the `*` in your link is replaced by the episode number"
+          else:
+              base_url = URL
+              p_start, p_end = split_url(URL)
+              spec = find_episode(URL[p_start:p_end])
+              if spec is None:
+                  fail("Could not find an episode number in the link. Put a * where the episode "
+                       "number is (for example ...E*...) and run again.")
+              spec["ep"] = (spec["ep"][0] + p_start, spec["ep"][1] + p_start)
+              if spec["season"]:
+                  spec["season"] = (spec["season"][0] + p_start, spec["season"][1] + p_start)
+              detected_note = f"episode part found: `{spec['text']}` (pattern: {spec['name']})"
+              if spec["name"].startswith("last number"):
+                  print("::warning::No S01E01 / E01 style part found; using the last number in the file name. "
+                        "Put a * in the link if this is wrong.")
+
+
+          def make_link(n):
+              url = base_url
+              reps = {}
+              if star:
+                  url = url.replace("*", f"{n:0{star_width}d}")
+                  ps, pe = split_url(url)
+              else:
+                  ps, pe = p_start, p_end
+                  s, e = spec["ep"]
+                  reps[(s, e)] = f"{n:0{e - s}d}"
+              if season_s:
+                  path = url[ps:pe]
+                  spans = []
+                  for rx in SEASON_RES:
+                      spans += [(ps + m.start(1), ps + m.end(1)) for m in rx.finditer(path)]
+                  if not star and spec["season"]:
+                      spans.append(spec["season"])
+                  for s, e in spans:
+                      reps[(s, e)] = f"{int(season_s):0{e - s}d}"
+              for (s, e), text in sorted(reps.items(), reverse=True):
+                  url = url[:s] + text + url[e:]
+              return url
+
+
+          episodes = list(range(first, last + 1))
+          links = [make_link(n) for n in episodes]
+          print(f"Detected: {detected_note}")
+          print(f"First link: {links[0]}")
+          print(f"Last link:  {links[-1]}")
+
+
+          # ------------------------------------------------------------ the check
+          def human(n):
+              if not n:
+                  return "?"
+              n = float(n)
+              for unit in ("B", "KB", "MB", "GB"):
+                  if n < 1024 or unit == "GB":
+                      return f"{n:.0f} {unit}" if unit in ("B", "KB") else f"{n:.1f} {unit}"
+                  n /= 1024
+
+
+          def classify(code, ctype, size, url):
+              path = urllib.parse.urlsplit(url).path.lower()
+              if code in (200, 206):
+                  if "text/html" in (ctype or "").lower() and not path.endswith((".html", ".htm", ".php", ".asp", ".aspx")):
+                      return "broken", size, "an HTML page, not a file"
+                  return "ok", size, f"HTTP {code}"
+              if code in (404, 410):
+                  return "broken", None, f"HTTP {code}"
+              return "unknown", None, f"HTTP {code}"
+
+
+          def check_one(url):
+              safe = urllib.parse.quote(url, safe="%/:?&=#+@,;~!$'()*[]")
+              parts = urllib.parse.urlsplit(url)
+              headers = {"User-Agent": UA, "Accept": "*/*", "Referer": f"{parts.scheme}://{parts.netloc}/"}
+              last_error = "no answer"
+              for method, extra in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
+                  for _attempt in range(2):
+                      try:
+                          req = urllib.request.Request(safe, method=method, headers={**headers, **extra})
+                          resp = urllib.request.urlopen(req, timeout=25)
+                          code = resp.status
+                          ctype = resp.headers.get("Content-Type", "")
+                          size = None
+                          crange = resp.headers.get("Content-Range", "")
+                          clen = resp.headers.get("Content-Length", "")
+                          if "/" in crange and crange.rsplit("/", 1)[1].isdigit():
+                              size = int(crange.rsplit("/", 1)[1])
+                          elif code == 200 and clen.isdigit():
+                              size = int(clen)
+                          resp.close()
+                          return classify(code, ctype, size, url)
+                      except urllib.error.HTTPError as e:
+                          code = e.code
+                          e.close()
+                          if method == "HEAD" and code in (400, 403, 404, 405, 501):
+                              break  # some servers refuse HEAD: ask again with GET
+                          return classify(code, "", None, url)
+                      except Exception as e:  # timeout, DNS, TLS, reset...
+                          last_error = str(e)[:60]
+                          time.sleep(1)
+              return "unknown", None, last_error
+
+
+          if DO_CHECK:
+              with ThreadPoolExecutor(max_workers=6) as pool:
+                  checked = list(pool.map(check_one, links))
+          else:
+              checked = [("unchecked", None, "check is off")] * len(links)
+
+          rows = []
+          for n, url, (status, size, note) in zip(episodes, links, checked):
+              rows.append({"ep": n, "url": url, "status": status, "size": size, "note": note})
+              print(f"{n}: {status} {human(size)} {note}")
+
+          ICON = {"ok": "✅ ok", "broken": "❌ broken", "unknown": "⚠️ unverified", "unchecked": "– not checked"}
+          good = [r for r in rows if r["status"] != "broken"]
+          broken = [r for r in rows if r["status"] == "broken"]
+          unknown = [r for r in rows if r["status"] == "unknown"]
+          ok = [r for r in rows if r["status"] == "ok"]
+
+          lines = [f"**Series links** - {len(rows)} link(s)"
+                   + (f": {len(ok)} ok, {len(broken)} broken, {len(unknown)} unverified" if DO_CHECK else " (not checked)"),
+                   "", f"_{detected_note}_", ""]
+          if good:
+              lines += [TICKS, *[r["url"] for r in good], TICKS, ""]
+          else:
+              lines += ["No usable link.", ""]
+          if DO_CHECK:
+              if broken:
+                  lines += ["**Broken:** " + ", ".join(str(r["ep"]) for r in broken), ""]
+              if unknown:
+                  lines += ["**Unverified** (the site did not answer from GitHub's servers - often not broken): "
+                            + ", ".join(str(r["ep"]) for r in unknown), ""]
+          lines += ["| Ep | Status | Size | Note |", "|---|---|---|---|"]
+          for r in rows:
+              lines.append(f"| {r['ep']} | {ICON[r['status']]} | {human(r['size'])} | {r['note']} |")
+          text = "\n".join(lines) + "\n"
+
+          os.makedirs("out", exist_ok=True)
+          with open("out/links.txt", "w", encoding="utf-8") as f:
+              f.write("".join(r["url"] + "\n" for r in good))
+          with open("out/notes.md", "w", encoding="utf-8") as f:
+              f.write(text)
+          summary = env("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as f:
+                  f.write(text)
+          out = env("GITHUB_OUTPUT")
+          if out:
+              with open(out, "a", encoding="utf-8") as f:
+                  f.write(f"good={len(good)}\nbroken={len(broken)}\n")
+          PYEOF
+
+      - name: Make the links release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: run-${{ github.run_id }}
+          TITLE_NAME: ${{ inputs.run_title || inputs.job_id || github.run_id }}
+        run: |
+          set -euo pipefail
+          ASSET=""
+          if [ -s out/links.txt ]; then ASSET="out/links.txt"; fi
+          gh release create "$TAG" $ASSET \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "Links $TITLE_NAME" \
+            --notes-file out/notes.md
+
+      - name: Upload the files with upload-file.yml
+        if: ${{ inputs.mode == 'upload' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: run-${{ github.run_id }}
+          ZIP_IT: ${{ inputs.zip_it }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          RUN_TITLE: ${{ inputs.run_title }}
+        run: |
+          set -euo pipefail
+          if [ ! -s out/links.txt ]; then
+            echo "::warning::No usable link to upload."
+            exit 0
+          fi
+          TOKEN="series-$GITHUB_RUN_ID"
+          LINKS=$(cat out/links.txt)
+
+          if ! gh workflow run upload-file.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+              -f file_url="$LINKS" -f zip_it="${ZIP_IT:-false}" -f storage="$STORAGE" \
+              -f arvan_bucket="$ARVAN_BUCKET" -f job_id="$TOKEN" -f run_title="$RUN_TITLE"; then
+            echo "Retrying without the storage inputs (older upload-file.yml)"
+            gh workflow run upload-file.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
+              -f file_url="$LINKS" -f zip_it="${ZIP_IT:-false}" -f job_id="$TOKEN" -f run_title="$RUN_TITLE"
+          fi
+
+          CHILD=""
+          for i in $(seq 1 30); do
+            CHILD=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow upload-file.yml \
+              --event workflow_dispatch --limit 30 --json databaseId,displayTitle \
+              | jq -r --arg t "[$TOKEN]" '.[] | select(.displayTitle | contains($t)) | .databaseId' \
+              | head -1 || true)
+            [ -n "$CHILD" ] && break
+            sleep 4
+          done
+          if [ -z "$CHILD" ]; then
+            echo "::error::Started upload-file.yml but could not find its run."
+            exit 1
+          fi
+          echo "CHILD_ID=$CHILD" >> "$GITHUB_ENV"
+          echo "Upload run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CHILD"
+
+          # Tell the release where the uploaded files will be
+          {
+            cat out/notes.md
+            echo
+            echo "**Files:** [release run-$CHILD](https://github.com/$GITHUB_REPOSITORY/releases/tag/run-$CHILD)"
+            echo
+            echo "UPLOAD_RELEASE_TAG=run-$CHILD"
+          } > out/notes_upload.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file out/notes_upload.md
+
+          while true; do
+            STATUS=$(gh run view "$CHILD" --repo "$GITHUB_REPOSITORY" --json status -q .status)
+            if [ "$STATUS" = "completed" ]; then break; fi
+            echo "upload-file.yml: $STATUS"
+            sleep 30
+          done
+          CONCLUSION=$(gh run view "$CHILD" --repo "$GITHUB_REPOSITORY" --json conclusion -q .conclusion)
+          {
+            echo
+            echo "**Upload run $CHILD:** $CONCLUSION - https://github.com/$GITHUB_REPOSITORY/releases/tag/run-$CHILD"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::upload-file.yml finished with: $CONCLUSION"
+            exit 1
+          fi
+
+      - name: Cancel the upload run if this run is cancelled
+        if: ${{ cancelled() && env.CHILD_ID != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel "$CHILD_ID" --repo "$GITHUB_REPOSITORY" || true
