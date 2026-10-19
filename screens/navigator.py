@@ -18,6 +18,7 @@ from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
+from services import error_help_service, health_service, ntfy_service
 from api import run_mode_prefs
 from services import auth_service, storage_service, file_download_service, runs_service
 from screens import common
@@ -369,7 +370,7 @@ class Navigator:
                 links=job.result.get("links"),
                 arvan_links=job.result.get("arvan_links"),
                 storage_warn=job.result.get("storage_warn"),
-                run_id=job.run_id,
+                run_id=job.result.get("files_run_id") or job.run_id,
                 category=self._download_category(job)
             )
 
@@ -1444,6 +1445,84 @@ class Navigator:
             self.schedule(lambda: show("Log saved:\n" + res["saved"]) if res.get("ok") else show(res["error"]))
 
         runs_service.start_save_log(run_id, jobs, done)
+
+    # -- Run again -----------------------------------------------------------------
+    def rerun_run(self, run_id):
+        """\"Run again\" on a run's page: the same workflow with the same inputs
+        (read from the run's name). Runs whose inputs cannot be read open the
+        manual-run page with the workflow's inputs prefilled instead."""
+        run = getattr(self, "_run_ctx", None) or {"run_id": run_id, "origin": "status"}
+        back = lambda: self.show_run_detail({**run, "run_id": run_id})
+        self.show_working("Reading the run...")
+
+        def planned(res):
+            def after():
+                if not res.get("ok"):
+                    self.show_result(res["error"], extra_buttons=[("Back to the run", back)])
+                elif res["exact"]:
+                    self._start_rerun(res["workflow"], res["inputs"], run, back)
+                else:
+                    wf = {"file": res["workflow"], "tool": res["tool"]}
+                    self._wf_ctx = {"wf": wf, "page": 1, "back": back}
+                    self.show_manual_run(
+                        wf, back, text=res["prefill"],
+                        message="This run's inputs could not be read. Check them and press Run.")
+            self.schedule(after)
+
+        runs_service.start_rerun_plan(run_id, planned)
+
+    def _start_rerun(self, workflow_file, inputs, run, back):
+        self.show_working("Starting the run again...")
+
+        def done(res):
+            def after():
+                if res.get("ok") and res.get("run_id"):
+                    self.show_run_detail({"run_id": res["run_id"], "workflow": workflow_file,
+                                          "origin": run.get("origin", "status")})
+                elif res.get("ok"):
+                    self.show_result("Started, but the new run did not show up yet. "
+                                     "Open the runs list in a few seconds.",
+                                     extra_buttons=[("Back to the run", back)])
+                else:
+                    self.show_result(res["error"], extra_buttons=[("Back to the run", back)])
+            self.schedule(after)
+
+        runs_service.start_rerun_dispatch(workflow_file, inputs, done)
+
+    def load_error_help(self, run_id, jobs, show):
+        """Fills the Persian help of a failed run's page. ``show(text)`` hops to
+        the UI thread itself; it gets '' when nothing matches."""
+        def done(res):
+            show(res.get("text", "") if res.get("ok") else "")
+        error_help_service.start_error_help(run_id, jobs, done)
+
+    # -- Health and ntfy notifications --------------------------------------------
+    def show_health(self):
+        from screens import health
+        self.remember(self.show_health)
+        health.build_loading(self, self.show_settings)
+
+        def done(res):
+            self.schedule(lambda: health.build(self, res, self.show_health, self.show_settings))
+
+        health_service.start_health(done)
+
+    def save_ntfy_topic(self, topic, show):
+        show("Saving the topic...")
+
+        def done(res):
+            if res.get("ok"):
+                show("Saved: every workflow now sends to this topic." if res.get("topic")
+                     else "Saved: notifications are off.")
+            else:
+                show(res["error"])
+
+        ntfy_service.start_save(topic, done)
+
+    def test_ntfy(self, topic, show):
+        show("Sending...")
+        ntfy_service.start_test(
+            topic, lambda res: show("Sent: it should arrive in the ntfy app." if res.get("ok") else res["error"]))
 
     # -- job history -------------------------------------------------------
     def show_job_history(self, origin="status"):

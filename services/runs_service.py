@@ -8,7 +8,7 @@ Every ``start_*`` function works in the background and calls
 import re
 
 from api.github import logs, releases, workflows
-from core import android_downloads
+from core import android_downloads, rerun
 from core.async_utils import run_in_background
 from core.exceptions import AuthenticationError
 
@@ -21,7 +21,7 @@ MENU_GROUPS = [
     ("YouTube", ["download.yml", "list-formats.yml", "list-playlist.yml"]),
     ("Aparat", ["aparat-download.yml"]),
     ("Download Anything", ["Any-Site-Upload.yml", "telegram-download.yml", "filimo-direct-link.yml",
-                           "google-play-download.yml", "upload-file.yml"]),
+                           "google-play-download.yml", "upload-file.yml", "Series-Links.yml"]),
     ("Build and backup", ["build-apk.yml", "backup-project.yml"]),
     ("Maintenance", ["zip-release.yml", "cleanup-releases.yml", "arvan-maintenance.yml"]),
 ]
@@ -206,4 +206,52 @@ def start_run_result(run_id, on_done):
         if not link and not links:
             raise ValueError("This run left no files (it made no release, or it is still running).")
         return {"link": link, "links": links if len(links) > 1 else None, **extras}
+    run_in_background(_guarded, on_done, work)
+
+
+# -- Run again -----------------------------------------------------------------
+def start_rerun_plan(run_id, on_done):
+    """Reads what is needed to repeat a run. The result is one of
+
+    * ``{"ok": True, "exact": True, "workflow", "inputs"}``  - the run's own
+      inputs were found in its name: it can be sent again as it is;
+    * ``{"ok": True, "exact": False, "workflow", "prefill", "tool"}`` - they
+      were not (an older run, or one started on GitHub): ``prefill`` is the
+      text for the manual-run box (``name=value`` lines).
+    """
+    def work():
+        info = workflows.get_run_info(run_id)
+        file = info["workflow"]
+        if not file:
+            raise ValueError("Could not tell which workflow this run belongs to.")
+        inputs = rerun.inputs_from_name(info["name"])
+        if inputs is not None:
+            return {"exact": True, "workflow": file, "inputs": inputs}
+        title = rerun.split_run_name(info["name"])[0]
+        try:
+            declared = rerun.parse_declared_inputs(workflows.get_workflow_file_text(file))
+        except Exception:
+            declared = []
+        return {"exact": False, "workflow": file, "tool": run_labels_tool(file),
+                "prefill": rerun.prefill_lines(file, title, declared)}
+    run_in_background(_guarded, on_done, work)
+
+
+def run_labels_tool(file):
+    from core import run_labels
+    return run_labels.tool_label(file)
+
+
+def start_rerun_dispatch(workflow_file, inputs, on_done):
+    """Sends ``workflow_file`` again with ``inputs`` (the app adds a fresh
+    token and the current storage choice, like for any other run)."""
+    def work():
+        try:
+            run_id = workflows.dispatch_and_find_run(workflow_file, dict(inputs))
+        except Exception as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code == 422:
+                raise ValueError("GitHub refused the inputs. Use the manual run page and check them.")
+            raise
+        return {"run_id": run_id}
     run_in_background(_guarded, on_done, work)

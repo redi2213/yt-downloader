@@ -1,5 +1,5 @@
 name: Download Video
-run-name: ${{ inputs.run_title || inputs.video_url }} [${{ inputs.job_id }}]
+run-name: ${{ inputs.run_title || inputs.video_url }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
 
 on:
   workflow_dispatch:
@@ -17,6 +17,11 @@ on:
         default: 'false'
       job_id:
         description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app: the other inputs packed into the run name so "Run again" can repeat this run (leave empty when running by hand)'
         required: false
         default: ''
         type: string
@@ -661,3 +666,61 @@ jobs:
           ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
         run: |
           python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "Download run-${{ github.run_id }}"
+
+      - name: Notify (ntfy)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: YouTube download
+          ONLY_FAILURE: 'false'
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          if [ "$JOB_STATUS" = "success" ] && [ "$ONLY_FAILURE" = "true" ]; then
+            echo "Success and this tool only reports failures: no notification."
+            exit 0
+          fi
+          # The topic is set once in the app (Settings) and kept in ntfy.json on the config branch.
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then
+            echo "No ntfy.json on the config branch: no notification."
+            exit 0
+          fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then
+            echo "ntfy topic is not set: no notification."
+            exit 0
+          fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" \
+              -H "Title: YT Bridge - $TOOL_NAME - $WORD" -H "Tags: $TAGS" -H "Priority: $PRIO" \
+              -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi

@@ -84,3 +84,22 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   `services/anysite_service.py` ران را اجرا می‌کند و `FORMATS_JSON` را از لاگ جاب‌های `link N` می‌خواند؛ `screens/anysite_formats.py` فرمت‌ها را دکمه‌دکمه نشان می‌دهد
   (کم‌حجم‌ترین هر رزولوشن علامت دارد)؛ لمس یک دکمه یک ران معمولی با `format_id` و فقط همان لینک می‌فرستد (`generic_action_service._resolve_inputs`).
   APK قدیمی گزینه‌ی Check را ندارد؛ اگر `handler` را نشناسد فقط ران عادی می‌فرستد.
+
+
+---
+
+## بسته‌ی اول ۲۸ مهر: Run again، ntfy، راهنمای خطا، Health، Series Links
+
+- **Run again** (`core/rerun.py`, `services/runs_service.py`): GitHub ورودی‌های ران را نمی‌دهد، پس اپ ورودی‌ها را (zlib+base64url، یک خط) در **اسم ران** می‌گذارد:
+  `<عنوان> [<توکن ۱۲hex>] ~<ورودی‌ها>`. ورک‌فلوها ورودی اختیاری `rerun` دارند و `run-name` آن‌ها `${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}` را اضافه می‌کند
+  (`_dispatch_and_find_run` اول با rerun می‌فرستد، اگر ورک‌فلو نشناخت HTTP 422 → بدون آن). لیست ران‌ها این دنباله را پنهان می‌کند. دکمه‌ی **Run again** در صفحه‌ی هر ران:
+  ورودی‌ها از اسم خوانده می‌شود؛ اگر نبود (ران قدیمی/دستی)، صفحه‌ی اجرای دستی با `name=value` پر می‌شود (ورودی‌ها از خود فایل ورک‌فلو). `job_id/run_title/storage/arvan_bucket` تکرار نمی‌شوند (توکن و ذخیره‌ساز فعلی دوباره ساخته می‌شود).
+- **ntfy**: آخرین قدم ورک‌فلوها (`Notify (ntfy)`؛ برای ورک‌فلوهای چندجابی یک job به اسم `notify`) پیام می‌فرستد. topic در Settings > Notifications تنظیم می‌شود و در فایل **`ntfy.json`** برنچ `config`
+  (`{"topic": "...", "server": "https://ntfy.sh"}`) ذخیره می‌شود؛ ورک‌فلو آن را با `GITHUB_TOKEN` از API می‌خواند، پس چیزی به ورک‌فلوها داده نمی‌شود. topic خالی = خاموش.
+  `list-formats.yml` و `list-playlist.yml` فقط وقتی خطا بدهند پیام می‌فرستند (نویز نشود). `arvan-maintenance.yml`/cleanup/zip-release نوتیف ندارند.
+- **راهنمای خطای فارسی**: کلید `error_help` در `config.json` (برنچ config): لیست `{id, match:[متن یا re:regex], title, tip}`؛ ۲ مورد اول که بخورد زیر دکمه‌های Copy error نشان داده می‌شود.
+  نسخه‌ی داخلی در `core/error_help.py` (`DEFAULT_PATTERNS`) برای وقتی که config خوانده نشود. `services/error_help_service.py`.
+- **Health** (Settings > Health check): توکن (معتبر/دسترسی/تاریخ انقضا)، نسخه و برنچ، ورک‌فلوهای ضروری، Secretها (فقط نام)، دقیقه‌های Actions این ماه (`services/health_service.py`, `screens/health.py`).
+  دقیقه‌ها فقط با توکن classic دارای scope `user` خوانده می‌شود؛ ریپوی public رایگان است. لیست `REQUIRED_WORKFLOWS` و `SECRET_SPECS` بالای فایل سرویس است.
+- **Series Links** (`Series-Links.yml`، دکمه‌ی «Series links» در Download Anything از config.json): از لینک یک قسمت، لینک کل سریال را می‌سازد/چک می‌کند، `links.txt` + نت‌ها را در ریلیز `run-<id>` می‌گذارد،
+  و در حالت upload فایل‌ها را با `upload-file.yml` آپلود می‌کند. نتیجه‌ی upload در ریلیز فرزند است: ورک‌فلو `UPLOAD_RELEASE_TAG=run-N` را در نت‌های ریلیز می‌نویسد و `generic_action_service._finish_action` همان را نشان می‌دهد.

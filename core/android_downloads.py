@@ -31,6 +31,7 @@ _WORKFLOW_CATEGORY = {
     "telegram-download.yml": "Telegram",
     "filimo-direct-link.yml": "Filimo",
     "Any-Site-Upload.yml": "Any-site",
+    "Series-Links.yml": "Any-site",
 }
 
 

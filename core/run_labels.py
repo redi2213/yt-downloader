@@ -13,6 +13,7 @@ TOOL_LABELS = {
     "upload-file.yml": "Upload",
     "zip-release.yml": "Zip",
     "Any-Site-Upload.yml": "Any site",
+    "Series-Links.yml": "Series links",
     "aparat-download.yml": "Aparat",
     "telegram-download.yml": "Telegram",
     "google-play-download.yml": "Google Play",

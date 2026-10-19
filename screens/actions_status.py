@@ -170,6 +170,42 @@ def _add_failure_panel(nav, run_id, jobs, origin="status"):
     nav.add(info)
 
 
+def _add_help_label(nav, run_id, jobs):
+    """Persian explanation of the failure (what it means, what to try), filled
+    in a moment later from the failed job's log. The patterns come from
+    config.json, so they can be edited without a build."""
+    width = content_width() - dp(8)
+    label = Label(text="", size_hint_y=None, height=dp(4), halign="right", valign="top",
+                  color=(1, 0.93, 0.6, 1))
+    label.text_size = (width, None)
+
+    def show(text):
+        def apply(_dt):
+            if not text:
+                label.text, label.height = "", dp(4)
+                return
+            shaped = fa_text(text, width)
+            font = fa_font_kwargs(text)
+            if font:
+                label.font_name = font["font_name"]
+            label.text = shaped
+            label.height = wrapped_label_height(shaped, extra_padding=dp(14), width=width)
+        Clock.schedule_once(apply)
+
+    nav.add(label)
+    nav.load_error_help(run_id, jobs, show)
+
+
+def _add_rerun_button(nav, run_id, failed=False):
+    """Sends the same workflow again with the same inputs (read from the run's
+    name); when they cannot be read, the manual-run page opens with them prefilled."""
+    btn = Button(text="Run again", size_hint_y=None, height=BTN_H)
+    if failed:
+        btn.background_color = (1.0, 0.8, 0.5, 1)
+    btn.bind(on_press=lambda i: nav.rerun_run(run_id))
+    nav.add(btn)
+
+
 def build_run_detail(nav, run_id, jobs, origin="status"):
     """Every step of the run as a coloured button (green done, yellow running,
     red failed, grey waiting/skipped). Tap a step to see the last lines of
@@ -178,10 +214,15 @@ def build_run_detail(nav, run_id, jobs, origin="status"):
     nav.add(Label(text=f"Run #{run_id}", size_hint_y=None, height=40))
     if jobs:
         _add_failure_panel(nav, run_id, jobs, origin)
+        failed = runs_service.has_failure(jobs)
+        if failed:
+            _add_help_label(nav, run_id, jobs)
+        _add_rerun_button(nav, run_id, failed=failed)
         result_btn = Button(text="Result (files of this run)", size_hint_y=None, height=BTN_H)
         result_btn.bind(on_press=lambda i: nav.show_run_result(run_id))
         nav.add(result_btn)
     if not jobs:
+        _add_rerun_button(nav, run_id)
         nav.add(Label(text="Could not load steps", size_hint_y=None, height=40))
     else:
         width = content_width()

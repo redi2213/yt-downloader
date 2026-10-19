@@ -10,8 +10,9 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from screens.common import back_button
-from services import token_service
+from screens.common import back_button, paste_row, wrapped_label
+from services import ntfy_service, token_service
+from api import ntfy_prefs
 from api import filimo
 
 
@@ -65,6 +66,12 @@ def build(nav):
     storage_btn.bind(on_press=lambda i: nav.show_storage())
     nav.add(storage_btn)
 
+    _add_ntfy_section(nav)
+
+    health_btn = Button(text="Health check", size_hint_y=None, height=48)
+    health_btn.bind(on_press=lambda i: nav.show_health())
+    nav.add(health_btn)
+
     nav.add(Label(text="App update", size_hint_y=None, height=32))
     update_btn = Button(text="Update project (zip or files)", size_hint_y=None, height=48)
     update_btn.bind(on_press=lambda i: nav.pick_file_for_update())
@@ -108,3 +115,31 @@ def _save_filimo_and_refresh(nav, filimo_input):
     filimo.save_token(filimo_input.text.strip())
     nav.show_filimo_field = False
     nav.show_settings()
+
+
+def _add_ntfy_section(nav):
+    """Notifications when the app is closed: the workflows send a message to this
+    ntfy topic (typed once here; saving puts it in ntfy.json on the config branch)."""
+    nav.add(Label(text="Notifications (ntfy)", size_hint_y=None, height=32))
+    nav.add(wrapped_label("Install the ntfy app and subscribe to the same topic. Every run then sends "
+                          "its result (OK / FAILED, tool, link) to your phone, even when this app is closed. "
+                          "The topic works like a password: use a long random one."))
+    topic_input = TextInput(text=ntfy_prefs.get_topic(), hint_text="ntfy topic", multiline=False,
+                            size_hint_y=None, height=48)
+    nav.add(topic_input)
+    info = Label(text="", size_hint_y=None, height=40, color=(1, 0.75, 0.4, 1))
+
+    def say(text):
+        nav.set_status(text)
+
+    gen_btn = Button(text="Make a random topic", size_hint_y=None, height=44)
+    gen_btn.bind(on_press=lambda i: setattr(topic_input, "text", ntfy_service.generate_topic()))
+    nav.add(gen_btn)
+    save_btn = Button(text="Save topic (for all workflows)", size_hint_y=None, height=44)
+    save_btn.bind(on_press=lambda i: nav.save_ntfy_topic(topic_input.text, say))
+    nav.add(save_btn)
+    test_btn = Button(text="Send a test notification", size_hint_y=None, height=44)
+    test_btn.bind(on_press=lambda i: nav.test_ntfy(topic_input.text, say))
+    nav.add(test_btn)
+    nav.add(info)
+    nav.set_status_label(info)

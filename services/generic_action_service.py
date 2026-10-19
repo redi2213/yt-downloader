@@ -7,6 +7,7 @@ follows download.yml's convention (tag "run-{run_id}"), which is what
 download-anything.yml also uses - NOT upload-file.yml's job_id-tag
 convention, since download-anything.yml has no job_id input.
 """
+import re
 import uuid
 
 from api.github import workflows, releases
@@ -105,9 +106,28 @@ def _action_thread(job_manager, job, on_status, on_complete):
         _emit_complete(on_complete, job)
 
 
-def _finish_action(job_manager, run_id, job, on_complete):
+# Series-Links.yml in "upload" mode writes the tag of the release that holds the
+# uploaded files into its own release notes ("UPLOAD_RELEASE_TAG=run-123").
+_UPLOAD_TAG_RE = re.compile(r"UPLOAD_RELEASE_TAG=(run-(\d+))")
+
+
+def _upload_release(run_id):
+    """(tag, run id) of the release with the uploaded files, or (None, None)
+    when this run's own release is the result (every other workflow)."""
     try:
-        link = releases.get_release_result(run_id)
+        body = releases.get_release_body(run_id, attempts=1, delay=0) or ""
+    except Exception:
+        return None, None
+    m = _UPLOAD_TAG_RE.search(body)
+    return (m.group(1), int(m.group(2))) if m else (None, None)
+
+
+
+def _finish_action(job_manager, run_id, job, on_complete):
+    files_tag, files_run_id = _upload_release(run_id)
+    try:
+        link = (releases.get_release_result(tag=files_tag) if files_tag
+                else releases.get_release_result(run_id))
     except Exception as e:
         retry = _make_retry_fetch_link(job_manager, run_id, job, on_complete)
         job_manager.complete(job, ok=False,
@@ -119,15 +139,18 @@ def _finish_action(job_manager, run_id, job, on_complete):
         result = {"link": link}
         try:
             # A release can hold several files (multi-file upload, Aparat "upload files")
-            links = releases.get_release_links(run_id, attempts=1, delay=0)
+            links = releases.get_release_links(None if files_tag else run_id, tag=files_tag,
+                                               attempts=1, delay=0)
             if len(links) > 1:
                 result["links"] = links
         except Exception:
             pass
         try:
-            result.update(releases.get_release_extras(run_id))
+            result.update(releases.get_release_extras(None if files_tag else run_id, tag=files_tag))
         except Exception:
             pass
+        if files_run_id:
+            result["files_run_id"] = files_run_id   # "Download in app" reads this run's release
         job_manager.complete(job, ok=True, result_data=result)
         _emit_complete(on_complete, job)
     else:

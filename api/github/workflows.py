@@ -13,7 +13,7 @@ import requests
 
 from api import storage_prefs
 from api.github import client
-from core import run_labels, run_title, timeutil
+from core import rerun, run_labels, run_title, timeutil
 from core.config import API_BASE, GITHUB_BRANCH, NETWORK_GRACE_SECONDS
 from core.exceptions import NetworkError
 
@@ -23,13 +23,16 @@ from core.exceptions import NetworkError
 RUN_TOKEN_INPUT = "job_id"
 # Optional second input: a short ASCII name for the run (see core/run_title.py)
 RUN_TITLE_INPUT = "run_title"
+# Optional third input: the other inputs packed into one short text that the
+# workflow adds to its run-name, so "Run again" can repeat the run (core/rerun.py)
+RERUN_INPUT = "rerun"
 
 # Workflows that can keep their file on Arvan Cloud as well as (or instead of)
 # a GitHub Release. They all declare the two inputs below.
 STORAGE_WORKFLOWS = {
     "download.yml", "upload-file.yml", "Any-Site-Upload.yml",
     "filimo-direct-link.yml", "google-play-download.yml",
-    "aparat-download.yml", "telegram-download.yml",
+    "aparat-download.yml", "telegram-download.yml", "Series-Links.yml",
 }
 STORAGE_INPUT = "storage"
 STORAGE_BUCKET_INPUT = "arvan_bucket"
@@ -44,7 +47,8 @@ _legacy_lock = threading.Lock()
 _claimed_runs = set()
 
 # "...[a1b2c3d4e5f6]" suffix added by run-name; hidden in run lists.
-_TOKEN_SUFFIX_RE = re.compile(r"\s*\[[0-9a-f]{12}\]\s*$")
+# (and the packed inputs after it: "[token] ~eNodykEK...")
+_TOKEN_SUFFIX_RE = re.compile(r"\s*\[[0-9a-f]{12}\]" + rerun.PACKED_TAIL_RE + r"\s*$")
 
 
 def dispatch_workflow(workflow_file: str, inputs: dict) -> str:
@@ -177,9 +181,13 @@ def _dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12,
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
     url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
 
-    # Newest workflow first: token + title; then token only; then (a workflow
-    # that knows neither input answers HTTP 422 each time) the old way.
+    # Newest workflow first: token + title + packed inputs (for Run again);
+    # then token + title; then token only; then (a workflow that knows none of
+    # them answers HTTP 422 each time) the old way.
+    packed = rerun.pack_inputs(inputs)
     payloads = []
+    if packed:
+        payloads.append({**tagged, **({RUN_TITLE_INPUT: title} if title else {}), RERUN_INPUT: packed})
     if title:
         payloads.append({**tagged, RUN_TITLE_INPUT: title})
     payloads.append(tagged)
@@ -357,3 +365,23 @@ def get_run_steps(run_id):
     if not jobs:
         return []
     return jobs[0].get("steps", [])
+
+def get_run_info(run_id):
+    """What "Run again" needs from one run: ``{"workflow": file, "name": the
+    run's full name (with the packed inputs), "branch": head branch}``."""
+    data = client.get(f"{API_BASE}/actions/runs/{run_id}").json()
+    path = (data.get("path") or "").split("/")[-1].split("@")[0]
+    return {
+        "workflow": path,
+        "name": data.get("name") or data.get("display_title") or "",
+        "branch": data.get("head_branch") or GITHUB_BRANCH,
+    }
+
+
+def get_workflow_file_text(workflow_file: str, ref: str = None) -> str:
+    """The text of ``.github/workflows/<file>`` (to read its declared inputs)."""
+    headers = dict(client.auth_headers())
+    headers["Accept"] = "application/vnd.github.raw+json"
+    r = client.get(f"{API_BASE}/contents/.github/workflows/{workflow_file}",
+                   params={"ref": ref or GITHUB_BRANCH}, headers=headers)
+    return r.text
