@@ -82,7 +82,7 @@
     },
     {
       "id": "series_links",
-      "title": "Series links (batch episodes)",
+      "title": "Series links (from one episode link)",
       "icon": "download",
       "enabled": true,
       "fields": [
@@ -90,25 +90,71 @@
           "key": "url",
           "type": "text",
           "label": "One episode link",
-          "hint": "Link of any episode (put * where the number is, optional)"
+          "hint": "Put a * where the episode number is (optional)"
         },
         {
           "key": "from_ep",
           "type": "text",
-          "label": "From episode",
-          "hint": "1"
+          "label": "First episode",
+          "hint": "1   (type 01 to keep the zero when you use *)"
         },
         {
           "key": "to_ep",
           "type": "text",
-          "label": "To episode",
-          "hint": "5"
+          "label": "Last episode",
+          "hint": "5   (up to 100 episodes per run)"
         },
         {
           "key": "season",
-          "type": "text",
-          "label": "Season (optional)",
-          "hint": "Leave empty to keep the link's season"
+          "type": "choice",
+          "label": "Season (replaces S01 in the link)",
+          "choices": [
+            {
+              "label": "Keep as in link",
+              "value": ""
+            },
+            {
+              "label": "1",
+              "value": "1"
+            },
+            {
+              "label": "2",
+              "value": "2"
+            },
+            {
+              "label": "3",
+              "value": "3"
+            },
+            {
+              "label": "4",
+              "value": "4"
+            },
+            {
+              "label": "5",
+              "value": "5"
+            },
+            {
+              "label": "6",
+              "value": "6"
+            },
+            {
+              "label": "7",
+              "value": "7"
+            },
+            {
+              "label": "8",
+              "value": "8"
+            },
+            {
+              "label": "9",
+              "value": "9"
+            },
+            {
+              "label": "10",
+              "value": "10"
+            }
+          ],
+          "default": ""
         },
         {
           "key": "mode",
@@ -120,7 +166,7 @@
               "value": "links"
             },
             {
-              "label": "Upload to release",
+              "label": "Links + upload files",
               "value": "upload"
             }
           ],
@@ -129,18 +175,34 @@
         {
           "key": "check",
           "type": "choice",
-          "label": "Check the links",
+          "label": "Check that every link works",
           "choices": [
             {
-              "label": "Check",
+              "label": "Yes",
               "value": "true"
             },
             {
-              "label": "Don't check",
+              "label": "No",
               "value": "false"
             }
           ],
           "default": "true"
+        },
+        {
+          "key": "zip_it",
+          "type": "choice",
+          "label": "Upload mode: zip each file",
+          "choices": [
+            {
+              "label": "No",
+              "value": "false"
+            },
+            {
+              "label": "Yes",
+              "value": "true"
+            }
+          ],
+          "default": "false"
         }
       ],
       "workflow": "Series-Links.yml",
@@ -150,7 +212,8 @@
         "to_ep": "{to_ep}",
         "season": "{season}",
         "mode": "{mode}",
-        "check": "{check}"
+        "check": "{check}",
+        "zip_it": "{zip_it}"
       }
     },
     {
@@ -546,5 +609,208 @@
         "output_mode": "GitHub Release"
       }
     }
+  ],
+  "error_help": [
+    {
+      "id": "bot_check",
+      "match": [
+        "not a bot",
+        "sign in to confirm",
+        "confirm you’re not a bot",
+        "use --cookies"
+      ],
+      "title": "یوتیوب می‌گه ربات هستی",
+      "tip": "کوکی یوتیوب منقضی یا نامعتبر شده. Secret با نام YTDLP_COOKIES را با کوکی تازه (فرمت Netscape) به‌روز کن و دوباره اجرا کن."
+    },
+    {
+      "id": "private_video",
+      "match": [
+        "private video",
+        "video is private",
+        "video unavailable",
+        "has been removed",
+        "this video is not available",
+        "account associated with this video has been terminated"
+      ],
+      "title": "ویدیو خصوصی یا حذف شده",
+      "tip": "ویدیو قابل دسترس نیست. لینک را در مرورگر باز کن تا ببینی همچنان موجود است."
+    },
+    {
+      "id": "age_restricted",
+      "match": [
+        "age-restricted",
+        "confirm your age",
+        "inappropriate for some users"
+      ],
+      "title": "محدودیت سنی",
+      "tip": "برای این ویدیو ورود با حساب لازم است. کوکی تازهٔ یوتیوب در Secret با نام YTDLP_COOKIES بگذار."
+    },
+    {
+      "id": "geo_block",
+      "match": [
+        "not available in your country",
+        "blocked it in your country",
+        "geo restricted",
+        "geo-restricted",
+        "who has blocked it"
+      ],
+      "title": "محدودیت جغرافیایی",
+      "tip": "این محتوا از سرورهای گیت‌هاب قابل دسترس نیست. اگر سایت اجازه می‌دهد، دکمهٔ «لینک از روی گوشی» را امتحان کن."
+    },
+    {
+      "id": "live_event",
+      "match": [
+        "live event will begin",
+        "premieres in",
+        "this live event",
+        "is upcoming"
+      ],
+      "title": "هنوز پخش نشده",
+      "tip": "این ویدیو پرمیر یا پخش زنده آینده است. بعد از پخش شدن دوباره امتحان کن."
+    },
+    {
+      "id": "token_invalid",
+      "match": [
+        "bad credentials",
+        "token is invalid",
+        "github token invalid",
+        "re:\\bhttp 401\\b",
+        "re:\\b401\\b.*unauthorized",
+        "resource not accessible by"
+      ],
+      "title": "توکن گیت‌هاب نامعتبر یا بدون اجازه",
+      "tip": "توکن منقضی شده یا دسترسی کافی ندارد. از Settings توکن تازه بگذار یا دوباره با GitHub وارد شو (صفحهٔ Health هم وضعیت توکن را نشان می‌دهد)."
+    },
+    {
+      "id": "link_expired",
+      "match": [
+        "url has expired",
+        "link has expired",
+        "link expired",
+        "signature has expired",
+        "token expired",
+        "re:\\bhttp error 410\\b",
+        "re:\\b410\\b.*gone",
+        "expired"
+      ],
+      "title": "لینک منقضی شده",
+      "tip": "لینک موقت بود و منقضی شده. لینک تازه بگیر و دوباره اجرا کن («Run again» لینک قدیمی را دوباره می‌فرستد)."
+    },
+    {
+      "id": "http_403",
+      "match": [
+        "re:\\bhttp error 403\\b",
+        "re:\\b403\\b.*forbidden",
+        "forbidden",
+        "re:\\bstatus code:? 403\\b"
+      ],
+      "title": "دسترسی رد شد (403)",
+      "tip": "سایت درخواست را رد کرده: لینک منقضی، محدودیت سرور یا نیاز به کوکی. لینک تازه بگیر، کمی بعد دوباره امتحان کن یا کیفیت را عوض کن."
+    },
+    {
+      "id": "http_404",
+      "match": [
+        "re:\\bhttp error 404\\b",
+        "re:\\b404\\b.*not found",
+        "re:\\bstatus code:? 404\\b"
+      ],
+      "title": "صفحه یا فایل پیدا نشد (404)",
+      "tip": "لینک اشتباه است یا محتوا حذف شده. لینک را در مرورگر باز کن و درست‌ش کن."
+    },
+    {
+      "id": "rate_limit",
+      "match": [
+        "re:\\b429\\b",
+        "too many requests",
+        "rate limit",
+        "rate-limit"
+      ],
+      "title": "درخواست بیش از حد (429)",
+      "tip": "سایت یا گیت‌هاب موقتاً محدودت کرده. چند دقیقه صبر کن و دوباره اجرا کن (چند لینک را کمتر هم‌زمان بفرس)."
+    },
+    {
+      "id": "no_ffmpeg",
+      "match": [
+        "ffmpeg not found",
+        "ffmpeg is not installed",
+        "ffprobe and ffmpeg not found",
+        "ffmpeg: command not found",
+        "ffmpeg: not found"
+      ],
+      "title": "ffmpeg پیدا نشد",
+      "tip": "نصب ffmpeg در ورک‌فلو ناموفق بوده (معمولاً مشکل موقت دانلود). یک‌بار دیگر اجرا کن؛ اگر تکرار شد مرحلهٔ «Install ffmpeg» در لاگ را ببین."
+    },
+    {
+      "id": "timeout",
+      "match": [
+        "timed out",
+        "timed_out",
+        "timeout",
+        "exceeded the maximum execution time",
+        "operation was canceled",
+        "the operation was cancelled"
+      ],
+      "title": "زمان اجرا تمام شد (تایم‌اوت)",
+      "tip": "کار از مدت مجاز طولانی‌تر شد. کیفیت پایین‌تر برای فایل بزرگ انتخاب کن، یا فایل‌ها را جدا و کم‌تعدادتر دانلود کن."
+    },
+    {
+      "id": "no_space",
+      "match": [
+        "no space left on device",
+        "disk quota exceeded"
+      ],
+      "title": "جای دیسک رانر تمام شد",
+      "tip": "فایل آنقدر بزرگ است که جا نمی‌شود. کیفیت پایین‌تر انتخاب کن یا فایل‌ها را به چند اجرای جدا تقسیم کن."
+    },
+    {
+      "id": "too_large",
+      "match": [
+        "file size exceeds",
+        "larger than 2",
+        "asset size",
+        "re:\\bsize\\b.*\\b2\\s?gb\\b",
+        "too large",
+        "re:\\b413\\b"
+      ],
+      "title": "فایل از ۲ گیگ بیشتر است",
+      "tip": "گیت‌هاب فایل بیش از ۲ گیگابایت را در ریلیز نمی‌پذیرد. کیفیت پایین‌تر انتخاب کن یا ذخیره‌سازی آروان (Storage) را امتحان کن."
+    },
+    {
+      "id": "no_format",
+      "match": [
+        "requested format is not available",
+        "no video formats found",
+        "format is not available",
+        "no formats found"
+      ],
+      "title": "کیفیت درخواستی موجود نیست",
+      "tip": "این کیفیت برای ویدیو وجود ندارد. از «Qualities» لیست واقعی را بگیر یا کیفیت «Best» را انتخاب کن."
+    },
+    {
+      "id": "network",
+      "match": [
+        "name or service not known",
+        "temporary failure in name resolution",
+        "connection reset",
+        "connection refused",
+        "connection aborted",
+        "remote end closed connection",
+        "max retries exceeded"
+      ],
+      "title": "خطای شبکه",
+      "tip": "ارتباط با سایت برقرار نشد. معمولاً موقتی است؛ چند دقیقه بعد «Run again» را بزن."
+    },
+    {
+      "id": "secret_missing",
+      "match": [
+        "secret not found",
+        "no such secret",
+        "re:secrets?\\.[a-z_]+ .*empty",
+        "cookies file is empty",
+        "cookies.txt is empty"
+      ],
+      "title": "Secret گیت‌هاب تنظیم نشده",
+      "tip": "یکی از Secretهای مخزن خالی است. صفحهٔ Health لیست Secretهای موجود را نشان می‌دهد."
+    }
   ]
-        }
+}
