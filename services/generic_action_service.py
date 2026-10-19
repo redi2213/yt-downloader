@@ -57,6 +57,10 @@ def _resolve_inputs(action: dict, field_values: dict) -> dict:
             for field_key, field_value in field_values.items():
                 value = value.replace(f"{{{field_key}}}", str(field_value))
         resolved[key] = value
+    # Any site: the exact format picked from the "Check formats" list. Sent
+    # only when set, so every other action (and older workflow files) is untouched.
+    if field_values.get("format_id") and action.get("handler") == "anysite":
+        resolved["format_id"] = str(field_values["format_id"])
     return resolved
 
 

@@ -1050,6 +1050,38 @@ class Navigator:
             values.get("url", ""), values.get("quality", "best"),
             values.get("channel_limit", "count:5"), ids or [], _done)
 
+    # -- Any site: check formats, then download one ----------------------------
+    def start_anysite_check(self, action, form):
+        """Runs the workflow in "check" mode (nothing is downloaded), then shows
+        the offered formats; tapping one downloads it."""
+        from services import anysite_service
+        self.show_working("Checking the available formats...")
+
+        def _done(res):
+            def _show():
+                if res.get("ok"):
+                    self.show_anysite_formats(action, form, res["links"])
+                else:
+                    self.show_result(
+                        res.get("error", "Failed"),
+                        extra_buttons=[("Back to form",
+                                        lambda: self.show_action_input(action, initial=form))],
+                    )
+            self.schedule(_show)
+
+        anysite_service.start_check(action, form.get("urls", ""), self.set_status, _done)
+
+    def show_anysite_formats(self, action, form, links):
+        from screens import anysite_formats
+        self.remember(lambda: self.show_anysite_formats(action, form, links))
+        anysite_formats.build(
+            self, links,
+            on_pick=lambda url, format_id: self.start_dynamic_action(
+                action, {**form, "urls": url},
+                extra={"format_id": format_id}),
+            on_back=lambda: self.show_action_input(action, initial=form),
+        )
+
     def start_dynamic_action(self, action, field_values, extra=None):
         # field_values: dict of {field_key: value}. Text fields need
         # trimming and a non-empty check; choice fields (already a resolved
@@ -1072,6 +1104,14 @@ class Navigator:
                     self.set_status(error)
                     return
             cleaned[key] = value
+
+        # Any site: quality "Check formats" lists what the site offers; the
+        # chosen format is then downloaded by a normal run (format_id set).
+        if action.get("handler") == "anysite":
+            if extra and extra.get("format_id"):
+                cleaned["quality"] = "highest"  # ignored by the workflow when format_id is set
+            elif cleaned.get("quality") == "check":
+                return self.start_anysite_check(action, cleaned)
 
         # One Filimo button, two modes: "phone" gets the link from this
         # phone's network; anything else goes through the GitHub workflow.

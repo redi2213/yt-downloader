@@ -71,3 +71,16 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   «Full list from GitHub (codecs)» لیست کامل را می‌دهد. در حالت Auto اگر گوشی نتواند، همان کار روی گیت‌هاب اجرا می‌شود. دانلود فایل همیشه روی گیت‌هاب است.
 - **اسم ران‌ها**: عنوان همان‌طور که هست (فارسی هم)، ۲ بار تلاش؛ Any-Site-Upload.yml و filimo-direct-link.yml حالا `run_title` و `job_id` را می‌شناسند.
 
+
+---
+
+## Any site: Check formats (۱۹ مهر)
+
+- `Any-Site-Upload.yml`: کیفیت `check` فقط لیست فرمت‌ها را می‌سازد (جدول در لاگ/Summary، artifact `formats-N` و یک خط `FORMATS_JSON={...}` در لاگ)؛ چیزی دانلود/آپلود نمی‌شود.
+  ورودی جدید `format_id` (اختیاری): اگر پر باشد همان فرمت دقیق دانلود می‌شود و کیفیت نادیده گرفته می‌شود.
+- برای کیفیت عددی/highest: بین فرمت‌های هم‌رزولوشن، کم‌حجم‌ترین انتخاب می‌شود (حجم از هدر سرور با درخواست Range خوانده می‌شود چون Eporner حجم نمی‌دهد).
+- استخراج با ۳ تلاش معمولی، ۳ تلاش با `--impersonate chrome`، و در آخر yt-dlp nightly؛ در شکست نهایی لاگ verbose چاپ می‌شود (خطای ناپایدار `Unable to extract hash` در Eporner).
+- اپ: اکشن `any_site_upload` در config.json حالا `"handler": "anysite"` و گزینه‌ی کیفیت «Check formats» دارد.
+  `services/anysite_service.py` ران را اجرا می‌کند و `FORMATS_JSON` را از لاگ جاب‌های `link N` می‌خواند؛ `screens/anysite_formats.py` فرمت‌ها را دکمه‌دکمه نشان می‌دهد
+  (کم‌حجم‌ترین هر رزولوشن علامت دارد)؛ لمس یک دکمه یک ران معمولی با `format_id` و فقط همان لینک می‌فرستد (`generic_action_service._resolve_inputs`).
+  APK قدیمی گزینه‌ی Check را ندارد؛ اگر `handler` را نشناسد فقط ران عادی می‌فرستد.
