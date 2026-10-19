@@ -1,5 +1,5 @@
 {
-  "config_version": 15,
+  "config_version": 16,
   "actions": [
     {
       "id": "tiktok_download",
@@ -37,6 +37,10 @@
           "label": "Quality",
           "choices": [
             {
+              "label": "Check formats",
+              "value": "check"
+            },
+            {
               "label": "Highest",
               "value": "highest"
             },
@@ -73,7 +77,8 @@
         "mode": "release",
         "urls": "{urls}",
         "quality": "{quality}"
-      }
+      },
+      "handler": "anysite"
     },
     {
       "id": "aparat_download",
