@@ -1,5 +1,5 @@
 {
-  "config_version": 17,
+  "config_version": 18,
   "actions": [
     {
       "id": "tiktok_download",
@@ -78,7 +78,30 @@
         "urls": "{urls}",
         "quality": "{quality}"
       },
-      "handler": "anysite"
+      "handler": "anysite",
+      "group": "upload"
+    },
+    {
+      "id": "drive_to_release",
+      "title": "Google Drive to release",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "drive.google.com"
+      ],
+      "group": "upload",
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Google Drive file link",
+          "hint": "https://drive.google.com/file/d/.../view"
+        }
+      ],
+      "workflow": "drive-to-release.yml",
+      "workflow_inputs": {
+        "drive_url": "{url}"
+      }
     },
     {
       "id": "series_links",
