@@ -1,0 +1,81 @@
+
+name: Google Drive to GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      drive_url:
+        description: Public Google Drive file URL
+        required: true
+        default: https://drive.google.com/file/d/17ghIqZCvRnRj9RxHoVfps1a1CUk_dmwh/view
+        type: string
+      release_tag:
+        description: Release tag to create or update
+        required: true
+        default: drive-import-test
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install gdown
+        run: python -m pip install gdown
+
+      - name: Download file from Google Drive
+        id: download
+        env:
+          DRIVE_URL: ${{ inputs.drive_url }}
+        run: |
+          set -euo pipefail
+
+          META=$(gdown --json --quiet "$DRIVE_URL")
+          FILE_NAME=$(echo "$META" | jq -r '.[0].path')
+
+          if [ -z "$FILE_NAME" ] || [ "$FILE_NAME" = "null" ]; then
+            echo "Could not determine the file name."
+            exit 1
+          fi
+
+          gdown --continue "$DRIVE_URL" -O "$FILE_NAME"
+
+          if [ ! -s "$FILE_NAME" ]; then
+            echo "Download failed or file is empty."
+            exit 1
+          fi
+
+          echo "file_name=$FILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "Downloaded: $FILE_NAME"
+          ls -lh "$FILE_NAME"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag }}
+          FILE_NAME: ${{ steps.download.outputs.file_name }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG" "$FILE_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --notes "File imported from Google Drive."
+          fi
+
+          echo "Release asset uploaded successfully."
+
+          gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            | jq -r --arg name "$FILE_NAME" \
+              '.assets[] | select(.name == $name) | .browserDownloadUrl'
+              
