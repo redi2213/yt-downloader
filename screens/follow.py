@@ -90,95 +90,237 @@ def build_detail(nav, f, st, new_count, back, on_files, on_check, on_toggle, on_
     nav.add(back_button(nav, to=back))
 
 
-# -- the form -----------------------------------------------------------------------------------------------
-def _label(nav, text):
-    nav.add(Label(text=text, size_hint_y=None, height=30, halign="left", color=(0.8, 0.85, 1, 1)))
+# -- the form ---------------------------------------------------------------------------------------------------
+# Simple first: the link, what to fetch, and Save. Everything else sits in
+# folded sections (tap a title to open it) and only the options that fit the
+# choices made so far are shown (series / latest, YouTube / Aparat, ...).
+def _hint(text, color=(0.75, 0.8, 0.9, 1)):
+    label = Label(text=text, size_hint_y=None, halign="left", valign="top", color=color)
+    label.text_size = (common.content_width() - dp(8), None)
+    label.height = common.wrapped_label_height(text, extra_padding=dp(8), width=common.content_width() - dp(8))
+    return label
 
 
-def _text(nav, label, value="", hint=""):
-    _label(nav, label)
-    box = TextInput(text=str(value or ""), hint_text=hint, multiline=False, size_hint_y=None, height=FIELD_H)
-    nav.add(box)
-    return box
-
-
-def _spinner(nav, label, values, current):
-    _label(nav, label)
-    sp = Spinner(text=current, values=values, size_hint_y=None, height=FIELD_H)
-    nav.add(sp)
-    return sp
+def _caption(text):
+    return Label(text=text, size_hint_y=None, height=30, halign="left", color=(0.8, 0.85, 1, 1))
 
 
 def build_form(nav, f, is_new, on_save, back):
     """Add / edit one channel. ``on_save(follow dict)`` gets the filled-in follow."""
     nav.clear()
     _title(nav, "Follow a channel" if is_new else f"Edit: {f.get('name', '')}")
-    status = Label(text="", size_hint_y=None, height=40, color=(1, 0.6, 0.5, 1))
+    d = dict(f)                       # the draft: every widget writes here before a re-draw
+    d["stop"] = dict(f.get("stop") or {})
+    d["start_from"] = dict(f.get("start_from") or {"type": "now", "value": None})
+    opened = {"when": False, "quality": False, "more": False}
+    refs = {}                         # key -> widget of the current draw
+    status = Label(text="", size_hint_y=None, height=48, color=(1, 0.6, 0.5, 1))
+    status.text_size = (common.content_width(), None)
 
-    url = _text(nav, "Channel link (YouTube or Aparat)", f.get("url", ""), "https://youtube.com/@channel")
-    nav.add(paste_row(url))
-    name = _text(nav, "Name (used for the release and the list)", f.get("name", ""))
+    body = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
+    body.bind(minimum_height=body.setter("height"))
 
-    mode_labels = [m[0] for m in fc.MODES]
-    mode_now = next((l for l, v in fc.MODES if v == f.get("mode")), mode_labels[1])
-    mode = _spinner(nav, "What to fetch", mode_labels, mode_now)
+    def val(key, default=""):
+        w = refs.get(key)
+        return w.text if w is not None else default
 
-    _label(nav, "Days to check (none picked = every day)")
-    days_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=FIELD_H, spacing=GAP)
-    day_buttons = []
-    for label, num in fc.WEEK_BUTTONS:
-        b = ToggleButton(text=label, state="down" if num in (f.get("days") or []) else "normal")
-        day_buttons.append((num, b))
-        days_row.add_widget(b)
-    nav.add(days_row)
+    def sync():
+        """Copies what is typed / picked into the draft (before every re-draw and on Save)."""
+        if not refs:
+            return
+        d["url"] = fc.clean_url(val("url", d.get("url", "")))
+        d["site"] = fc.site_of(d["url"])
+        d["name"] = val("name", d.get("name", "")).strip()
+        if "days" in refs:
+            d["days"] = [n for n, b in refs["days"] if b.state == "down"]
+        for key, name in (("start", "start"), ("end", "end")):
+            if key in refs:
+                d[name] = refs[key].text
+        if "every" in refs:
+            d["every_days"] = fc.to_int(refs["every"].text, 1)
+        if "quality" in refs:
+            d["quality"] = refs["quality"].text
+        if "per_run" in refs:
+            d["max_per_run"] = fc.to_int(refs["per_run"].text, 1)
+        if "min" in refs:
+            d["min_minutes"] = fc.to_int(refs["min"].text)
+        if "max" in refs:
+            d["max_minutes"] = fc.to_int(refs["max"].text)
+        if "include" in refs:
+            d["include"] = fc.words(refs["include"].text)
+        if "exclude" in refs:
+            d["exclude"] = fc.words(refs["exclude"].text)
+        if "zip" in refs:
+            d["zip"] = refs["zip"].text == "Yes"
+        if "stop_ep" in refs:
+            d["stop"]["episode"] = fc.to_int(refs["stop_ep"].text) or None
+        if "stop_date" in refs:
+            d["stop"]["date"] = refs["stop_date"].text.strip() or None
+        if "stop_count" in refs:
+            d["stop"]["count"] = fc.to_int(refs["stop_count"].text) or None
+        # where to start
+        if d.get("mode") == "series":
+            if "from_ep" in refs:
+                ep = refs["from_ep"].text.strip()
+                d["start_from"] = {"type": "episode", "value": ep} if ep else {"type": "now", "value": None}
+        else:
+            kind = "now"
+            if "first" in refs and refs["first"].text == FIRST_LAST_N:
+                kind = "last_n"
+            date = refs["from_date"].text.strip() if "from_date" in refs else ""
+            if date:
+                d["start_from"] = {"type": "date", "value": date}
+            elif kind == "last_n":
+                d["start_from"] = {"type": "last_n", "value": refs["last_n"].text.strip() if "last_n" in refs else ""}
+            else:
+                d["start_from"] = {"type": "now", "value": None}
 
-    start = _spinner(nav, "Check from (Iran time)", fc.HOURS, f.get("start", "20:00"))
-    end = _spinner(nav, "Check until (Iran time)", fc.HOURS, f.get("end", "23:59"))
-    every = _spinner(nav, "Latest videos: look at most every ... days", fc.EVERY_DAYS, str(f.get("every_days", 3)))
-    quality = _spinner(nav, "Quality", fc.QUALITIES, f.get("quality", "best"))
-    per_run = _spinner(nav, "Most videos started per check", fc.PER_RUN, str(f.get("max_per_run", 1)))
+    def put(widget_key, widget):
+        refs[widget_key] = widget
+        body.add_widget(widget)
+        return widget
 
-    nav.add(Label(text="Filters", size_hint_y=None, height=34))
-    min_m = _text(nav, "YouTube: shortest video (minutes, 0 = any)", f.get("min_minutes") or "", "60")
-    max_m = _text(nav, "YouTube: longest video (minutes, 0 = any)", f.get("max_minutes") or "", "")
-    include = _text(nav, "Title must contain one of (comma separated)", ", ".join(f.get("include") or []), "")
-    exclude = _text(nav, "Title must NOT contain (comma separated)", ", ".join(f.get("exclude") or []), "")
+    def field(key, label, value="", hint="", numbers=False):
+        body.add_widget(_caption(label))
+        box = TextInput(text=str(value or ""), hint_text=hint, multiline=False, size_hint_y=None, height=FIELD_H,
+                        **({"input_filter": "int"} if numbers else {}))
+        return put(key, box)
 
-    nav.add(Label(text="Where to start", size_hint_y=None, height=34))
-    sf = f.get("start_from") or {"type": "now", "value": None}
-    from_labels = [t[0] for t in fc.FROM_TYPES]
-    from_now = next((l for l, v in fc.FROM_TYPES if v == sf.get("type")), from_labels[0])
-    start_from = _spinner(nav, "Start", from_labels, from_now)
-    start_value = _text(nav, "Episode number / date (2026-10-19) / how many videos", sf.get("value") or "", "")
+    def pick(key, label, values, current):
+        body.add_widget(_caption(label))
+        return put(key, Spinner(text=str(current), values=values, size_hint_y=None, height=FIELD_H))
 
-    nav.add(Label(text="Stop automatically (all optional)", size_hint_y=None, height=34))
-    stop = f.get("stop") or {}
-    stop_ep = _text(nav, "After this episode number", stop.get("episode") or "", "")
-    stop_date = _text(nav, "After this date (2026-12-31)", stop.get("date") or "", "")
-    stop_count = _text(nav, "After this many videos", stop.get("count") or "", "")
+    def section(key, title, summary):
+        btn = Button(text=f"{'-' if opened[key] else '+'}  {title}:  {summary}", size_hint_y=None, height=dp(54),
+                     halign="left", valign="middle", background_color=(0.25, 0.3, 0.4, 1))
+        btn.text_size = (common.content_width() - dp(16), None)
 
-    zip_sp = _spinner(nav, "Aparat: zip every check into one file", ["No", "Yes"], "Yes" if f.get("zip") else "No")
-    nav.add(wrapped_label("YouTube files over 2 GB are cut into playable parts (part1, part2). "
-                          "Aparat can only be followed in the 'Latest videos' way."))
+        def flip(_i):
+            sync()
+            opened[key] = not opened[key]
+            render()
+        btn.bind(on_press=flip)
+        body.add_widget(btn)
+        return opened[key]
+
+    def choose_mode(mode):
+        sync()
+        if d.get("mode") != mode:
+            d["mode"] = mode
+            if mode == "series":              # sensible series defaults: one long episode a night
+                if not d.get("min_minutes"):
+                    d["min_minutes"] = 60
+                if d.get("start") == "20:00":
+                    d["start"] = "21:00"
+                d["start_from"] = {"type": "now", "value": None}
+            else:
+                d["start_from"] = {"type": "now", "value": None}
+        render()
+
+    def render():
+        sync()
+        refs.clear()
+        body.clear_widgets()
+        site = d.get("site") or fc.site_of(d.get("url", ""))
+        aparat = site == "aparat"
+        if aparat:
+            d["mode"] = "latest"
+        series = d.get("mode") == "series"
+
+        # 1. the channel
+        field("url", "Channel link (YouTube or Aparat)", d.get("url", ""), "https://youtube.com/@channel")
+        body.add_widget(paste_row(refs["url"]))
+        shape = (site, fc.looks_like_video(d.get("url", "")))
+
+        def url_changed(_inst, value):
+            # Paste / typing: draw again only when the kind of link changed
+            # (YouTube <-> Aparat, channel <-> one video), so the options fit it
+            if (fc.site_of(value), fc.looks_like_video(value)) != shape:
+                render()
+        refs["url"].bind(text=url_changed)
+        if fc.looks_like_video(d.get("url", "")):
+            body.add_widget(_hint("This looks like the link of ONE video. Open the channel page and copy that link "
+                                  "(youtube.com/@name).", (1, 0.7, 0.5, 1)))
+        field("name", "Name (for the list and the release)", d.get("name", ""))
+
+        # 2. what to fetch: two big choices, then only the questions that belong to the choice
+        body.add_widget(_caption("What do you want?"))
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(60), spacing=GAP)
+        for label, mode in (("Series\n(next episode)", "series"), ("Latest\nvideos", "latest")):
+            b = ToggleButton(text=label, group="mode", state="down" if d.get("mode") == mode else "normal",
+                             allow_no_selection=False, halign="center",
+                             disabled=(mode == "series" and aparat))
+            b.bind(on_press=lambda i, m=mode: choose_mode(m))
+            row.add_widget(b)
+        body.add_widget(row)
+        if series:
+            body.add_widget(_hint("Gets one new episode at a time, by the number in the title (like 'episode 81'). "
+                                  "Videos shorter than the limit below (clips, trailers) are skipped."))
+            sf = d.get("start_from") or {}
+            field("from_ep", "Start from episode number (empty = only new episodes from now on)",
+                  sf.get("value") if sf.get("type") == "episode" else "", "75", numbers=True)
+            field("min", "Ignore videos shorter than (minutes)", d.get("min_minutes") or "", "60", numbers=True)
+        else:
+            if aparat:
+                body.add_widget(_hint("Aparat channels can be followed with 'Latest videos'."))
+            pick("every", "Look for new videos every ... days", fc.EVERY_DAYS, d.get("every_days", 3))
+            sf = d.get("start_from") or {}
+            first_now = FIRST_LAST_N if sf.get("type") == "last_n" else FIRST_ONLY_NEW
+            pick("first", "The first time", [FIRST_ONLY_NEW, FIRST_LAST_N], first_now)
+            refs["first"].bind(text=lambda i, v: render())     # shows / hides the "how many" box
+            if first_now == FIRST_LAST_N:
+                field("last_n", "How many of the latest videos?", sf.get("value") or "", "3", numbers=True)
+
+        # 3. when
+        if section("when", "When to check", f"{fc.days_text(d)}, {d.get('start')}-{d.get('end')} (Iran time)"):
+            body.add_widget(_hint("Days: none picked = every day."))
+            drow = BoxLayout(orientation="horizontal", size_hint_y=None, height=FIELD_H, spacing=GAP)
+            toggles = []
+            for label, num in fc.WEEK_BUTTONS:
+                b = ToggleButton(text=label, state="down" if num in (d.get("days") or []) else "normal")
+                toggles.append((num, b))
+                drow.add_widget(b)
+            refs["days"] = toggles
+            body.add_widget(drow)
+            pick("start", "From", fc.HOURS, d.get("start", "20:00"))
+            pick("end", "Until", fc.HOURS, d.get("end", "23:59"))
+
+        # 4. quality and amount
+        if section("quality", "Quality and amount", f"{d.get('quality', 'best')}, {d.get('max_per_run', 1)} per check"):
+            pick("quality", "Quality", fc.QUALITIES, d.get("quality", "best"))
+            pick("per_run", "Most videos started per check", fc.PER_RUN, d.get("max_per_run", 1))
+            if aparat:
+                pick("zip", "Put every check's videos in one zip file", ["No", "Yes"], "Yes" if d.get("zip") else "No")
+
+        # 5. everything else
+        more_bits = []
+        if d.get("include") or d.get("exclude"):
+            more_bits.append("title words")
+        if any((d.get("stop") or {}).values()):
+            more_bits.append("stop rule")
+        if section("more", "More options", ", ".join(more_bits) or "filters, stop rules"):
+            if not aparat and not series:
+                field("min", "Ignore videos shorter than (minutes)", d.get("min_minutes") or "", "0", numbers=True)
+            if not aparat:
+                field("max", "Ignore videos longer than (minutes)", d.get("max_minutes") or "", "0", numbers=True)
+            field("include", "Title must contain one of these words (comma separated)",
+                  ", ".join(d.get("include") or []))
+            field("exclude", "Title must NOT contain (comma separated)", ", ".join(d.get("exclude") or []))
+            if not series:
+                sf = d.get("start_from") or {}
+                field("from_date", "Only videos uploaded since this date (2026-10-19)",
+                      sf.get("value") if sf.get("type") == "date" else "")
+            body.add_widget(_hint("Stop automatically (all optional):"))
+            stop = d.get("stop") or {}
+            if series:
+                field("stop_ep", "After this episode number", stop.get("episode") or "", "", numbers=True)
+            field("stop_date", "After this date (2026-12-31)", stop.get("date") or "")
+            field("stop_count", "After this many videos", stop.get("count") or "", "", numbers=True)
 
     def save(_i):
-        out = dict(f)
-        out["url"] = fc.clean_url(url.text)
-        out["site"] = fc.site_of(out["url"])
-        out["name"] = name.text.strip() or fc.name_from_url(out["url"])
-        out["mode"] = next((v for l, v in fc.MODES if l == mode.text), "latest")
-        out["days"] = [n for n, b in day_buttons if b.state == "down"]
-        out["start"], out["end"] = start.text, end.text
-        out["every_days"] = fc.to_int(every.text, 1)
-        out["quality"] = quality.text
-        out["max_per_run"] = fc.to_int(per_run.text, 1)
-        out["min_minutes"], out["max_minutes"] = fc.to_int(min_m.text), fc.to_int(max_m.text)
-        out["include"], out["exclude"] = fc.words(include.text), fc.words(exclude.text)
-        kind = next((v for l, v in fc.FROM_TYPES if l == start_from.text), "now")
-        out["start_from"] = {"type": kind, "value": start_value.text.strip() or None}
-        out["stop"] = {"episode": fc.to_int(stop_ep.text) or None, "date": stop_date.text.strip() or None,
-                       "count": fc.to_int(stop_count.text) or None}
-        out["zip"] = zip_sp.text == "Yes"
+        sync()
+        out = dict(d)
+        out["name"] = out.get("name") or fc.name_from_url(out.get("url", ""))
         if is_new:
             out["slug"] = f["slug"]
         problem = fc.validate(out)
@@ -187,8 +329,14 @@ def build_form(nav, f, is_new, on_save, back):
             return
         on_save(out)
 
+    render()
+    nav.add(body)
+    nav.add(status)
     save_btn = Button(text="Save", size_hint_y=None, height=BTN_H)
     save_btn.bind(on_press=save)
-    nav.add(status)
     nav.add(save_btn)
     nav.add(back_button(nav, to=back))
+
+
+FIRST_ONLY_NEW = "Only new videos from now on"
+FIRST_LAST_N = "Also take the latest few"

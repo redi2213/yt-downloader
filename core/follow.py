@@ -33,6 +33,13 @@ def site_of(url):
     return ""
 
 
+def looks_like_video(url):
+    """True for a link to ONE video (a channel link is needed to follow)."""
+    u = (url or "").lower()
+    return ("youtu.be/" in u or "watch?v=" in u or "/shorts/" in u or "/live/" in u
+            or ("aparat.com" in u and "/v/" in u))
+
+
 def clean_url(url):
     """The link without tracking parameters (?si=...), but a playlist keeps its list=."""
     url = (url or "").strip().split("#")[0]
@@ -91,8 +98,9 @@ def validate(f):
         return "Paste the channel link."
     if not f.get("site"):
         return "Only YouTube and Aparat channels can be followed."
-    if f["site"] == "aparat" and "/v/" in f["url"]:
-        return "Use the channel link (aparat.com/<channel>), not a video link."
+    if looks_like_video(f["url"]):
+        return ("This is a link to one video. Open the CHANNEL page and copy its link "
+                "(youtube.com/@name or aparat.com/name).")
     if f.get("mode") == "series" and f["site"] == "aparat":
         return "Series mode needs episode numbers in the titles: use it for YouTube. Aparat: Latest videos."
     if not f.get("name"):

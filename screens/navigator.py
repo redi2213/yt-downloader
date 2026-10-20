@@ -1540,6 +1540,7 @@ class Navigator:
         from kivy.uix.button import Button
         from kivy.uix.label import Label
         from kivy.uix.textinput import TextInput
+        from screens import common
         from screens.common import BTN_H, back_button, paste_row
         self.clear()
         self.add(Label(text="Follow a channel", size_hint_y=None, height=44))
@@ -1547,13 +1548,17 @@ class Navigator:
         box = TextInput(hint_text="https://youtube.com/@channel", multiline=False, size_hint_y=None, height=48)
         self.add(box)
         self.add(paste_row(box))
-        info = Label(text="", size_hint_y=None, height=40, color=(1, 0.6, 0.5, 1))
+        info = Label(text="", size_hint_y=None, height=64, color=(1, 0.6, 0.5, 1))
+        info.text_size = (common.content_width(), None)
         go = Button(text="Next", size_hint_y=None, height=BTN_H)
 
         def next_step(_i):
             url = follow_core.clean_url(box.text)
             if not follow_core.site_of(url):
                 info.text = "Only YouTube and Aparat channel links work."
+                return
+            if follow_core.looks_like_video(box.text):
+                info.text = "That is ONE video. Open its channel page and copy that link (youtube.com/@name)."
                 return
             self.show_follow_form(follow_core.new_follow(url, getattr(self, "_follows", []) or []), True)
         go.bind(on_press=next_step)

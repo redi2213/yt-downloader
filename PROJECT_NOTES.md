@@ -126,3 +126,7 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
 
 - **Files کانال خودکار = همان صفحه‌ی Release History** (`nav.show_follow_history`): `releases.get_live_history(tag)` فقط فایل‌های ریلیز `auto-<slug>` را می‌دهد؛ همان کارت‌ها (انتخاب، Copy، Share، Rename، Zip، Delete، حذف گروهی) و دکمه‌ی بالا برای «Download in app / copy all links».
   لیست اصلی Release History هنوز فقط `run-`/`job-` را نشان می‌دهد (خودکارها شلوغش نمی‌کنند؛ منوی خانه با `show_release_history` فیلتر را پاک می‌کند). `LIST_LIMIT` اسکریپت زمان‌بند ۱۲۰ است (کلیپ‌های روزانه قسمت‌های قدیمی را از ۴۰ ویدیوی آخر بیرون می‌اندازد).
+
+- **فرم Auto follow ساده و تاشو** (`screens/follow.py`): فقط لینک، نام، «Series / Latest» و Save همیشه دیده می‌شود؛ سؤال‌های هر حالت فقط وقتی انتخاب شد می‌آید (Series: از قسمت N + حداقل طول؛ Latest: هر چند روز + بار اول؛ آپارات: بدون Series/فیلتر طول و با zip).
+  بخش‌های «When to check»، «Quality and amount»، «More options» بسته‌اند و خلاصه‌شان در عنوان است (با لمس باز می‌شوند). فرم با تغییر Series/Latest، اسپینر «بار اول» و نوع لینک (یوتیوب/آپارات/ویدیوی تکی) دوباره کشیده می‌شود و مقدارها در `draft` می‌مانند.
+  لینک ویدیوی تکی (youtu.be/…، watch?v=…) رد می‌شود: برای دنبال کردن لینک **کانال** لازم است (`core.follow.looks_like_video`).
