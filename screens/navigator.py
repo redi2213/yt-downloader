@@ -1522,7 +1522,7 @@ class Navigator:
         st = (getattr(self, "_follow_state", {}) or {}).get(f["id"], {})
         follow.build_detail(
             self, f, st, (getattr(self, "_follow_new", {}) or {}).get(f["id"], 0), self.show_follow_menu,
-            on_files=lambda: self.show_follow_files(f),
+            on_files=lambda: self.show_follow_history(f),
             on_check=lambda: self.check_follow_now(f["id"]),
             on_toggle=lambda: self._save_follows(
                 [dict(x, enabled=not x.get("enabled", True)) if x["id"] == f["id"] else x for x in self._follows],
@@ -1672,24 +1672,40 @@ class Navigator:
         job_history_screen.build(self, origin)
 
     # -- live release history + delete/rename/zip -----------------------------
+    def show_release_history(self):
+        """The normal Release History (from the home menu)."""
+        self._history_follow = None
+        self.show_live_history()
+
+    def show_follow_history(self, f):
+        """The same screen (select, copy, share, rename, zip, delete), but only
+        the files of one Auto follow channel's release."""
+        self._history_follow = f
+        self.show_live_history()
+
     def show_live_history(self):
         from screens import history as history_screen
 
         self.remember(self.show_live_history)
         history_screen.build_loading(self)
+        f = getattr(self, "_history_follow", None)
 
         history_service.start_load_live_history(
             on_complete=lambda items: self.schedule(
                 lambda: self.render_history(items)
-            )
+            ),
+            tag=follow_core.release_tag(f) if f else None
         )
 
     def render_history(self, items):
         from screens import history as history_screen
+        f = getattr(self, "_history_follow", None)
+        if f is None:
+            history_screen.build(self, items)
+            return
         history_screen.build(
-            self,
-            items
-        )
+            self, items, title=f"Auto: {f.get('name', '')}", back=lambda: self._open_follow(f),
+            extra=("Download in app / copy all links", lambda: self.show_follow_files(f)))
 
     def show_delete_confirm(self, item):
         from screens import history as history_screen

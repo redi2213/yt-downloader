@@ -21,9 +21,15 @@ def build_loading(nav):
     nav.add(back_button(nav))
 
 
-def build(nav, items):
+def build(nav, items, title="Release History", back=None, extra=None):
+    """``title`` / ``back``: another title and parent screen when this list shows only
+    one Auto follow channel's files. ``extra``: (button text, function) shown at the top."""
     nav.clear()
-    nav.add(Label(text=f"Release History ({len(items)} found)", size_hint_y=None, height=BTN_H))
+    nav.add(Label(text=f"{title} ({len(items)} found)", size_hint_y=None, height=BTN_H))
+    if extra:
+        extra_btn = Button(text=extra[0], size_hint_y=None, height=BTN_H)
+        extra_btn.bind(on_press=lambda i: extra[1]())
+        nav.add(extra_btn)
 
     selected = [False] * len(items)
     cards = []   # (card colour, title button) of every item, in display order
@@ -70,7 +76,7 @@ def build(nav, items):
             set_selected(idx, value)
 
     if not items:
-        nav.add(Label(text="No downloads yet", size_hint_y=None, height=BTN_H))
+        nav.add(Label(text="No files yet" if back else "No downloads yet", size_hint_y=None, height=BTN_H))
     else:
         select_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
         select_all_btn = Button(text="Select all")
@@ -137,7 +143,7 @@ def build(nav, items):
         row.add_widget(action_buttons)
         nav.add(row)
 
-    nav.add(back_button(nav))
+    nav.add(back_button(nav, to=back))
 
 
 def build_delete_confirm(nav, item):

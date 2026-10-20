@@ -29,7 +29,7 @@ def build(nav):
     nav.add(follow_btn)
 
     history_btn = Button(text="Release History", size_hint_y=None, height=52)
-    history_btn.bind(on_press=lambda i: nav.show_live_history())
+    history_btn.bind(on_press=lambda i: nav.show_release_history())
     nav.add(history_btn)
 
     status_btn = Button(text="Check GitHub Actions status", size_hint_y=None, height=52)

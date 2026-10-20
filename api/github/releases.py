@@ -207,44 +207,58 @@ def _read_text_asset(asset) -> str:
     return lines[0]
 
 
-def get_live_history():
+def _history_items(rel):
+    """The History items of one release: one per file."""
+    tag = rel.get("tag_name", "")
+    assets = rel.get("assets", [])
+    items = []
+    if not assets:
+        # Arvan-only release: the file lives on Arvan, listed in the description
+        when = timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at"))
+        for f in _arvan_files(rel):
+            items.append({
+                "title": f.get("name") or "file",
+                "link": f["url"],
+                "date": when,
+                "release_id": rel["id"],
+                "asset_id": None,          # not a GitHub asset
+                "tag_name": tag,
+                "size": f.get("size", 0),
+                "storage": "arvan",
+            })
+        return items
+    # One item per file: a multi-file upload keeps all its files in one release
+    for asset in sorted(assets, key=lambda a: a.get("id", 0)):
+        items.append({
+            "title": asset["name"],
+            "link": asset["browser_download_url"],
+            # published_at, not created_at: GitHub's created_at for a release is
+            # the date of the commit its tag points to, not when it was made.
+            "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
+            "release_id": rel["id"],
+            "asset_id": asset["id"],
+            "tag_name": tag,
+            "size": asset.get("size", 0),
+        })
+    return items
+
+
+def get_live_history(tag=None):
+    """The files of the app's releases (run-* / job-*), newest release first.
+    With ``tag`` only the files of that one release (an Auto follow channel's
+    ``auto-<slug>``): those releases are not part of the normal list, so the
+    automatic downloads never crowd it."""
+    if tag:
+        r = client.get_allow_missing(f"{API_BASE}/releases/tags/{tag}")
+        return _history_items(r.json()) if r.status_code == 200 else []
     url = f"{API_BASE}/releases?per_page=30"
     r = client.get(url)
-    releases = r.json()
     items = []
-    for rel in releases:
-        tag = rel.get("tag_name", "")
-        if not (tag.startswith("run-") or tag.startswith("job-")):
+    for rel in r.json():
+        t = rel.get("tag_name", "")
+        if not (t.startswith("run-") or t.startswith("job-")):
             continue
-        assets = rel.get("assets", [])
-        if not assets:
-            # Arvan-only release: the file lives on Arvan, listed in the description
-            when = timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at"))
-            for f in _arvan_files(rel):
-                items.append({
-                    "title": f.get("name") or "file",
-                    "link": f["url"],
-                    "date": when,
-                    "release_id": rel["id"],
-                    "asset_id": None,          # not a GitHub asset
-                    "tag_name": tag,
-                    "size": f.get("size", 0),
-                    "storage": "arvan",
-                })
-            continue
-        # One item per file: a multi-file upload keeps all its files in one release
-        for asset in sorted(assets, key=lambda a: a.get("id", 0)):
-            items.append({
-                "title": asset["name"],
-                "link": asset["browser_download_url"],
-                # published_at, not created_at: GitHub's created_at for a release is
-                # the date of the commit its tag points to, not when it was made.
-                "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
-                "release_id": rel["id"],
-                "asset_id": asset["id"],
-                "tag_name": tag,
-                "size": asset.get("size", 0),
-            })
+        items.extend(_history_items(rel))
     return items
 
 

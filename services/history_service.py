@@ -11,13 +11,13 @@ from core.exceptions import AuthenticationError
 _TOKEN_ERROR = "GitHub token invalid or expired. Update it and retry."
 
 
-def start_load_live_history(on_complete=None):
-    run_in_background(_load_live_history_thread, on_complete)
+def start_load_live_history(on_complete=None, tag=None):
+    run_in_background(_load_live_history_thread, on_complete, tag)
 
 
-def _load_live_history_thread(on_complete):
+def _load_live_history_thread(on_complete, tag=None):
     try:
-        items = releases.get_live_history()
+        items = releases.get_live_history(tag)
     except Exception:
         items = []
     _emit_complete(on_complete, items)
