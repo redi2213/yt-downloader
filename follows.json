@@ -1,0 +1,40 @@
+{
+  "tz": "Asia/Tehran",
+  "follows": [
+    {
+      "id": "f1ba2d67b",
+      "slug": "eshghe-abadi",
+      "name": "Eshghe_Abadi",
+      "site": "youtube",
+      "url": "https://m.youtube.com/@Eshghe_Abadi",
+      "enabled": true,
+      "mode": "series",
+      "days": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "20:00",
+      "end": "23:59",
+      "every_days": 3,
+      "quality": "480p",
+      "min_minutes": 60,
+      "max_minutes": 0,
+      "include": [],
+      "exclude": [],
+      "start_from": {
+        "type": "episode",
+        "value": "78"
+      },
+      "stop": {
+        "episode": 100,
+        "date": null,
+        "count": null
+      },
+      "max_per_run": 5,
+      "zip": false
+    }
+  ]
+}
