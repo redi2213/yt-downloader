@@ -754,6 +754,12 @@ class Navigator:
             retry=self.show_dynamic_actions,
         )
 
+    def show_action_group(self, name, actions):
+        """One group of Download Anything (e.g. Upload / import files)."""
+        from screens import actions_dynamic
+        self.remember(lambda: self.show_action_group(name, actions))
+        actions_dynamic.build_group(self, name, actions)
+
     def show_action_input(self, action, prefill=None, share_url=None, initial=None):
         from screens import actions_dynamic
         self.remember(lambda: self.show_action_input(action, prefill, share_url, initial))
@@ -1680,6 +1686,12 @@ class Navigator:
     def show_release_history(self):
         """The normal Release History (from the home menu)."""
         self._history_follow = None
+        self._history_page = 0
+        self.show_live_history()
+
+    def show_history_page(self, page):
+        """Previous / Next of the Release History."""
+        self._history_page = max(0, page)
         self.show_live_history()
 
     def show_follow_history(self, f):
@@ -1696,17 +1708,20 @@ class Navigator:
         f = getattr(self, "_history_follow", None)
 
         history_service.start_load_live_history(
-            on_complete=lambda items: self.schedule(
-                lambda: self.render_history(items)
+            on_complete=lambda res: self.schedule(
+                lambda: self.render_history(res)
             ),
-            tag=follow_core.release_tag(f) if f else None
+            tag=follow_core.release_tag(f) if f else None,
+            page=getattr(self, "_history_page", 0),
         )
 
-    def render_history(self, items):
+    def render_history(self, res):
         from screens import history as history_screen
+        items = res["items"]
         f = getattr(self, "_history_follow", None)
         if f is None:
-            history_screen.build(self, items)
+            self._history_page = res["page"]   # a page past the end falls back to the last one
+            history_screen.build(self, items, page=res["page"], has_next=res["has_next"])
             return
         history_screen.build(
             self, items, title=f"Auto: {f.get('name', '')}", back=lambda: self._open_follow(f),

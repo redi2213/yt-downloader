@@ -21,11 +21,13 @@ def build_loading(nav):
     nav.add(back_button(nav))
 
 
-def build(nav, items, title="Release History", back=None, extra=None):
+def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False):
     """``title`` / ``back``: another title and parent screen when this list shows only
     one Auto follow channel's files. ``extra``: (button text, function) shown at the top."""
     nav.clear()
-    nav.add(Label(text=f"{title} ({len(items)} found)", size_hint_y=None, height=BTN_H))
+    paged = back is None   # the normal list is paged; one Auto follow channel is not
+    heading = f"{title} - page {page + 1} ({len(items)} files)" if paged else f"{title} ({len(items)} found)"
+    nav.add(Label(text=heading, size_hint_y=None, height=BTN_H))
     if extra:
         extra_btn = Button(text=extra[0], size_hint_y=None, height=BTN_H)
         extra_btn.bind(on_press=lambda i: extra[1]())
@@ -142,6 +144,16 @@ def build(nav, items, title="Release History", back=None, extra=None):
             action_buttons.add_widget(btn)
         row.add_widget(action_buttons)
         nav.add(row)
+
+    if paged and (page > 0 or has_next):
+        pager = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        prev_btn = Button(text="< Previous 20", disabled=page == 0)
+        prev_btn.bind(on_press=lambda i: nav.show_history_page(page - 1))
+        next_btn = Button(text="Next 20 >", disabled=not has_next)
+        next_btn.bind(on_press=lambda i: nav.show_history_page(page + 1))
+        pager.add_widget(prev_btn)
+        pager.add_widget(next_btn)
+        nav.add(pager)
 
     nav.add(back_button(nav, to=back))
 

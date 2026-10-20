@@ -1,13 +1,21 @@
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.metrics import dp
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from core import android_downloads
-from screens.common import wrapped_label, wrapped_label_height
+from core import android_downloads, android_open
+from screens.common import BTN_H, GAP, wrapped_label, wrapped_label_height
 from services import file_download_service
+
+MAX_OPEN_ROWS = 8   # Open / Share rows shown after a many-file download
+
+
+def _short(name, limit=26):
+    name = str(name or "file")
+    return name if len(name) <= limit else name[:limit - 3] + "..."
 
 
 def add_size_label(nav, run_id, all_links):
@@ -34,13 +42,42 @@ def add_download_in_app(nav, run_id, all_links, category):
     status = wrapped_label("", height=60, halign="center", valign="middle")
     btn = Button(text="Download in app", size_hint_y=None, height=52)
     state = {"busy": False}
+    # Open / Share rows of the files saved by this button (filled when it finishes)
+    files_box = BoxLayout(orientation="vertical", size_hint_y=None, height=0, spacing=GAP)
 
     def set_text(text):
         Clock.schedule_once(lambda dt: setattr(status, "text", text))
 
-    def finished():
+    def show_problem(problem):
+        if problem:
+            status.text = problem
+
+    def fill_files(saved_files):
+        files_box.clear_widgets()
+        shown = [(n, loc) for n, loc in saved_files if loc][:MAX_OPEN_ROWS]
+        for name, location in shown:
+            row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+            open_btn = Button(text=f"Open: {_short(name)}", size_hint_x=0.7, halign="center", shorten=True)
+            open_btn.bind(on_press=lambda i, n=name, l=location: show_problem(android_open.open_file(l, n)))
+            share_btn = Button(text="Share", size_hint_x=0.3)
+            share_btn.bind(on_press=lambda i, n=name, l=location: show_problem(android_open.share_file(l, n)))
+            row.add_widget(open_btn)
+            row.add_widget(share_btn)
+            files_box.add_widget(row)
+        extra = len([1 for _n, loc in saved_files if loc]) - len(shown)
+        if extra > 0:
+            files_box.add_widget(Label(text=f"+ {extra} more: open them from the Files app", size_hint_y=None, height=BTN_H))
+        rows = len(files_box.children)
+        files_box.height = rows * BTN_H + max(0, rows - 1) * GAP
+
+    def finished(saved_files=None):
         state["busy"] = False
-        Clock.schedule_once(lambda dt: (setattr(btn, "disabled", False), setattr(btn, "text", "Download again")))
+
+        def apply(_dt):
+            btn.disabled = False
+            btn.text = "Download again"
+            fill_files(saved_files or [])
+        Clock.schedule_once(apply)
 
     def start(_instance):
         if state["busy"]:
@@ -49,11 +86,14 @@ def add_download_in_app(nav, run_id, all_links, category):
         btn.disabled = True
         btn.text = "Downloading..."
         status.text = f"Saving to {folder} ..."
+        files_box.clear_widgets()
+        files_box.height = 0
         file_download_service.start_links_download(run_id, all_links, category, set_text, finished)
 
     btn.bind(on_press=start)
     nav.add(btn)
     nav.add(status)
+    nav.add(files_box)
 
 
 def build(nav, message, link=None, retry=None, retry_message="Working...", extra_buttons=None, links=None,

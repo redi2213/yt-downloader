@@ -11,16 +11,21 @@ from core.exceptions import AuthenticationError
 _TOKEN_ERROR = "GitHub token invalid or expired. Update it and retry."
 
 
-def start_load_live_history(on_complete=None, tag=None):
-    run_in_background(_load_live_history_thread, on_complete, tag)
+def start_load_live_history(on_complete=None, tag=None, page=0):
+    """``on_complete({"items", "has_next", "page"})``. With ``tag`` (one Auto
+    follow channel) the whole release is returned as a single page."""
+    run_in_background(_load_live_history_thread, on_complete, tag, page)
 
 
-def _load_live_history_thread(on_complete, tag=None):
+def _load_live_history_thread(on_complete, tag=None, page=0):
     try:
-        items = releases.get_live_history(tag)
+        if tag:
+            items, has_next, page = releases.get_live_history(tag), False, 0
+        else:
+            items, has_next, page = releases.get_live_history_page(page)
     except Exception:
-        items = []
-    _emit_complete(on_complete, items)
+        items, has_next, page = [], False, 0
+    _emit_complete(on_complete, {"items": items, "has_next": has_next, "page": page})
 
 
 def start_delete_release(item, on_complete=None):

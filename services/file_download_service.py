@@ -8,9 +8,11 @@ Two entry points:
   screen can be rebuilt (or reopened from history) and still show where things are:
     - ``dl_state``    - missing (never started) / "running" / "done" / "error"
     - ``dl_text``     - the line the screen shows
-    - ``dl_location`` - content uri / path of the saved file (the Install button needs it)
+    - ``dl_location`` - content uri / path of the saved file (Install / Open / Share need it)
+    - ``dl_name``     - its file name (Open needs it to pick the right kind of app)
 * ``start_links_download(run_id, links, category, on_text, on_finish)`` - every
   file of a result screen ("Download in app" button), one after another.
+  ``on_finish([(name, location)])`` gets the saved files (Open / Share buttons).
   ``run_id`` may also be a list of run ids (a finished playlist).
 
 ``on_update()`` / ``on_text(text)`` are called from a background thread; the
@@ -74,6 +76,7 @@ def _run_one(job, link, on_update, category):
             url, name=name, on_progress=progress, headers=headers, category=category)
         job.extra["dl_state"] = "done"
         job.extra["dl_location"] = getattr(saved, "location", None)
+        job.extra["dl_name"] = name or android_downloads.file_name_from_url(url)
         job.extra["dl_text"] = f"Saved:\n{saved}"
         notify("YT Bridge", "Saved in Downloads")
     except Exception as e:
@@ -90,6 +93,7 @@ def start_links_download(run_id, links, category, on_text, on_finish=None):
 def _run_many(run_id, links, category, on_text, on_finish):
     folder = f"Download/{android_downloads.ROOT_FOLDER}/{category}"
     saved_count, errors, last_error = 0, 0, ""
+    saved_files = []   # [(file name, content uri / path)] for the Open / Share buttons
     try:
         on_text("Looking for the files...")
         items = []
@@ -108,8 +112,10 @@ def _run_many(run_id, links, category, on_text, on_finish):
                 on_text(_progress_text(prefix, done, size))
 
             try:
-                android_downloads.download_to_downloads(
+                saved = android_downloads.download_to_downloads(
                     url, name=name, on_progress=progress, headers=headers, category=category)
+                saved_files.append((name or android_downloads.file_name_from_url(url),
+                                    getattr(saved, "location", None)))
                 saved_count += 1
             except Exception as e:
                 errors += 1
@@ -124,7 +130,7 @@ def _run_many(run_id, links, category, on_text, on_finish):
         on_text(f"Download failed: {str(e)[:80]}")
     finally:
         if on_finish:
-            on_finish()
+            on_finish(saved_files)
 
 
 # -- sizes -------------------------------------------------------------------

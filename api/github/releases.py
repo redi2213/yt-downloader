@@ -262,6 +262,38 @@ def get_live_history(tag=None):
     return items
 
 
+HISTORY_PAGE_SIZE = 20
+
+
+def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE):
+    """One page of the History: ``(items, has_next, page)``.
+
+    GitHub lists releases newest first, 100 per request. Releases that are not
+    the app's own (run-* / job-*, e.g. auto-*) are skipped and a release with
+    several files counts once per file, so the list is read request by request
+    until the wanted page is full AND one more file proves there is a next
+    page. A page past the end (e.g. after deleting the last file of the last
+    page) falls back to the last page."""
+    page = max(0, int(page or 0))
+    items, github_page, more = [], 1, True
+    while more:
+        r = client.get(f"{API_BASE}/releases?per_page=100&page={github_page}")
+        batch = r.json()
+        for rel in batch:
+            t = rel.get("tag_name", "")
+            if t.startswith("run-") or t.startswith("job-"):
+                items.extend(_history_items(rel))
+        more = len(batch) >= 100
+        github_page += 1
+        if len(items) > (page + 1) * page_size:
+            break   # the wanted page is full and there is at least one more file
+    last_page = max(0, (len(items) - 1) // page_size) if items else 0
+    page = min(page, last_page)
+    start = page * page_size
+    has_next = len(items) > start + page_size
+    return items[start:start + page_size], has_next, page
+
+
 def delete_release(release_id, tag_name) -> None:
     """Deletes the release and its underlying git tag so it doesn't linger."""
     url = f"{API_BASE}/releases/{release_id}"

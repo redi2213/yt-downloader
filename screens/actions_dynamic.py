@@ -128,20 +128,61 @@ def build(nav, actions, notice="", retry=None):
             reload_btn.bind(on_press=lambda i: retry())
             nav.add(reload_btn)
 
-    upload_btn = Button(text="Upload a file (any link)", size_hint_y=None, height=48)
-    upload_btn.bind(on_press=lambda i: nav.show_upload_screen())
-    nav.add(upload_btn)
+    # "group": "<name>" in config.json puts an action behind one group button
+    # (older app versions ignore it and show the action in the flat list).
+    # The built-in "Upload a file" always belongs to the "upload" group.
+    grouped = {}
+    for action in actions or []:
+        if action.get("group"):
+            grouped.setdefault(action["group"], []).append(action)
+    group_shown = set()
+
+    def add_group_button(name):
+        group_shown.add(name)
+        group_btn = Button(text=group_title(name), size_hint_y=None, height=52)
+        group_btn.bind(on_press=lambda i, n=name: nav.show_action_group(n, grouped.get(n, [])))
+        nav.add(group_btn)
+
+    add_group_button("upload")
 
     if not actions:
         nav.add(Label(text="No actions available right now.", size_hint_y=None, height=48))
     else:
         for action in actions:
+            name = action.get("group")
+            if name:
+                if name not in group_shown:
+                    add_group_button(name)
+                continue
             btn = Button(text=action.get("title", action.get("id", "?")),
                          size_hint_y=None, height=52)
             btn.bind(on_press=lambda instance, a=action: nav.show_action_input(a))
             nav.add(btn)
 
     nav.add(common.back_button(nav))
+
+
+# Titles of the groups; an unknown group name is shown as it is written.
+GROUP_TITLES = {"upload": "Upload / import files"}
+
+
+def group_title(name):
+    return GROUP_TITLES.get(name, str(name).replace("_", " ").capitalize())
+
+
+def build_group(nav, name, actions):
+    """The actions of one group (Download Anything > a group button)."""
+    nav.clear()
+    nav.add(Label(text=group_title(name), size_hint_y=None, height=48))
+    if name == "upload":
+        upload_btn = Button(text="Upload a file (any link)", size_hint_y=None, height=52)
+        upload_btn.bind(on_press=lambda i: nav.show_upload_screen())
+        nav.add(upload_btn)
+    for action in actions:
+        btn = Button(text=action.get("title", action.get("id", "?")), size_hint_y=None, height=52)
+        btn.bind(on_press=lambda instance, a=action: nav.show_action_input(a))
+        nav.add(btn)
+    nav.add(common.back_button(nav, to=nav.show_dynamic_actions))
 
 
 def _fields_for(action: dict) -> list:

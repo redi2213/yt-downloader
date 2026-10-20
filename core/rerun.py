@@ -40,6 +40,7 @@ URL_KEYS = {
     "Any-Site-Upload.yml": "urls",
     "upload-file.yml": "file_url",
     "Series-Links.yml": "url",
+    "drive-to-release.yml": "drive_url",
 }
 
 

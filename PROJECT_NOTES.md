@@ -130,3 +130,19 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
 - **فرم Auto follow ساده و تاشو** (`screens/follow.py`): فقط لینک، نام، «Series / Latest» و Save همیشه دیده می‌شود؛ سؤال‌های هر حالت فقط وقتی انتخاب شد می‌آید (Series: از قسمت N + حداقل طول؛ Latest: هر چند روز + بار اول؛ آپارات: بدون Series/فیلتر طول و با zip).
   بخش‌های «When to check»، «Quality and amount»، «More options» بسته‌اند و خلاصه‌شان در عنوان است (با لمس باز می‌شوند). فرم با تغییر Series/Latest، اسپینر «بار اول» و نوع لینک (یوتیوب/آپارات/ویدیوی تکی) دوباره کشیده می‌شود و مقدارها در `draft` می‌مانند.
   لینک ویدیوی تکی (youtu.be/…، watch?v=…) رد می‌شود: برای دنبال کردن لینک **کانال** لازم است (`core.follow.looks_like_video`).
+
+
+---
+
+## آپدیت ۱ از ۳ (۲۰ مهر): تاریخچه صفحه‌ای، Open/Share، Google Drive
+
+- **Release History صفحه‌ای**: هر صفحه ۲۰ فایل (نه ۲۰ ریلیز) با دکمه‌های Previous/Next (`releases.get_live_history_page`، `HISTORY_PAGE_SIZE = 20`).
+  قبلاً فقط ۳۰ ریلیز اول خوانده می‌شد و ریلیزهای غیر `run-`/`job-` (مثل `auto-*`) حذف می‌شدند، برای همین حدود ۱۵ فایل می‌ماند.
+  حالا ریلیزها ۱۰۰ تا ۱۰۰ تا خوانده می‌شوند تا صفحه پر شود؛ صفحه‌ی بعد از آخر (مثلاً بعد از حذف) به آخرین صفحه برمی‌گردد.
+  لیست یک کانال Auto follow صفحه‌بندی نمی‌شود.
+- **Open file / Share file** (`core/android_open.py`): بعد از «Download in app» برای هر فایل ذخیره‌شده یک ردیف «Open: نام» (منوی «Open with…» اندروید، هر بار) و «Share» (خود فایل، نه لینک)
+  هست (حداکثر ۸ ردیف). صفحه‌ی APK/Backup هم دکمه‌های Open file و Share file دارد. نیازمند `Saved.location` (content uri، اندروید ۱۰+).
+- **Google Drive**: `drive-to-release.yml` حالا مثل بقیه ابزارها `job_id` / `run_title` / `rerun` را می‌شناسد، ریلیز را `run-<run id>` می‌سازد
+  (`release_tag` دستی اختیاری است) و ntfy می‌فرستد. دکمه‌اش در `config.json` (برنچ config، نسخه ۱۸) با `"group": "upload"` تعریف شده.
+- **گروه در Download Anything**: هر action با `"group": "<نام>"` پشت یک دکمه‌ی گروه می‌رود (`actions_dynamic.build_group`). گروه `upload` = «Upload / import files»
+  شامل Upload a file، Any site و Google Drive. نسخه‌های قدیمی اپ فیلد `group` را نادیده می‌گیرند و لیست تخت را نشان می‌دهند.
