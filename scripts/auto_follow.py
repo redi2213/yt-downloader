@@ -41,7 +41,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-LIST_LIMIT = 40          # newest videos looked at per check
+LIST_LIMIT = 120         # newest videos looked at per check (clips every day push old episodes far down)
 SEEN_KEEP = 400          # ids remembered per channel
 ASCII_DIGITS = str.maketrans("\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9"
                              "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669", "01234567890123456789")
