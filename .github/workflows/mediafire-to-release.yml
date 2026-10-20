@@ -1,0 +1,145 @@
+
+name: MediaFire to GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mediafire_url:
+        description: "MediaFire file URL"
+        required: true
+        default: "https://www.mediafire.com/file/ik6sts2qmp8gei7/OG6246-SUSI2F.rar/"
+        type: string
+      release_tag:
+        description: "GitHub Release tag"
+        required: true
+        default: "mediafire-import-test"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mediafire-to-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Install dependencies
+        run: |
+          python -m pip install --user mediafire-dl-cli
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Download from MediaFire
+        id: download
+        env:
+          MEDIAFIRE_URL: ${{ inputs.mediafire_url }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p downloaded
+
+          "$HOME/.local/bin/mediafire-dl-cli" \
+            "$MEDIAFIRE_URL" \
+            -o downloaded
+
+          FILE_PATH="$(find downloaded -maxdepth 1 -type f -printf '%p\n' | head -n 1)"
+
+          if [[ -z "$FILE_PATH" || ! -f "$FILE_PATH" ]]; then
+            echo "::error::No file was downloaded."
+            exit 1
+          fi
+
+          FILE_NAME="${FILE_PATH#downloaded/}"
+          FILE_SIZE="$(stat -c '%s' "$FILE_PATH")"
+
+          if [[ "$FILE_SIZE" -le 0 ]]; then
+            echo "::error::Downloaded file is empty."
+            exit 1
+          fi
+
+          echo "Downloaded file: $FILE_NAME"
+          echo "File size: $FILE_SIZE bytes"
+
+          echo "file_name=$FILE_NAME" >> "$GITHUB_OUTPUT"
+          echo "file_size=$FILE_SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          FILE_NAME: ${{ steps.download.outputs.file_name }}
+        run: |
+          set -euo pipefail
+
+          FILE_PATH="downloaded/$FILE_NAME"
+
+          if [[ ! -f "$FILE_PATH" ]]; then
+            echo "::error::Downloaded file could not be found."
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release exists. Uploading asset..."
+            gh release upload "$TAG" "$FILE_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            echo "Creating release and uploading asset..."
+            gh release create "$TAG" "$FILE_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --notes "Uploaded from MediaFire by GitHub Actions."
+          fi
+
+          echo "Release upload completed."
+
+      - name: Get direct download URL
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          FILE_NAME: ${{ steps.download.outputs.file_name }}
+          FILE_SIZE: ${{ steps.download.outputs.file_size }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_JSON="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")"
+
+          ASSET_URL="$(printf '%s' "$RELEASE_JSON" \
+            | jq -r --arg name "$FILE_NAME" \
+            '.assets[] | select(.name == $name) | .browser_download_url' \
+            | head -n 1)"
+
+          if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
+            echo "::error::Release asset URL could not be found."
+            exit 1
+          fi
+
+          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+
+          echo ""
+          echo "========================================"
+          echo "UPLOAD COMPLETED"
+          echo "========================================"
+          echo "File: $FILE_NAME"
+          echo "Size: $FILE_SIZE bytes"
+          echo "Release: $RELEASE_URL"
+          echo "Direct download URL: $ASSET_URL"
+          echo "========================================"
+
+          {
+            echo "## MediaFire to GitHub Release"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| File | \`$FILE_NAME\` |"
+            echo "| Size | $FILE_SIZE bytes |"
+            echo "| Release | [Open Release]($RELEASE_URL) |"
+            echo "| Direct download | [Download file]($ASSET_URL) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          
