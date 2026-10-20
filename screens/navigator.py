@@ -18,7 +18,8 @@ from core.models.job import JOB_TYPE_FORMATS, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_
 from services import download_service, playlist_service, upload_service, job_service
 from services import history_service, actions_service, run_progress_service
 from services import remote_config_service, generic_action_service
-from services import error_help_service, health_service, ntfy_service
+from services import error_help_service, follow_service, health_service, ntfy_service
+from core import follow as follow_core
 from api import run_mode_prefs
 from services import auth_service, storage_service, file_download_service, runs_service
 from screens import common
@@ -1495,6 +1496,144 @@ class Navigator:
         def done(res):
             show(res.get("text", "") if res.get("ok") else "")
         error_help_service.start_error_help(run_id, jobs, done)
+
+    # -- Auto follow -----------------------------------------------------------------------
+    def show_follow_menu(self):
+        from screens import follow
+        self.remember(self.show_follow_menu)
+        follow.build_loading(self, self.show_home)
+
+        def done(res):
+            def after():
+                if res.get("ok"):
+                    self._follows, self._follow_state = res["follows"], res["state"]
+                    self._follow_new = res.get("new", {})
+                follow.build_list(
+                    self, res, self.show_home, on_add=self.show_follow_add, on_open=self._open_follow,
+                    on_check_all=lambda: self.check_follow_now(None),
+                    on_sync=self.sync_follow_schedule)
+            self.schedule(after)
+
+        follow_service.start_overview(done)
+
+    def _open_follow(self, f):
+        from screens import follow
+        self.remember(lambda: self._open_follow(f))
+        st = (getattr(self, "_follow_state", {}) or {}).get(f["id"], {})
+        follow.build_detail(
+            self, f, st, (getattr(self, "_follow_new", {}) or {}).get(f["id"], 0), self.show_follow_menu,
+            on_files=lambda: self.show_follow_files(f),
+            on_check=lambda: self.check_follow_now(f["id"]),
+            on_toggle=lambda: self._save_follows(
+                [dict(x, enabled=not x.get("enabled", True)) if x["id"] == f["id"] else x for x in self._follows],
+                "Saved."),
+            on_edit=lambda: self.show_follow_form(f, False),
+            on_delete=lambda: self._save_follows([x for x in self._follows if x["id"] != f["id"]], "Deleted."))
+
+    def show_follow_add(self):
+        from screens import follow
+        self.remember(self.show_follow_add)
+        self._open_url_step(follow)
+
+    def _open_url_step(self, follow):
+        """Adding starts with the link only (the rest has sensible defaults)."""
+        from kivy.uix.button import Button
+        from kivy.uix.label import Label
+        from kivy.uix.textinput import TextInput
+        from screens.common import BTN_H, back_button, paste_row
+        self.clear()
+        self.add(Label(text="Follow a channel", size_hint_y=None, height=44))
+        self.add(Label(text="Paste the YouTube or Aparat channel link", size_hint_y=None, height=34))
+        box = TextInput(hint_text="https://youtube.com/@channel", multiline=False, size_hint_y=None, height=48)
+        self.add(box)
+        self.add(paste_row(box))
+        info = Label(text="", size_hint_y=None, height=40, color=(1, 0.6, 0.5, 1))
+        go = Button(text="Next", size_hint_y=None, height=BTN_H)
+
+        def next_step(_i):
+            url = follow_core.clean_url(box.text)
+            if not follow_core.site_of(url):
+                info.text = "Only YouTube and Aparat channel links work."
+                return
+            self.show_follow_form(follow_core.new_follow(url, getattr(self, "_follows", []) or []), True)
+        go.bind(on_press=next_step)
+        self.add(info)
+        self.add(go)
+        self.add(back_button(self, to=self.show_follow_menu))
+
+    def show_follow_form(self, f, is_new):
+        from screens import follow
+        self.remember(lambda: self.show_follow_form(f, is_new))
+        back = self.show_follow_add if is_new else (lambda: self._open_follow(f))
+
+        def save(out):
+            items = list(getattr(self, "_follows", []) or [])
+            if is_new:
+                items.append(out)
+            else:
+                items = [out if x["id"] == out["id"] else x for x in items]
+            self._save_follows(items, "Saved.")
+
+        follow.build_form(self, f, is_new, save, back)
+
+    def _save_follows(self, items, message):
+        self.show_working("Saving...")
+
+        def done(res):
+            def after():
+                if res.get("ok"):
+                    self._follows = items
+                    self.show_result(f"{message}\n{res.get('schedule', '')}",
+                                     extra_buttons=[("Auto follow", self.show_follow_menu)])
+                else:
+                    self.show_result(res["error"], extra_buttons=[("Auto follow", self.show_follow_menu)])
+            self.schedule(after)
+
+        follow_service.start_save(items, done)
+
+    def sync_follow_schedule(self):
+        self.show_working("Updating the schedule...")
+
+        def done(res):
+            self.schedule(lambda: self.show_result(
+                res.get("schedule") if res.get("ok") else res["error"],
+                extra_buttons=[("Auto follow", self.show_follow_menu)]))
+
+        follow_service.start_sync(getattr(self, "_follows", []) or [], done)
+
+    def check_follow_now(self, follow_id):
+        """Starts the scheduler now (one channel ignoring its window, or all channels)."""
+        self.show_working("Starting the check...")
+
+        def done(res):
+            def after():
+                if res.get("ok") and res.get("run_id"):
+                    self.show_run_detail({"run_id": res["run_id"], "workflow": "Auto-Follow.yml", "origin": "status"})
+                elif res.get("ok"):
+                    self.show_result("Started. Open the runs list in a few seconds.",
+                                     extra_buttons=[("Auto follow", self.show_follow_menu)])
+                else:
+                    self.show_result(res["error"], extra_buttons=[("Auto follow", self.show_follow_menu)])
+            self.schedule(after)
+
+        follow_service.start_check_now(follow_id, done)
+
+    def show_follow_files(self, f):
+        self.show_working("Loading the files...")
+
+        def done(res):
+            def after():
+                back = lambda: self._open_follow(f)
+                if not res.get("ok"):
+                    self.show_result(res["error"], extra_buttons=[("Back", back)])
+                    return
+                links = res["links"]
+                self.show_result(f"{len(links)} file(s) in {res['tag']}", link=links[-1] if links else None,
+                                 links=links, run_id=res["tag"], category="Auto",
+                                 extra_buttons=[("Back", back)])
+            self.schedule(after)
+
+        follow_service.start_files(f, done)
 
     # -- Health and ntfy notifications --------------------------------------------
     def show_health(self):

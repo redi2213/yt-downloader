@@ -25,7 +25,7 @@ from core.exceptions import AuthenticationError, NetworkError
 REQUIRED_WORKFLOWS = [
     "download.yml", "list-formats.yml", "list-playlist.yml", "upload-file.yml",
     "Any-Site-Upload.yml", "aparat-download.yml", "telegram-download.yml",
-    "filimo-direct-link.yml", "google-play-download.yml", "Series-Links.yml",
+    "filimo-direct-link.yml", "google-play-download.yml", "Series-Links.yml", "Auto-Follow.yml",
     "build-apk.yml", "backup-project.yml", "zip-release.yml",
     "cleanup-releases.yml", "arvan-maintenance.yml",
 ]

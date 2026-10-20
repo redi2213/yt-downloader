@@ -22,6 +22,7 @@ MENU_GROUPS = [
     ("Aparat", ["aparat-download.yml"]),
     ("Download Anything", ["Any-Site-Upload.yml", "telegram-download.yml", "filimo-direct-link.yml",
                            "google-play-download.yml", "upload-file.yml", "Series-Links.yml"]),
+    ("Auto follow", ["Auto-Follow.yml"]),
     ("Build and backup", ["build-apk.yml", "backup-project.yml"]),
     ("Maintenance", ["zip-release.yml", "cleanup-releases.yml", "arvan-maintenance.yml"]),
 ]

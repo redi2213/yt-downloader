@@ -1,6 +1,9 @@
 """Publishes workflow output to a GitHub Release and/or Arvan Cloud.
 
     storage_publish.py publish  --dir out --tag run-1 --title "..."   one-shot: creates the release
+    storage_publish.py publish  ... --append   (auto follow) the release is shared by many runs: add
+                                the files to it, creating it the first time; a name already there gets a
+                                date in front; with --split a file of 2 GB or more is cut into playable parts
     storage_publish.py upload   --dir out --tag run-1 --idx 3 --meta-out m.json   one leg of a matrix, release already exists
     storage_publish.py finalize --tag run-1 --meta-dir metas          merge the legs' results into the release description
 
@@ -15,10 +18,13 @@ and the reason is written in the description). both -> every file goes to both.
 import argparse
 import glob
 import json
+import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import storage_core as core  # noqa: E402
@@ -104,12 +110,125 @@ def _write_body(text: str) -> str:
     return path
 
 
+# -- shared release (auto follow) --------------------------------------------------------------------------------
+SPLIT_AT = GITHUB_ASSET_LIMIT - 64 * 1024 ** 2    # a margin under the limit
+PART_TARGET = int(1.7 * 1024 ** 3)
+
+
+def _quiet(*args):
+    return subprocess.run(["gh", *args], capture_output=True, text=True)
+
+
+def _byte_split(path, parts):
+    """Last resort: plain pieces name.part1, name.part2 (join them with cat)."""
+    size = os.path.getsize(path)
+    piece = math.ceil(size / parts)
+    out = []
+    with open(path, "rb") as src:
+        for n in range(1, parts + 1):
+            name = f"{path}.part{n}"
+            with open(name, "wb") as dst:
+                left = piece
+                while left > 0:
+                    chunk = src.read(min(left, 8 * 1024 * 1024))
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+                    left -= len(chunk)
+            out.append(name)
+    os.remove(path)
+    return out
+
+
+def _duration(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                       capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def split_file(path):
+    """Cuts a media file of 2 GB or more into playable parts (name.part1.mkv, ...).
+    The parts are cut at key frames, so sizes vary: when one is still too big the
+    file is cut again into more parts."""
+    size = os.path.getsize(path)
+    stem, ext = os.path.splitext(path)
+    duration = _duration(path) if shutil.which("ffmpeg") and shutil.which("ffprobe") else 0.0
+    parts = max(2, math.ceil(size * 1.12 / PART_TARGET))
+    for _ in range(4):
+        if not duration:
+            break
+        seg = math.ceil(duration / parts) + 1
+        pattern = f"{stem}.part%d{ext}"
+        for old in glob.glob(f"{stem}.part*{ext}"):
+            os.remove(old)
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", path, "-map", "0",
+                            "-c", "copy", "-f", "segment", "-segment_time", str(seg), "-segment_start_number", "1",
+                            "-reset_timestamps", "1", pattern], capture_output=True, text=True)
+        made = sorted(glob.glob(f"{stem}.part*{ext}"))
+        if r.returncode == 0 and made and all(os.path.getsize(m) < SPLIT_AT for m in made):
+            os.remove(path)
+            print(f"Cut {os.path.basename(path)} into {len(made)} playable parts")
+            return made
+        parts += 1
+    for old in glob.glob(f"{stem}.part*{ext}"):
+        os.remove(old)
+    parts = max(2, math.ceil(size / PART_TARGET))
+    print(f"::warning::{os.path.basename(path)}: could not cut it at key frames, using plain pieces ({parts}); join them with cat")
+    return _byte_split(path, parts)
+
+
+def split_large(files):
+    out = []
+    for path in files:
+        out += split_file(path) if os.path.getsize(path) >= SPLIT_AT else [path]
+    return out
+
+
+def _unique_names(tag, files):
+    """A file whose name is already in the shared release gets the date in front."""
+    r = _quiet("release", "view", tag, *_repo_args(), "--json", "assets", "-q", ".assets[].name")
+    taken = set(r.stdout.split("\n")) if r.returncode == 0 else set()
+    stamp = time.strftime("%Y%m%d-%H%M")
+    out = []
+    for path in files:
+        name = os.path.basename(path)
+        if name in taken:
+            new = os.path.join(os.path.dirname(path), f"{stamp}_{name}")
+            os.rename(path, new)
+            path = new
+        taken.add(os.path.basename(path))
+        out.append(path)
+    return out
+
+
+def _publish_append(args, files):
+    """Adds the files to the release ``tag``, creating it the first time."""
+    if args.split:
+        files = split_large(files)
+    exists = _quiet("release", "view", args.tag, *_repo_args()).returncode == 0
+    if not exists:
+        body = _notes_text(args) or "Files added automatically by Auto follow."
+        made = gh("release", "create", args.tag, *files, *_repo_args(), "--prerelease",
+                  "--title", args.title or args.tag, "--notes", body, check=False)
+        if made.returncode == 0:
+            return 0
+        # another run created it a moment ago: fall through and add to it
+    files = _unique_names(args.tag, files)
+    gh("release", "upload", args.tag, *files, *_repo_args())
+    return 0
+
+
 def cmd_publish(args, client_factory=core.make_client) -> int:
     mode = get_mode()
     files = _files_in(args.dir, args.file)
     if not files:
         print("::error::No file to publish")
         return 1
+    if getattr(args, "append", False):
+        return _publish_append(args, files)
     infos, warnings, for_github = _arvan_phase(files, mode, args.tag, client_factory)
     for w in warnings:
         print(f"::warning::{w}")
@@ -182,6 +301,8 @@ def main(argv=None) -> int:
     a.add_argument("--title", default="")
     a.add_argument("--notes", default="")
     a.add_argument("--notes-file", default="")
+    a.add_argument("--append", action="store_true", help="shared release (auto follow): add to it, create if missing")
+    a.add_argument("--split", action="store_true", help="with --append: cut files of 2 GB or more into parts")
     b = sub.add_parser("upload")
     b.add_argument("--dir", default="")
     b.add_argument("--file", action="append", default=[])

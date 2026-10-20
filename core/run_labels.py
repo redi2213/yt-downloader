@@ -14,6 +14,7 @@ TOOL_LABELS = {
     "zip-release.yml": "Zip",
     "Any-Site-Upload.yml": "Any site",
     "Series-Links.yml": "Series links",
+    "Auto-Follow.yml": "Auto follow",
     "aparat-download.yml": "Aparat",
     "telegram-download.yml": "Telegram",
     "google-play-download.yml": "Google Play",

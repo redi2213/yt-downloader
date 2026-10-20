@@ -1,0 +1,190 @@
+name: Auto Follow
+run-name: ${{ inputs.run_title || 'Auto follow check' }}${{ inputs.job_id && format(' [{0}]', inputs.job_id) || '' }}${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+# Wakes up on a schedule, looks at the channels the app follows (follows.json on the
+# config branch) and starts download.yml / aparat-download.yml for the new videos.
+# The app keeps the cron line below short: it only fires in the hours the channels'
+# time windows need (Settings > Auto follow > Update schedule), because every wake-up
+# uses about one minute of Actions time. Until then it wakes up once an hour.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Check only this channel id now, ignoring its time window (empty = every channel that is due)'
+        required: false
+        default: ''
+        type: string
+      force:
+        description: 'true = check every enabled channel now, ignoring the time windows'
+        required: false
+        default: 'false'
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app: the other inputs packed into the run name so "Run again" can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+# Two checks at once would start the same download twice
+concurrency:
+  group: auto-follow
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Get the scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          path: repo
+
+      - name: Get the channel list and state (config branch)
+        uses: actions/checkout@v4
+        with:
+          ref: config
+          path: cfg
+
+      - name: Is anything due?
+        id: pre
+        env:
+          ONLY: ${{ inputs.only }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ ! -f cfg/follows.json ]; then
+            echo "No follows.json on the config branch yet: nothing to do."
+            echo "due=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 repo/scripts/auto_follow.py --follows cfg/follows.json --state cfg/follow-state.json \
+            --only "$ONLY" --force "${FORCE:-false}" --due-only
+
+      - name: Set up Python
+        if: ${{ steps.pre.outputs.due != '0' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yt-dlp and requests
+        if: ${{ steps.pre.outputs.due != '0' }}
+        run: pip install --quiet requests "yt-dlp[default]"
+
+      - name: Write cookies file
+        if: ${{ steps.pre.outputs.due != '0' }}
+        env:
+          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
+        run: |
+          printf '%s\n' "$YTDLP_COOKIES" > cookies.txt
+          chmod 600 cookies.txt
+
+      - name: Check the channels
+        id: run
+        if: ${{ steps.pre.outputs.due != '0' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY: ${{ inputs.only }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          python3 repo/scripts/auto_follow.py --follows cfg/follows.json --state cfg/follow-state.json \
+            --only "$ONLY" --force "${FORCE:-false}" --summary auto-summary.txt
+
+      - name: Save the state (config branch)
+        if: ${{ always() && steps.pre.outputs.due != '0' }}
+        run: |
+          rm -f cookies.txt
+          cd cfg
+          git config user.name "yt-bridge"
+          git config user.email "yt-bridge@users.noreply.github.com"
+          git add follow-state.json
+          if git diff --cached --quiet; then
+            echo "State unchanged."
+            exit 0
+          fi
+          git commit -m "Auto follow: state"
+          for i in 1 2 3; do
+            git push origin HEAD:config && exit 0
+            git pull --rebase origin config || true
+          done
+          echo "::error::Could not save follow-state.json"
+          exit 1
+
+      - name: What happened
+        if: ${{ always() && steps.pre.outputs.due != '0' }}
+        run: |
+          { echo "RUN_TITLE<<AUTO_EOF"; cat auto-summary.txt 2>/dev/null || true; echo; echo "AUTO_EOF"; } >> "$GITHUB_ENV"
+          cat auto-summary.txt 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Notify (ntfy)
+        if: ${{ always() && steps.pre.outputs.due != '0' && (steps.run.outputs.started != '0' || steps.run.outcome == 'failure') }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: Auto follow
+          ONLY_FAILURE: 'false'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          if [ "$JOB_STATUS" = "success" ] && [ "$ONLY_FAILURE" = "true" ]; then
+            echo "Success and this tool only reports failures: no notification."
+            exit 0
+          fi
+          # The topic is set once in the app (Settings) and kept in ntfy.json on the config branch.
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then
+            echo "No ntfy.json on the config branch: no notification."
+            exit 0
+          fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then
+            echo "ntfy topic is not set: no notification."
+            exit 0
+          fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" \
+              -H "Title: YT Bridge - $TOOL_NAME - $WORD" -H "Tags: $TAGS" -H "Priority: $PRIO" \
+              -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi

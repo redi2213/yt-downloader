@@ -103,3 +103,23 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   دقیقه‌ها فقط با توکن classic دارای scope `user` خوانده می‌شود؛ ریپوی public رایگان است. لیست `REQUIRED_WORKFLOWS` و `SECRET_SPECS` بالای فایل سرویس است.
 - **Series Links** (`Series-Links.yml`، دکمه‌ی «Series links» در Download Anything از config.json): از لینک یک قسمت، لینک کل سریال را می‌سازد/چک می‌کند، `links.txt` + نت‌ها را در ریلیز `run-<id>` می‌گذارد،
   و در حالت upload فایل‌ها را با `upload-file.yml` آپلود می‌کند. نتیجه‌ی upload در ریلیز فرزند است: ورک‌فلو `UPLOAD_RELEASE_TAG=run-N` را در نت‌های ریلیز می‌نویسد و `generic_action_service._finish_action` همان را نشان می‌دهد.
+
+
+---
+
+## بسته‌ی دوم ۲۸ مهر: Auto follow (دنبال کردن کانال و دانلود زمان‌بندی‌شده)
+
+- **منوی «Auto follow»** در صفحه‌ی اصلی (`screens/follow.py`, `services/follow_service.py`, `core/follow.py`): لیست کانال‌ها، افزودن (اول فقط لینک، بعد فرم با کشویی/سوئیچ)، صفحه‌ی هر کانال
+  (Files با نشانک NEW، Check now، Pause/Resume، Edit، Delete)، «Check all channels now» و «Update schedule».
+- **داده‌ها روی برنچ `config`**: `follows.json` (اپ می‌نویسد؛ فرمت کانال در سربرگ `scripts/auto_follow.py`) و `follow-state.json` (فقط ورک‌فلو می‌نویسد؛ آخرین قسمت، ویدیوهای دیده‌شده، آخرین بررسی) تا هیچ‌وقت هم را بازنویسی نکنند.
+- **زمان‌بند** `.github/workflows/Auto-Follow.yml`: cron → اول مرحله‌ی ارزان `--due-only` (آیا کانالی در بازه‌ی خودش «نوبتی» است؟)؛ اگر نه همان‌جا تمام می‌شود (حدود ۱ دقیقه Actions).
+  اگر بله: yt-dlp، `scripts/auto_follow.py` لیست کانال را می‌گیرد، ویدیوهای جدید را انتخاب می‌کند و **ورک‌فلوهای عادی را dispatch می‌کند** (`download.yml` برای یوتیوب، `aparat-download.yml` برای آپارات) با ورودی‌های `release_tag=auto-<slug>` و `split_large=true`؛
+  بعد state را روی برنچ config کامیت می‌کند و ntfy می‌فرستد (فقط اگر چیزی شروع شد یا خطا بود). `concurrency: auto-follow` جلوی اجرای هم‌زمان را می‌گیرد.
+- **cron را اپ کوتاه می‌کند**: `core.follow.cron_for` فقط ساعت‌هایی از UTC را می‌گذارد که بازه‌ی کانال‌ها لازم دارد (دقیقه‌های ۷ و ۳۷؛ ایران UTC+3:30) و `follow_service.sync_schedule` خط `- cron: '...'` فایل ورک‌فلو را روی **برنچ پیش‌فرض ریپو** عوض می‌کند
+  (ورک‌فلوی زمان‌بندی‌شده فقط از آن‌جا اجرا می‌شود). توکن باید مجوز `workflow` داشته باشد؛ وگرنه پیام می‌دهد و cron پیش‌فرض (ساعتی، `17 * * * *`) می‌ماند.
+- **ریلیز ثابت هر کانال** `auto-<slug>`: `storage_publish.py publish --append [--split]` به ریلیز موجود اضافه می‌کند (نام تکراری → تاریخ جلوی نام)، فایل ۲ گیگ+ را با ffmpeg (segment) به بخش‌های قابل‌پخش `name.part1.mkv`… می‌شکند (اگر نشد: تکه‌های خام `.part1`).
+  لیست Release History فقط تگ‌های `run-`/`job-` را نشان می‌دهد، پس ریلیزهای `auto-` خودکار جدا هستند. فایل‌ها در گوشی به `Download/Yt-bridge/Auto` می‌روند (`releases._tag_for` تگ `auto-...` را هم می‌فهمد).
+- **حالت‌ها**: `series` (شماره‌ی قسمت از عنوان، فارسی/انگلیسی؛ قسمت بعدی = بزرگ‌تر از آخرین قسمت، حداکثر تا قسمت پایان) و `latest` (هر N روز، ویدیوهای جدید). نقطه‌ی شروع: از همین حالا / از قسمت N / از تاریخ / N ویدیوی آخر هم.
+  فیلتر: حداقل/حداکثر طول (یوتیوب)، کلمه‌های لازم/ممنوع در عنوان. توقف: قسمت، تاریخ یا تعداد. آپارات: فقط `latest`، گزینه‌ی zip، بدون فیلتر طول.
+- **محدودیت‌ها**: ورک‌فلوهای دانلود بعد از dispatch مستقل‌اند؛ اگر یکی خطا بدهد دوباره خودکار تکرار نمی‌شود (ویدیو «دیده‌شده» حساب شده)، ntfy خطا را می‌فرستد و در صفحه‌ی ران، Run again هست.
+  ذخیره‌ی Arvan برای این ریلیزها استفاده نمی‌شود (فقط GitHub).

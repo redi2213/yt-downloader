@@ -24,6 +24,10 @@ def build(nav):
     dynamic_actions_btn.bind(on_press=lambda i: nav.show_dynamic_actions())
     nav.add(dynamic_actions_btn)
 
+    follow_btn = Button(text="Auto follow", size_hint_y=None, height=52)
+    follow_btn.bind(on_press=lambda i: nav.show_follow_menu())
+    nav.add(follow_btn)
+
     history_btn = Button(text="Release History", size_hint_y=None, height=52)
     history_btn.bind(on_press=lambda i: nav.show_live_history())
     nav.add(history_btn)

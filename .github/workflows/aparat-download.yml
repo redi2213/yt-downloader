@@ -38,6 +38,11 @@ on:
         required: false
         default: ''
         type: string
+      release_tag:
+        description: 'Auto follow: add the files to this release (created the first time) instead of making run-<id> (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
       run_title:
         description: 'Short name for this run, set by the app (leave empty when running by hand)'
         required: false
@@ -130,14 +135,21 @@ jobs:
           STORAGE: ${{ inputs.storage || 'github' }}
           ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
           ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          python3 scripts/storage_publish.py publish --dir "$RUNNER_TEMP/aparat-out" --tag "run-${{ github.run_id }}" --title "Aparat Download $(date '+%Y-%m-%d %H:%M:%S')" --notes-file "$RUNNER_TEMP/aparat-notes.md"
+          if [ -n "$RELEASE_TAG" ]; then
+            # Auto follow: one release per channel that keeps growing (Arvan is not used here)
+            STORAGE=github python3 scripts/storage_publish.py publish --dir "$RUNNER_TEMP/aparat-out" --tag "$RELEASE_TAG" --title "Auto: ${RELEASE_TAG#auto-}" --notes-file "$RUNNER_TEMP/aparat-notes.md" --append
+          else
+            python3 scripts/storage_publish.py publish --dir "$RUNNER_TEMP/aparat-out" --tag "run-${{ github.run_id }}" --title "Aparat Download $(date '+%Y-%m-%d %H:%M:%S')" --notes-file "$RUNNER_TEMP/aparat-notes.md"
+          fi
 
       - name: Show direct asset URLs
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          TAG="run-${{ github.run_id }}"
+          TAG="${RELEASE_TAG:-run-${{ github.run_id }}}"
 
           gh release view "$TAG" \
             --repo "$GITHUB_REPOSITORY"

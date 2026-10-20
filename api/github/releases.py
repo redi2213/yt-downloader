@@ -155,12 +155,17 @@ def get_release_result(run_id=None, tag: str = None, attempts: int = 10, delay: 
     return None
 
 
+def _tag_for(run_id):
+    """Tag of a run's release; an Auto follow release is addressed by its tag ('auto-<slug>')."""
+    return run_id if str(run_id).startswith("auto-") else f"run-{run_id}"
+
+
 def get_release_asset(run_id, attempts: int = 3, delay: float = 2):
     """The first file of release ``run-<run_id>`` as ``{"name", "api_url"}``,
     or None. ``api_url`` + ``Accept: application/octet-stream`` + the token
     downloads the file even when the repo is private (the plain
     browser_download_url answers 404 there)."""
-    url = f"{API_BASE}/releases/tags/run-{run_id}"
+    url = f"{API_BASE}/releases/tags/{_tag_for(run_id)}"
     for _ in range(attempts):
         r = client.get_allow_missing(url)
         if r.status_code == 200:
@@ -175,7 +180,7 @@ def get_release_assets(run_id, attempts: int = 2, delay: float = 1.5):
     """Every file of release ``run-<run_id>`` as ``[{"name", "api_url"}]``
     (empty list when there is no such release / no files). Same download
     rules as ``get_release_asset``."""
-    url = f"{API_BASE}/releases/tags/run-{run_id}"
+    url = f"{API_BASE}/releases/tags/{_tag_for(run_id)}"
     for _ in range(attempts):
         r = client.get_allow_missing(url)
         if r.status_code == 200:
