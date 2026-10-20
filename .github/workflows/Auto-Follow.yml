@@ -8,7 +8,7 @@ run-name: ${{ inputs.run_title || 'Auto follow check' }}${{ inputs.job_id && for
 # uses about one minute of Actions time. Until then it wakes up once an hour.
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '7,37 16,17,18,19,20 * * *'
   workflow_dispatch:
     inputs:
       only:
