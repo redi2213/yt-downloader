@@ -146,3 +146,26 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   (`release_tag` دستی اختیاری است) و ntfy می‌فرستد. دکمه‌اش در `config.json` (برنچ config، نسخه ۱۸) با `"group": "upload"` تعریف شده.
 - **گروه در Download Anything**: هر action با `"group": "<نام>"` پشت یک دکمه‌ی گروه می‌رود (`actions_dynamic.build_group`). گروه `upload` = «Upload / import files»
   شامل Upload a file، Any site و Google Drive. نسخه‌های قدیمی اپ فیلد `group` را نادیده می‌گیرند و لیست تخت را نشان می‌دهند.
+
+
+---
+
+## آپدیت ۲ از ۳ (۲۰ مهر): ستینگ دسته‌بندی‌شده، فارسی + RTL، تم/رنگ/فونت/اندازه، پوشه ذخیره
+
+- **ستینگ**: صفحه‌ی اول فقط ۶ دکمه دارد: Appearance and language / Downloads and storage / Notifications and health / Account and sign-in / App tools / About.
+  هر گروه صفحه‌ی خودش را دارد (`settings.build_section`)؛ بازگشت هر گروه به منوی ستینگ است.
+- **ظاهر** (`screens/appearance.py`، `core/appearance.py`، `api/appearance_prefs.py`):
+  زبان (انگلیسی پیش‌فرض / فارسی)، ۷ تم آماده، رنگ دلخواه برای ۶ بخش (پس‌زمینه، متن، دکمه‌ها و منوها، متن دکمه، کارت‌ها، آیتم انتخاب‌شده) با پالت یا کد `#RRGGBB`،
+  فونت، اندازه‌ی متن و اندازه‌ی کادرها/دکمه‌ها (۴ پله). تم `classic` همان ظاهر همیشگی است و تا وقتی انتخاب باشد هیچ ویجتی دست نمی‌خورد.
+- **چطور اعمال می‌شود** (`screens/style.py`): `Widget.add_widget` یک بار در `main.py` پچ می‌شود؛ هر ویجتی که روی صفحه می‌آید یک بار استایل می‌گیرد
+  (رنگ، فونت، اندازه) و در حالت فارسی متنش ترجمه، شکل‌دهی (arabic_reshaper + bidi) و راست‌چین می‌شود؛ ردیف‌های افقی برعکس می‌شوند.
+  متن اصلی انگلیسی در `widget._ytb_src` می‌ماند (کلید Back دکمه‌ی «Back» را با آن پیدا می‌کند). Spinner و ToggleButton ترجمه نمی‌شوند (کد متنشان را مقایسه می‌کند).
+  `CARD` و `CARD_ON` در `screens/common.py` حالا list هستند تا تم آن‌ها را در جا عوض کند.
+- **ترجمه** (`core/i18n.py`، `core/fa_strings.py`): `EXACT` = متن کامل، `PATTERNS` = متن‌هایی با عدد/نام. متنی که در جدول نباشد انگلیسی می‌ماند؛ برای اضافه کردن فقط همین فایل را ویرایش کن.
+- **فونت**: فهرست = فونت پیش‌فرض + فایل‌های ttf/otf داخل `assets/fonts/` (مثلاً `Vazirmatn-Regular.ttf` را آنجا بگذار و دوباره بساز) + چند فونت سیستمی اندروید که روی گوشی باشند.
+  متن فارسی با فونتی که فارسی ندارد به DejaVuSans برمی‌گردد.
+- **پوشه ذخیره** (`api/download_folder_prefs.py`، `core/android_files.pick_folder`، `core/android_downloads._save_in_tree`):
+  پیش‌فرض `Download/Yt-bridge` (MediaStore)؛ با «Change folder» پوشه‌ی دلخواه (انتخاب‌گر پوشه‌ی اندروید، دسترسی دائمی) و گزینه‌ی زیرپوشه بر اساس نوع.
+  اندروید خود پوشه‌ی اصلی Download را قبول نمی‌کند. اگر پوشه‌ی انتخابی از دسترس برود فایل در پوشه‌ی پیش‌فرض ذخیره می‌شود.
+- **Auto follow**: دکمه‌ی «Files» از صفحه‌ی کانال برداشته شد. در Release History (صفحه‌ی اول) برای هر کانال یک دکمه هست: «Auto follow channel: <نام>  [NEW n] / files of this channel».
+  بازگشت از فایل‌های کانال به Release History است.

@@ -21,13 +21,38 @@ def build_loading(nav):
     nav.add(back_button(nav))
 
 
-def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False):
+def fill_follow_box(box, follows, new, on_open):
+    """One button per Auto follow channel (their files are no longer behind the channel's own
+    screen). The title names the channel, so it is clear which one it is."""
+    box.clear_widgets()
+    if not follows:
+        box.height = 0
+        return
+    box.add_widget(Label(text="Auto follow channels", size_hint_y=None, height=32))
+    for f in follows:
+        badge = f"  [NEW {new[f['id']]}]" if new.get(f.get("id")) else ""
+        btn = Button(text=f"Auto follow channel: {f.get('name', '?')}{badge}\nfiles of this channel",
+                     size_hint_y=None, height=dp(64), halign="center")
+        btn.bind(on_press=lambda i, f=f: on_open(f))
+        box.add_widget(btn)
+
+
+def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False,
+          follows=None, new=None, on_follow=None):
     """``title`` / ``back``: another title and parent screen when this list shows only
     one Auto follow channel's files. ``extra``: (button text, function) shown at the top."""
     nav.clear()
     paged = back is None   # the normal list is paged; one Auto follow channel is not
     heading = f"{title} - page {page + 1} ({len(items)} files)" if paged else f"{title} ({len(items)} found)"
     nav.add(Label(text=heading, size_hint_y=None, height=BTN_H))
+
+    follow_box = None
+    if paged and page == 0:
+        follow_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
+        follow_box.bind(minimum_height=follow_box.setter("height"))
+        nav.add(follow_box)
+        if on_follow:
+            fill_follow_box(follow_box, follows or [], new or {}, on_follow)
     if extra:
         extra_btn = Button(text=extra[0], size_hint_y=None, height=BTN_H)
         extra_btn.bind(on_press=lambda i: extra[1]())
@@ -156,6 +181,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         nav.add(pager)
 
     nav.add(back_button(nav, to=back))
+    return follow_box
 
 
 def build_delete_confirm(nav, item):

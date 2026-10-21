@@ -36,7 +36,8 @@ def build_list(nav, res, back, on_add, on_open, on_check_all, on_sync):
     else:
         follows, state, new = res["follows"], res["state"], res.get("new", {})
         nav.add(wrapped_label("The app checks the channels you follow on a schedule (even when it is closed) "
-                              "and adds new videos to one release per channel. They are not in Release History."))
+                              "and adds new videos to one release per channel. The files of each channel are under "
+                              "Release History (one button per channel)."))
         add = Button(text="+ Follow a channel", size_hint_y=None, height=BTN_H)
         add.bind(on_press=lambda i: on_add())
         nav.add(add)
@@ -64,9 +65,7 @@ def build_detail(nav, f, st, new_count, back, on_files, on_check, on_toggle, on_
     nav.clear()
     _title(nav, f.get("name", "Channel"))
     nav.add(wrapped_label(f"{f.get('url', '')}\n\n{fc.status_text(f, st)}\n\nFiles go to the release: {fc.release_tag(f)}"))
-    files = Button(text="Files" + (f"  (NEW {new_count})" if new_count else ""), size_hint_y=None, height=BTN_H)
-    files.bind(on_press=lambda i: on_files())
-    nav.add(files)
+    # The channel's files are in Release History (one button per channel, titled with its name).
     check = Button(text="Check now (ignores the time window)", size_hint_y=None, height=BTN_H)
     check.bind(on_press=lambda i: on_check())
     nav.add(check)

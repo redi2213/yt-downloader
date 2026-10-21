@@ -76,8 +76,12 @@ class Navigator:
 
         buttons = [w for w in walk(self._content_widgets())
                    if isinstance(w, Button) and isinstance(w.text, str)]
-        back = [b for b in buttons if b.text.startswith("Back")]
-        cancel = [b for b in buttons if b.text == "Cancel"]
+
+        def _name(b):   # the English text, also when the screen is shown in Persian
+            return getattr(b, "_ytb_src", None) or b.text
+
+        back = [b for b in buttons if _name(b).startswith("Back")]
+        cancel = [b for b in buttons if _name(b) == "Cancel"]
         target = back[-1] if back else (cancel[-1] if cancel else None)
         if target is None:
             self.show_home()
@@ -172,6 +176,57 @@ class Navigator:
         self.remember(self.show_settings)
         settings.build(self)
 
+    def show_settings_section(self, section):
+        """One group of Settings (downloads, notifications, account, tools)."""
+        from screens import settings
+        self.remember(lambda: self.show_settings_section(section))
+        settings.build_section(self, section)
+
+    # -- Settings > Appearance and language ------------------------------------
+    def show_appearance(self):
+        from screens import appearance
+        self.remember(self.show_appearance)
+        appearance.build_menu(self)
+
+    def show_appearance_language(self):
+        from screens import appearance
+        self.remember(self.show_appearance_language)
+        appearance.build_language(self)
+
+    def show_appearance_theme(self):
+        from screens import appearance
+        self.remember(self.show_appearance_theme)
+        appearance.build_theme(self)
+
+    def show_appearance_font(self):
+        from screens import appearance
+        self.remember(self.show_appearance_font)
+        appearance.build_font(self)
+
+    # -- Settings > Downloads: the folder files are saved in --------------------
+    def pick_save_folder(self):
+        from core import android_files
+        from api import download_folder_prefs
+
+        def chosen(uri, label):
+            download_folder_prefs.set_tree(uri, label)
+            self.show_settings_section("downloads")
+
+        def failed(text):
+            self.set_status(text)
+
+        android_files.pick_folder(chosen, failed)
+
+    def reset_save_folder(self):
+        from api import download_folder_prefs
+        download_folder_prefs.clear()
+        self.show_settings_section("downloads")
+
+    def toggle_save_subfolders(self):
+        from api import download_folder_prefs
+        download_folder_prefs.set_subfolders(not download_folder_prefs.subfolders())
+        self.show_settings_section("downloads")
+
     # -- storage: GitHub / Arvan Cloud ---------------------------------------
     def storage_mode(self):
         return storage_service.get_mode()
@@ -189,12 +244,12 @@ class Navigator:
     def cycle_run_mode(self):
         """Settings button: auto -> github -> phone -> auto."""
         run_mode_prefs.set_mode(run_mode_prefs.next_mode())
-        self.show_settings()
+        self.show_settings_section("downloads")
 
     def cycle_storage_mode(self):
         """Settings button: github -> arvan -> both -> github."""
         storage_service.cycle_mode()
-        self.show_settings()
+        self.show_settings_section("downloads")
 
     def set_storage_mode(self, mode):
         storage_service.set_mode(mode)
@@ -1650,10 +1705,10 @@ class Navigator:
     def show_health(self):
         from screens import health
         self.remember(self.show_health)
-        health.build_loading(self, self.show_settings)
+        health.build_loading(self, lambda: self.show_settings_section("notify"))
 
         def done(res):
-            self.schedule(lambda: health.build(self, res, self.show_health, self.show_settings))
+            self.schedule(lambda: health.build(self, res, self.show_health, lambda: self.show_settings_section("notify")))
 
         health_service.start_health(done)
 
@@ -1721,11 +1776,34 @@ class Navigator:
         f = getattr(self, "_history_follow", None)
         if f is None:
             self._history_page = res["page"]   # a page past the end falls back to the last one
-            history_screen.build(self, items, page=res["page"], has_next=res["has_next"])
+            box = history_screen.build(
+                self, items, page=res["page"], has_next=res["has_next"],
+                follows=getattr(self, "_follows", None) or [], new=getattr(self, "_follow_new", None) or {},
+                on_follow=self.show_follow_history)
+            if box is not None:
+                self._load_follow_buttons(box)
             return
         history_screen.build(
-            self, items, title=f"Auto: {f.get('name', '')}", back=lambda: self._open_follow(f),
+            self, items, title=f"Auto follow: {f.get('name', '')} (files)", back=self.show_release_history,
             extra=("Download in app / copy all links", lambda: self.show_follow_files(f)))
+
+    def _load_follow_buttons(self, box):
+        """Fresh Auto follow channels for the buttons at the top of Release History
+        (the screen is already shown with the channels known so far)."""
+        from screens import history as history_screen
+
+        def done(res):
+            if not res.get("ok"):
+                return
+
+            def after():
+                self._follows, self._follow_state = res["follows"], res["state"]
+                self._follow_new = res.get("new", {})
+                if box.parent is not None:    # still on the screen
+                    history_screen.fill_follow_box(box, self._follows, self._follow_new, self.show_follow_history)
+            self.schedule(after)
+
+        follow_service.start_overview(done)
 
     def show_delete_confirm(self, item):
         from screens import history as history_screen

@@ -53,7 +53,7 @@ def _release_files(run_id):
 def start_download(job, link, on_update, category="Other"):
     if not link or job.extra.get("dl_state") == "running":
         return
-    folder = f"Download/{android_downloads.ROOT_FOLDER}/{category}"
+    folder = android_downloads.folder_label(category)
     job.extra["dl_state"] = "running"
     job.extra["dl_text"] = f"Downloading to {folder} ... 0%"
     on_update()
@@ -61,7 +61,7 @@ def start_download(job, link, on_update, category="Other"):
 
 
 def _run_one(job, link, on_update, category):
-    folder = f"Download/{android_downloads.ROOT_FOLDER}/{category}"
+    folder = android_downloads.folder_label(category)
 
     def progress(done, total):
         job.extra["dl_text"] = _progress_text(f"Downloading to {folder} ...", done, total)
@@ -91,7 +91,7 @@ def start_links_download(run_id, links, category, on_text, on_finish=None):
 
 
 def _run_many(run_id, links, category, on_text, on_finish):
-    folder = f"Download/{android_downloads.ROOT_FOLDER}/{category}"
+    folder = android_downloads.folder_label(category)
     saved_count, errors, last_error = 0, 0, ""
     saved_files = []   # [(file name, content uri / path)] for the Open / Share buttons
     try:

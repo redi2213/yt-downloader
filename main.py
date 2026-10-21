@@ -12,6 +12,9 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 
+import os
+
+from screens import style
 from screens.common import GAP, PAD
 from screens.navigator import Navigator
 
@@ -19,6 +22,8 @@ from screens.navigator import Navigator
 class YTBridgeApp(App):
     def build(self):
         Window.softinput_mode = "below_target"
+        # Theme, font, size and Persian texts for every widget made from here on.
+        style.install(os.path.join(self.user_data_dir, "ui"))
 
         self.scroll = ScrollView()
         self.content = BoxLayout(orientation="vertical", padding=PAD, spacing=GAP, size_hint_y=None)

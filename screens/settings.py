@@ -1,25 +1,99 @@
-"""Settings screen: everything account/app-config related that used to sit
-directly on the home screen - the GitHub token field, sign-in, and About.
-Room for future appearance settings (theme color, font size, etc) as noted
-in the module docstring below.
+"""Settings: a short main menu, and one screen per group (nothing long on the first page).
 
-Future: appearance settings (colors, font size) will be added here once
-designed - kept as a placeholder section for now.
+Main menu -> Appearance and language / Downloads and storage / Notifications and health /
+Account and sign-in / App tools / About. Every group screen goes back to this menu.
 """
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
+from api import download_folder_prefs, filimo, ntfy_prefs
+from core import android_downloads
 from screens.common import back_button, paste_row, wrapped_label
 from services import ntfy_service, token_service
-from api import ntfy_prefs
-from api import filimo
+
+# (button text, section id) of the main menu, in this order
+MENU = [
+    ("Appearance and language", "appearance"),
+    ("Downloads and storage", "downloads"),
+    ("Notifications and health", "notify"),
+    ("Account and sign-in", "account"),
+    ("App tools", "tools"),
+]
 
 
 def build(nav):
     nav.clear()
     nav.add(Label(text="Settings", size_hint_y=None, height=44))
+    for text, section in MENU:
+        btn = Button(text=text, size_hint_y=None, height=52)
+        if section == "appearance":
+            btn.bind(on_press=lambda i: nav.show_appearance())
+        else:
+            btn.bind(on_press=lambda i, s=section: nav.show_settings_section(s))
+        nav.add(btn)
+    about_btn = Button(text="About", size_hint_y=None, height=52)
+    about_btn.bind(on_press=lambda i: nav.show_about())
+    nav.add(about_btn)
+    nav.add(back_button(nav))
 
+
+def build_section(nav, section):
+    nav.clear()
+    titles = dict((s, t) for t, s in MENU)
+    nav.add(Label(text=titles.get(section, "Settings"), size_hint_y=None, height=44))
+    {"downloads": _downloads, "notify": _notify, "account": _account, "tools": _tools}.get(section, _downloads)(nav)
+    nav.add(back_button(nav, to=nav.show_settings))
+
+
+# -- Downloads and storage ----------------------------------------------------------------------------------------
+def _downloads(nav):
+    tree = download_folder_prefs.get_tree()
+    where = android_downloads.folder_label()
+    nav.add(wrapped_label(f"Save folder: {where}" + ("" if tree else "  (default)")))
+    info = Label(text="", size_hint_y=None, height=40, color=(1, 0.75, 0.4, 1))
+
+    change_btn = Button(text="Change folder", size_hint_y=None, height=48)
+    change_btn.bind(on_press=lambda i: nav.pick_save_folder())
+    nav.add(change_btn)
+    nav.add(wrapped_label("Android does not allow the top Download folder itself: pick or create a folder "
+                          "inside it (for example Download/Yt-bridge)."))
+    if tree:
+        reset_btn = Button(text="Reset to default folder", size_hint_y=None, height=48)
+        reset_btn.bind(on_press=lambda i: nav.reset_save_folder())
+        nav.add(reset_btn)
+        sub_on = download_folder_prefs.subfolders()
+        sub_btn = Button(text=f"Subfolders by type (APK, YouTube...): {'ON' if sub_on else 'OFF'}",
+                         size_hint_y=None, height=48)
+        sub_btn.bind(on_press=lambda i: nav.toggle_save_subfolders())
+        nav.add(sub_btn)
+
+    storage_mode_btn = Button(text=f"Storage: {nav.storage_mode_label()}  (tap to change)",
+                              size_hint_y=None, height=48)
+    storage_mode_btn.bind(on_press=lambda i: nav.cycle_storage_mode())
+    nav.add(storage_mode_btn)
+
+    run_mode_btn = Button(text=f"Run on: {nav.run_mode_label()}  (tap to change)", size_hint_y=None, height=48)
+    run_mode_btn.bind(on_press=lambda i: nav.cycle_run_mode())
+    nav.add(run_mode_btn)
+
+    storage_btn = Button(text="Storage and Arvan buckets", size_hint_y=None, height=48)
+    storage_btn.bind(on_press=lambda i: nav.show_storage())
+    nav.add(storage_btn)
+    nav.add(info)
+    nav.set_status_label(info)
+
+
+# -- Notifications and health -------------------------------------------------------------------------------------
+def _notify(nav):
+    _add_ntfy_section(nav)
+    health_btn = Button(text="Health check", size_hint_y=None, height=48)
+    health_btn.bind(on_press=lambda i: nav.show_health())
+    nav.add(health_btn)
+
+
+# -- Account and sign-in ------------------------------------------------------------------------------------------
+def _account(nav):
     saved_token = token_service.get_token()
     token_input = None
     if saved_token and not nav.show_token_field:
@@ -53,25 +127,13 @@ def build(nav):
         save_filimo_btn.bind(on_press=lambda i: _save_filimo_and_refresh(nav, filimo_input))
         nav.add(save_filimo_btn)
 
-    storage_mode_btn = Button(text=f"Storage: {nav.storage_mode_label()}  (tap to change)",
-                              size_hint_y=None, height=48)
-    storage_mode_btn.bind(on_press=lambda i: nav.cycle_storage_mode())
-    nav.add(storage_mode_btn)
+    github_signin_btn = Button(text="Sign in with GitHub", size_hint_y=None, height=48)
+    github_signin_btn.bind(on_press=lambda i: nav.show_github_signin())
+    nav.add(github_signin_btn)
 
-    run_mode_btn = Button(text=f"Run on: {nav.run_mode_label()}  (tap to change)", size_hint_y=None, height=48)
-    run_mode_btn.bind(on_press=lambda i: nav.cycle_run_mode())
-    nav.add(run_mode_btn)
 
-    storage_btn = Button(text="Storage and Arvan buckets", size_hint_y=None, height=48)
-    storage_btn.bind(on_press=lambda i: nav.show_storage())
-    nav.add(storage_btn)
-
-    _add_ntfy_section(nav)
-
-    health_btn = Button(text="Health check", size_hint_y=None, height=48)
-    health_btn.bind(on_press=lambda i: nav.show_health())
-    nav.add(health_btn)
-
+# -- App tools ----------------------------------------------------------------------------------------------------
+def _tools(nav):
     nav.add(Label(text="App update", size_hint_y=None, height=32))
     update_btn = Button(text="Update project (zip or files)", size_hint_y=None, height=48)
     update_btn.bind(on_press=lambda i: nav.pick_file_for_update())
@@ -83,38 +145,28 @@ def build(nav):
     backup_btn.bind(on_press=lambda i: nav.start_project_backup())
     nav.add(backup_btn)
 
-    github_signin_btn = Button(text="Sign in with GitHub", size_hint_y=None, height=48)
-    github_signin_btn.bind(on_press=lambda i: nav.show_github_signin())
-    nav.add(github_signin_btn)
-
-    about_btn = Button(text="About", size_hint_y=None, height=48)
-    about_btn.bind(on_press=lambda i: nav.show_about())
-    nav.add(about_btn)
-
-    nav.add(back_button(nav))
-
 
 def _reveal_token_field(nav):
     nav.show_token_field = True
-    nav.show_settings()
+    nav.show_settings_section("account")
 
 
 def _save_token_and_refresh(nav, token_input):
     if token_input is not None:
         token_service.save_token(token_input.text.strip())
     nav.show_token_field = False
-    nav.show_settings()
+    nav.show_settings_section("account")
 
 
 def _reveal_filimo_field(nav):
     nav.show_filimo_field = True
-    nav.show_settings()
+    nav.show_settings_section("account")
 
 
 def _save_filimo_and_refresh(nav, filimo_input):
     filimo.save_token(filimo_input.text.strip())
     nav.show_filimo_field = False
-    nav.show_settings()
+    nav.show_settings_section("account")
 
 
 def _add_ntfy_section(nav):

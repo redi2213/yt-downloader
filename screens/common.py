@@ -12,7 +12,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 
-from core import run_labels
+from core import appearance, run_labels
 
 # Button tints by status kind (see run_labels.status_word): the button's
 # normal grey background is multiplied by these.
@@ -35,8 +35,9 @@ SMALL_BTN_H = dp(40)
 
 
 def font_px():
-    """Height in pixels of the default label font (15sp)."""
-    return sp(15)
+    """Height in pixels of the default label font (15sp, times the text size
+    chosen in Settings > Appearance)."""
+    return sp(15 * appearance.font_scale())
 
 
 def line_height(lines=1):
@@ -44,8 +45,10 @@ def line_height(lines=1):
     return int(lines * font_px() * 1.35)
 
 
-CARD = (0.14, 0.14, 0.17, 1)       # list item background
-CARD_ON = (0.12, 0.40, 0.22, 1)    # a selected list item
+# Lists, so a theme change (screens/style.py) can update them in place for every screen
+# that imported them.
+CARD = [0.14, 0.14, 0.17, 1]       # list item background
+CARD_ON = [0.12, 0.40, 0.22, 1]    # a selected list item
 
 
 def paint_card(widget, rgba=CARD):

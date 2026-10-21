@@ -63,7 +63,7 @@ def build(nav, res, mode=None):
     clean_btn.bind(on_press=lambda i: nav.start_arvan_cleanup())
     nav.add(clean_btn)
 
-    nav.add(back_button(nav, to=nav.show_settings))
+    nav.add(back_button(nav, to=lambda: nav.show_settings_section("downloads")))
 
 
 def _bucket_row(nav, bucket):

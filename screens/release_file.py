@@ -30,7 +30,7 @@ _TITLES = {"backup": "Project backup is ready", "apk": "APK is ready"}
 _ASK = {"backup": "Download again", "apk": "Download in app"}
 _ASK_TEXT = {
     "backup": "",
-    "apk": "Download the APK to Download/Yt-bridge/APK, then install it from here?",
+    "apk": "Download the APK to your save folder (APK), then install it from here?",
 }
 
 # job_id -> (status label, download button, kind, install button or None,

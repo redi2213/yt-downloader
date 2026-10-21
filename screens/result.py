@@ -38,7 +38,7 @@ def add_download_in_app(nav, run_id, all_links, category):
     """"Download in app": every file of this result goes to
     Download/Yt-bridge/<category> (the repo is private, so the app fetches the
     release files itself with its token)."""
-    folder = f"Download/{android_downloads.ROOT_FOLDER}/{category}"
+    folder = android_downloads.folder_label(category)
     status = wrapped_label("", height=60, halign="center", valign="middle")
     btn = Button(text="Download in app", size_hint_y=None, height=52)
     state = {"busy": False}

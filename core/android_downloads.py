@@ -127,6 +127,17 @@ def safe_file_name(name, default="file"):
     return cleaned or default
 
 
+def folder_label(category=None):
+    """Where files go, as shown to the user: ``Download/Yt-bridge/<category>`` or the chosen
+    folder (``Storage/Movies/YT/<category>``)."""
+    from api import download_folder_prefs
+    tree = download_folder_prefs.get_tree()
+    base = tree[1] if tree else f"Download/{ROOT_FOLDER}"
+    if category and (not tree or download_folder_prefs.subfolders()):
+        return f"{base}/{category}"
+    return base
+
+
 def _save_in_downloads(src, name, category="Other"):
     category = category if category in CATEGORIES else "Other"
     name = safe_file_name(name)
@@ -134,6 +145,13 @@ def _save_in_downloads(src, name, category="Other"):
         from jnius import autoclass
     except Exception:
         return _save_plain(src, name, os.path.join(os.path.expanduser("~"), "Downloads", ROOT_FOLDER, category))
+    try:
+        from api import download_folder_prefs
+        tree = download_folder_prefs.get_tree()
+        if tree:
+            return _save_in_tree(src, name, category, tree, autoclass, download_folder_prefs.subfolders())
+    except Exception:
+        pass   # the chosen folder is gone or not allowed any more: use the default folder
     sdk = autoclass("android.os.Build$VERSION").SDK_INT
     if sdk >= 29:
         return _save_mediastore(src, name, autoclass, category)
@@ -199,4 +217,64 @@ def _save_mediastore(src, name, autoclass, category="Other"):
     shown = read_uri_name(uri) or name  # Android may add " (1)"
     saved = Saved(f"Download/{ROOT_FOLDER}/{category}/{shown}")
     saved.location = str(uri.toString())
+    return saved
+
+
+_DIR_MIME = "vnd.android.document/directory"
+
+
+def _child_dir(resolver, tree_uri, parent_uri, name, autoclass):
+    """The sub folder ``name`` of ``parent_uri`` inside a picked folder (made when missing)."""
+    DocumentsContract = autoclass("android.provider.DocumentsContract")
+    children = DocumentsContract.buildChildDocumentsUriUsingTree(
+        tree_uri, DocumentsContract.getDocumentId(parent_uri))
+    cursor = resolver.query(children, None, None, None, None)
+    if cursor is not None:
+        try:
+            id_i = cursor.getColumnIndex("document_id")
+            name_i = cursor.getColumnIndex("_display_name")
+            mime_i = cursor.getColumnIndex("mime_type")
+            while cursor.moveToNext():
+                if str(cursor.getString(name_i)) == name and str(cursor.getString(mime_i)) == _DIR_MIME:
+                    return DocumentsContract.buildDocumentUriUsingTree(tree_uri, cursor.getString(id_i))
+        finally:
+            cursor.close()
+    made = DocumentsContract.createDocument(resolver, parent_uri, _DIR_MIME, name)
+    if made is None:
+        raise OSError("Android would not create the sub folder")
+    return made
+
+
+def _save_in_tree(src, name, category, tree, autoclass, use_subfolders):
+    """Saves into the folder the user picked (Android's folder picker), in its
+    <category> sub folder unless that is switched off in Settings."""
+    Uri = autoclass("android.net.Uri")
+    DocumentsContract = autoclass("android.provider.DocumentsContract")
+    FileInputStream = autoclass("java.io.FileInputStream")
+    FileUtils = autoclass("android.os.FileUtils")
+    activity = autoclass("org.kivy.android.PythonActivity").mActivity
+    resolver = activity.getContentResolver()
+
+    tree_uri = Uri.parse(tree[0])
+    parent = DocumentsContract.buildDocumentUriUsingTree(tree_uri, DocumentsContract.getTreeDocumentId(tree_uri))
+    if use_subfolders:
+        parent = _child_dir(resolver, tree_uri, parent, category, autoclass)
+    doc = DocumentsContract.createDocument(resolver, parent, _mime_for(name), name)
+    if doc is None:
+        raise OSError("Android would not create the file in the chosen folder")
+
+    stream_in = FileInputStream(src)
+    stream_out = resolver.openOutputStream(doc)
+    try:
+        FileUtils.copy(stream_in, stream_out)
+    finally:
+        try:
+            stream_in.close()
+        finally:
+            stream_out.close()
+
+    from core.android_files import read_uri_name
+    shown = read_uri_name(doc) or name
+    saved = Saved(f"{folder_label(category)}/{shown}")
+    saved.location = str(doc.toString())
     return saved
