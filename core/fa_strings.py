@@ -321,6 +321,24 @@ EXACT = {
     "Unknown error": "خطای ناشناخته",
     "waiting for the run to appear": "در انتظار ظاهر شدن اجرا",
     "Network error": "خطای شبکه",
+    # --- Downloads page / download manager
+    "Downloads": "دانلودها",
+    "Search downloads": "جستجو در دانلودها",
+    "Stop": "توقف",
+    "All": "همه",
+    "Video": "ویدیو",
+    "Audio": "صدا",
+    "APK": "APK",
+    "Other": "سایر",
+    "Waiting for a free slot": "در انتظار نوبت",
+    "Stopped": "متوقف شد",
+    "Show more": "نمایش بیشتر",
+    "Clear list (files stay)": "پاک کردن فهرست (فایل‌ها می‌مانند)",
+    "Press again to delete the file": "برای حذف فایل دوباره بزن",
+    "Download manager": "مدیر دانلود",
+    "Stopped. Press Download to start again.": "متوقف شد. برای شروع دوباره دانلود را بزن.",
+    "Create empty file first makes the file at its final size before the download starts (Java RandomAccessFile.setLength), so Android does not scatter it in pieces. More pieces download one file faster when the server allows it.":
+        "«ساخت فایل خالی» پیش از شروع دانلود فایل را با حجم نهایی می‌سازد (RandomAccessFile.setLength در جاوا) تا اندروید آن را تکه‌تکه پخش نکند. تکه‌های بیشتر، وقتی سرور اجازه بدهد، یک فایل را سریع‌تر دانلود می‌کند.",
     # --- small buttons and words
     "How many": "تعداد",
     "Start": "شروع",
@@ -356,6 +374,17 @@ EXACT = {
 }
 
 PATTERNS = [
+    (r"Downloads \((\d+)\)", "دانلودها ({0})"),
+    (r"Pieces per file: (\d+)  \(tap to change\)", "تعداد تکه‌ها برای هر فایل: {0}  (برای تغییر لمس کن)"),
+    (r"Files at the same time: (\d+)  \(tap to change\)", "تعداد فایل همزمان: {0}  (برای تغییر لمس کن)"),
+    (r"Create empty file first: ON", "ساخت فایل خالی پیش از دانلود: روشن"),
+    (r"Create empty file first: OFF", "ساخت فایل خالی پیش از دانلود: خاموش"),
+    (r"Paused(.*)", "متوقف‌شده{0}"),
+    (r"Failed: (.*)", "ناموفق: {0}"),
+    (r"Saved (\d+) of (\d+) file\(s\) in (.+)", "{0} از {1} فایل در {2} ذخیره شد"),
+    (r"(\d+) failed \((.*)\)", "{0} ناموفق ({1})"),
+    (r"(\d+) stopped", "{0} متوقف شد"),
+    (r"Downloading (\d+)/(\d+) \.\.\. +(.*)", "در حال دانلود {0} از {1} ... {2}"),
     (r"Running jobs \((\d+)\)", "کارهای در حال اجرا ({0})"),
     (r"Release History - page (\d+) \((\d+) files\)", "تاریخچه ریلیزها - صفحه {0} ({1} فایل)"),
     (r"Release History \((\d+) found\)", "تاریخچه ریلیزها ({0} مورد)"),

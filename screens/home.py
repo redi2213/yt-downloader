@@ -28,6 +28,12 @@ def build(nav):
     follow_btn.bind(on_press=lambda i: nav.show_follow_menu())
     nav.add(follow_btn)
 
+    from core import download_manager
+    live = len([t for t in download_manager.snapshot() if t.active])
+    downloads_btn = Button(text=f"Downloads ({live})" if live else "Downloads", size_hint_y=None, height=52)
+    downloads_btn.bind(on_press=lambda i: nav.show_downloads())
+    nav.add(downloads_btn)
+
     history_btn = Button(text="Release History", size_hint_y=None, height=52)
     history_btn.bind(on_press=lambda i: nav.show_release_history())
     nav.add(history_btn)

@@ -28,7 +28,7 @@ def _patterns():
     global _compiled
     if _compiled is None:
         from core.fa_strings import PATTERNS
-        _compiled = [(re.compile(p, re.DOTALL), t) for p, t in PATTERNS]
+        _compiled = [(re.compile(p), t) for p, t in PATTERNS]
     return _compiled
 
 

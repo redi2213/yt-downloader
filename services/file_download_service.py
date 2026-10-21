@@ -18,8 +18,10 @@ Two entry points:
 ``on_update()`` / ``on_text(text)`` are called from a background thread; the
 caller hops onto the Kivy thread.
 """
+import threading
+
 from api.github import releases
-from core import android_downloads
+from core import android_downloads, segmented_download
 from core.async_utils import run_in_background
 from services.notify_service import notify
 
@@ -79,6 +81,9 @@ def _run_one(job, link, on_update, category):
         job.extra["dl_name"] = name or android_downloads.file_name_from_url(url)
         job.extra["dl_text"] = f"Saved:\n{saved}"
         notify("YT Bridge", "Saved in Downloads")
+    except segmented_download.Cancelled:
+        job.extra["dl_state"] = "error"
+        job.extra["dl_text"] = "Stopped. Press Download to start again."
     except Exception as e:
         job.extra["dl_state"] = "error"
         job.extra["dl_text"] = f"Download failed: {str(e)[:80]}\nThe link above still works."
@@ -105,24 +110,52 @@ def _run_many(run_id, links, category, on_text, on_finish):
         if not total:
             on_text("There is nothing to download here.")
             return
-        for index, (name, url, headers) in enumerate(items, 1):
-            prefix = f"Downloading {index}/{total} ..."
+        # The manager keeps at most "Simultaneous downloads" (Settings) running; the others wait.
+        lock = threading.Lock()
+        progress_of = {}          # index -> (done, size) of the files that are running
+        stopped = [0]
 
-            def progress(done, size, prefix=prefix):
-                on_text(_progress_text(prefix, done, size))
+        def work(index, name, url, headers):
+            nonlocal saved_count, errors, last_error
+
+            def progress(done, size):
+                with lock:
+                    progress_of[index] = (done, size)
+                    running = len(progress_of)
+                    d = sum(x[0] for x in progress_of.values())
+                    s = sum(x[1] for x in progress_of.values())
+                on_text(_progress_text(f"Downloading {saved_count + errors + stopped[0] + running}/{total} ...", d, s))
 
             try:
                 saved = android_downloads.download_to_downloads(
                     url, name=name, on_progress=progress, headers=headers, category=category)
-                saved_files.append((name or android_downloads.file_name_from_url(url),
-                                    getattr(saved, "location", None)))
-                saved_count += 1
+                with lock:
+                    saved_files.append((name or android_downloads.file_name_from_url(url),
+                                        getattr(saved, "location", None)))
+                    saved_count += 1
+            except segmented_download.Cancelled:
+                with lock:
+                    stopped[0] += 1
             except Exception as e:
-                errors += 1
-                last_error = str(e)[:60]
+                with lock:
+                    errors += 1
+                    last_error = str(e)[:60]
+            finally:
+                with lock:
+                    progress_of.pop(index, None)
+
+        workers = []
+        for index, (name, url, headers) in enumerate(items, 1):
+            t = threading.Thread(target=work, args=(index, name, url, headers), daemon=True)
+            t.start()
+            workers.append(t)
+        for t in workers:
+            t.join()
         text = f"Saved {saved_count} of {total} file(s) in {folder}"
         if errors:
             text += f"\n{errors} failed ({last_error})"
+        if stopped[0]:
+            text += f"\n{stopped[0]} stopped"
         on_text(text)
         if saved_count:
             notify("YT Bridge", "Saved in Downloads")

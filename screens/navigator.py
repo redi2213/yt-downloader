@@ -176,6 +176,27 @@ class Navigator:
         self.remember(self.show_settings)
         settings.build(self)
 
+    def show_downloads(self):
+        """What is saving now (Pause / Resume / Stop) and the saved files."""
+        from screens import downloads
+        self.remember(self.show_downloads)
+        downloads.build(self)
+
+    def cycle_download_segments(self):
+        from api import download_manager_prefs
+        download_manager_prefs.cycle_segments()
+        self.show_settings_section("downloads")
+
+    def cycle_download_parallel(self):
+        from api import download_manager_prefs
+        download_manager_prefs.cycle_parallel()
+        self.show_settings_section("downloads")
+
+    def toggle_download_preallocate(self):
+        from api import download_manager_prefs
+        download_manager_prefs.toggle_preallocate()
+        self.show_settings_section("downloads")
+
     def show_settings_section(self, section):
         """One group of Settings (downloads, notifications, account, tools)."""
         from screens import settings

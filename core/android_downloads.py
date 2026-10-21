@@ -74,17 +74,8 @@ def download_to_downloads(url, name=None, on_progress=None, headers=None, catego
     (a ``Saved``, with ``.location``). Raises on failure.
     ``on_progress(done_bytes, total_bytes)`` may be called from this thread
     (total is 0 when the server does not say)."""
-    name = name or file_name_from_url(url)
-    fd, tmp_path = tempfile.mkstemp(suffix=".part")
-    os.close(fd)
-    try:
-        _fetch(url, tmp_path, on_progress, headers)
-        return _save_in_downloads(tmp_path, name, category)
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
+    from core import download_manager
+    return download_manager.run(url, name, on_progress=on_progress, headers=headers, category=category)
 
 
 def _fetch(url, path, on_progress, headers=None):

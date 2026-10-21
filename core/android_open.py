@@ -62,3 +62,28 @@ def share_file(location, name=""):
         return None
     except Exception as e:
         return f"Could not share the file: {str(e)[:80]}"
+
+
+def delete_file(location):
+    """Deletes a saved file. True = deleted, False = it was already gone / could not be deleted."""
+    if not location:
+        return False
+    location = str(location)
+    if not _is_content(location):
+        import os
+        try:
+            os.remove(location)
+            return True
+        except OSError:
+            return False
+    try:
+        from jnius import autoclass
+        Uri = autoclass("android.net.Uri")
+        activity = autoclass("org.kivy.android.PythonActivity").mActivity
+        resolver = activity.getContentResolver()
+        uri = Uri.parse(location)
+        if "/tree/" in location and "/document/" in location:      # a file inside a picked folder
+            return bool(autoclass("android.provider.DocumentsContract").deleteDocument(resolver, uri))
+        return resolver.delete(uri, None, None) > 0
+    except Exception:
+        return False

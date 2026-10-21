@@ -7,7 +7,7 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from api import download_folder_prefs, filimo, ntfy_prefs
+from api import download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs
 from core import android_downloads
 from screens.common import back_button, paste_row, wrapped_label
 from services import ntfy_service, token_service
@@ -67,6 +67,23 @@ def _downloads(nav):
                          size_hint_y=None, height=48)
         sub_btn.bind(on_press=lambda i: nav.toggle_save_subfolders())
         nav.add(sub_btn)
+
+    nav.add(Label(text="Download manager", size_hint_y=None, height=32))
+    pieces_btn = Button(text=f"Pieces per file: {download_manager_prefs.segments()}  (tap to change)",
+                        size_hint_y=None, height=48)
+    pieces_btn.bind(on_press=lambda i: nav.cycle_download_segments())
+    nav.add(pieces_btn)
+    parallel_btn = Button(text=f"Files at the same time: {download_manager_prefs.parallel()}  (tap to change)",
+                          size_hint_y=None, height=48)
+    parallel_btn.bind(on_press=lambda i: nav.cycle_download_parallel())
+    nav.add(parallel_btn)
+    empty_on = download_manager_prefs.preallocate()
+    empty_btn = Button(text=f"Create empty file first: {'ON' if empty_on else 'OFF'}", size_hint_y=None, height=48)
+    empty_btn.bind(on_press=lambda i: nav.toggle_download_preallocate())
+    nav.add(empty_btn)
+    nav.add(wrapped_label("Create empty file first makes the file at its final size before the download "
+                          "starts (Java RandomAccessFile.setLength), so Android does not scatter it in "
+                          "pieces. More pieces download one file faster when the server allows it."))
 
     storage_mode_btn = Button(text=f"Storage: {nav.storage_mode_label()}  (tap to change)",
                               size_hint_y=None, height=48)
