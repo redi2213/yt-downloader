@@ -13,7 +13,7 @@ from kivy.uix.textinput import TextInput
 from api import downloads_history
 from core import android_open, download_manager as dm, file_types
 from screens.common import (BTN_H, CARD, GAP, SMALL_BTN_H, back_button, card_box, content_width,
-                            paint_card)
+                            paint_card, wrapped_label_height)
 
 _DANGER = (1.0, 0.55, 0.55, 1)
 PAGE = 30
@@ -94,6 +94,8 @@ def build(nav):
 
     def say(text):
         info.text = text or ""
+        info.height = max(dp(32), wrapped_label_height(text or ""))
+        info.text_size = (content_width(), None)
 
     def set_kind(kind):
         _state["kind"], _state["shown"] = kind, PAGE

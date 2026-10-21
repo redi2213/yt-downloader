@@ -45,12 +45,16 @@ def add_download_in_app(nav, run_id, all_links, category):
     # Open / Share rows of the files saved by this button (filled when it finishes)
     files_box = BoxLayout(orientation="vertical", size_hint_y=None, height=0, spacing=GAP)
 
+    def say(text):
+        status.text = text
+        status.height = max(dp(60), wrapped_label_height(text))
+
     def set_text(text):
-        Clock.schedule_once(lambda dt: setattr(status, "text", text))
+        Clock.schedule_once(lambda dt: say(text))
 
     def show_problem(problem):
         if problem:
-            status.text = problem
+            say(problem)
 
     def fill_files(saved_files):
         files_box.clear_widgets()
@@ -85,7 +89,7 @@ def add_download_in_app(nav, run_id, all_links, category):
         state["busy"] = True
         btn.disabled = True
         btn.text = "Downloading..."
-        status.text = f"Saving to {folder} ..."
+        say(f"Saving to {folder} ...")
         files_box.clear_widgets()
         files_box.height = 0
         file_download_service.start_links_download(run_id, all_links, category, set_text, finished)

@@ -136,7 +136,7 @@ def _style_label(w):
         w._ytb_src = w.text
         w._ytb_last = None
         w._ytb_busy = False
-        w.bind(text=_on_text, width=_on_width)
+        w.bind(text=_on_text, text_size=_on_text_size)
         _convert(w, w.text)
     elif i18n.is_fa() and isinstance(w, (Spinner, ToggleButton)):
         _apply_font(w, w.text)
@@ -201,10 +201,10 @@ def _style_input(w):
 
 # -- Persian text -------------------------------------------------------------------------------------------------
 def _width_of(w):
+    """Pixels a text may take: only a label the code gave a ``text_size`` is cut into lines for it.
+    (A button's own width is no limit - a new widget is 100 px wide and would cut every word.)"""
     ts = getattr(w, "text_size", None)
-    if ts and ts[0]:
-        return ts[0]
-    return w.width if w.width > 60 else None
+    return ts[0] if ts and ts[0] else None
 
 
 def _convert(w, raw):
@@ -233,8 +233,8 @@ def _on_text(w, value):
     _convert(w, value)
 
 
-def _on_width(w, _value):
-    """A wrapped Persian label is cut into lines for its width - redo it when the width is known."""
+def _on_text_size(w, value):
+    """A wrapped Persian label is cut into lines for its text_size: redo it when that changes."""
     src = getattr(w, "_ytb_src", None)
-    if src and not getattr(w, "_ytb_busy", False) and "\n" not in w.text and len(w.text) > 24:
+    if src and value and value[0] and not getattr(w, "_ytb_busy", False) and len(src) > 24:
         _convert(w, src)

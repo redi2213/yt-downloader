@@ -8,6 +8,11 @@ says what to do instead. Pure helpers, no Kivy.
 from core import android_downloads
 
 
+def _char_sequence(autoclass, cast, text):
+    """A Java CharSequence: Intent.createChooser does not accept a Python str."""
+    return autoclass("java.lang.String")(text)     # same as core/android_actions.share_text, which works
+
+
 def _is_content(location):
     return str(location or "").startswith("content://")
 
@@ -18,7 +23,7 @@ def open_file(location, name=""):
     if not location:
         return "The file location is unknown - open it from the Files app."
     try:
-        from jnius import autoclass
+        from jnius import autoclass, cast
     except Exception:
         return "Opening a file works only on the phone."
     if not _is_content(location):
@@ -30,7 +35,7 @@ def open_file(location, name=""):
         intent = Intent(Intent.ACTION_VIEW)
         intent.setDataAndType(Uri.parse(str(location)), android_downloads._mime_for(name or ""))
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        chooser = Intent.createChooser(intent, "Open with")
+        chooser = Intent.createChooser(intent, _char_sequence(autoclass, cast, "Open with"))
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity.startActivity(chooser)
         return None
@@ -43,7 +48,7 @@ def share_file(location, name=""):
     if not location:
         return "The file location is unknown - share it from the Files app."
     try:
-        from jnius import autoclass
+        from jnius import autoclass, cast
     except Exception:
         return "Sharing a file works only on the phone."
     if not _is_content(location):
@@ -54,9 +59,10 @@ def share_file(location, name=""):
         activity = autoclass("org.kivy.android.PythonActivity").mActivity
         intent = Intent(Intent.ACTION_SEND)
         intent.setType(android_downloads._mime_for(name or ""))
-        intent.putExtra(Intent.EXTRA_STREAM, Uri.parse(str(location)))
+        # putExtra has many overloads: without the cast pyjnius picks (String, String) and fails
+        intent.putExtra(Intent.EXTRA_STREAM, cast("android.os.Parcelable", Uri.parse(str(location))))
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        chooser = Intent.createChooser(intent, "Share file")
+        chooser = Intent.createChooser(intent, _char_sequence(autoclass, cast, "Share file"))
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity.startActivity(chooser)
         return None
