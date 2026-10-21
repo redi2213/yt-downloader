@@ -35,6 +35,35 @@
       },
       "max_per_run": 5,
       "zip": false
+    },
+    {
+      "id": "fc944a52b",
+      "slug": "rest-in-peace",
+      "name": "rest_in_peace",
+      "site": "aparat",
+      "url": "https://www.aparat.com/rest_in_peace",
+      "enabled": true,
+      "mode": "latest",
+      "days": [],
+      "start": "20:00",
+      "end": "23:59",
+      "every_days": 5,
+      "quality": "360p",
+      "min_minutes": 0,
+      "max_minutes": 0,
+      "include": [],
+      "exclude": [],
+      "start_from": {
+        "type": "last_n",
+        "value": "10"
+      },
+      "stop": {
+        "episode": null,
+        "date": null,
+        "count": null
+      },
+      "max_per_run": 1,
+      "zip": true
     }
   ]
 }
