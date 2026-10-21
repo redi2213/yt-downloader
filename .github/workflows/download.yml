@@ -656,6 +656,80 @@ jobs:
           ls -lh "out/$FINAL_NAME"
           echo "filename output: $FINAL_NAME"
 
+          # --- Extract quality info via ffprobe (best-effort, never fails the job) ---
+          FFPROBE_JSON=$(ffprobe -v error \
+            -select_streams v:0 \
+            -show_entries stream=width,height,codec_name,r_frame_rate,bit_rate \
+            -show_entries format=duration,size \
+            -of json \
+            "out/$FINAL_NAME" 2>/dev/null || echo "{}")
+
+          python3 - "$FFPROBE_JSON" "$QUALITY" "$AUDIO_ONLY" << 'PYEOF'
+          import json, sys, re, math
+
+          raw = sys.argv[1]
+          quality_tag = sys.argv[2]   # e.g. "1080p_30fps" or "audio"
+          audio_only  = sys.argv[3].lower() == "true"
+
+          try:
+              data = json.loads(raw)
+          except Exception:
+              data = {}
+
+          streams = data.get("streams", [])
+          fmt     = data.get("format", {})
+          vs      = next((s for s in streams if s.get("codec_type") == "video"), streams[0] if streams else {})
+
+          def fps_float(r):
+              try:
+                  a, b = r.split("/")
+                  return round(int(a) / int(b), 2) if int(b) else 0
+              except Exception:
+                  return 0
+
+          width    = vs.get("width")  or 0
+          height   = vs.get("height") or 0
+          codec    = (vs.get("codec_name") or "").upper()
+          fps_raw  = vs.get("r_frame_rate", "")
+          fps      = fps_float(fps_raw)
+          br_raw   = vs.get("bit_rate") or fmt.get("bit_rate") or 0
+          bitrate  = round(int(br_raw) / 1_000_000, 2) if str(br_raw).isdigit() else 0
+          dur_raw  = fmt.get("duration") or 0
+          duration = round(float(dur_raw), 1) if dur_raw else 0
+          size_raw = fmt.get("size") or 0
+          size_b   = int(size_raw) if str(size_raw).isdigit() else 0
+
+          # Build a clean resolution string like "1080p" or "1920x1080"
+          if height:
+              resolution = f"{height}p"
+          elif width and height:
+              resolution = f"{width}x{height}"
+          else:
+              resolution = quality_tag.split("_")[0] if quality_tag and quality_tag != "unknown" else ""
+
+          q = {
+              "resolution": resolution,
+              "codec":      codec or ("AAC/MP3" if audio_only else ""),
+              "fps":        fps if fps and not audio_only else 0,
+              "bitrate_mbps": bitrate,
+              "duration_s":   duration,
+              "size_bytes":   size_b,
+              "quality_tag":  quality_tag,
+              "audio_only":   audio_only,
+          }
+          # Remove zero/empty values to keep the JSON small
+          q = {k: v for k, v in q.items() if v not in (0, 0.0, "", False, None)}
+          if audio_only:
+              q["audio_only"] = True
+
+          out = json.dumps(q, ensure_ascii=False)
+          print(out)
+          with open("quality_meta.json", "w") as f:
+              f.write(out)
+          PYEOF
+
+          echo "quality_meta=$(cat quality_meta.json 2>/dev/null || echo '{}')" >> "$GITHUB_OUTPUT"
+
       - name: Clean up cookies
         if: always()
         run: rm -f cookies.txt filename.txt metadata.txt raw_formats.json dump_formats.py pick_audio.py filter_progress.py safe_name.py
@@ -676,6 +750,7 @@ jobs:
           ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           SPLIT_LARGE: ${{ inputs.split_large }}
+          QUALITY_META: ${{ steps.dl.outputs.quality_meta }}
         run: |
           if [ -n "$RELEASE_TAG" ]; then
             # Auto follow: one release per channel that keeps growing (Arvan is not used here)
@@ -696,6 +771,8 @@ jobs:
           ONLY_FAILURE: 'false'
           RUN_TITLE: ${{ inputs.run_title }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QUALITY_META: ${{ steps.dl.outputs.quality_meta }}
+          DL_FILENAME: ${{ steps.dl.outputs.filename }}
         run: |
           set -u
           if [ "$JOB_STATUS" = "success" ] && [ "$ONLY_FAILURE" = "true" ]; then
@@ -735,6 +812,35 @@ jobs:
           esac
           BODY="$TOOL_NAME: $WORD"
           if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          # Append quality + size info when available (success only)
+          if [ "$JOB_STATUS" = "success" ] && [ -n "${QUALITY_META:-}" ]; then
+            QUALITY_LINE=$(python3 - <<'PY'
+          import json, os
+          raw = os.environ.get("QUALITY_META", "")
+          fn  = os.environ.get("DL_FILENAME", "")
+          try:
+              q = json.loads(raw)
+          except Exception:
+              q = {}
+          parts = []
+          if q.get("audio_only"):
+              parts.append(f"Audio {q.get('codec','').upper()}".strip())
+          else:
+              if q.get("resolution"): parts.append(q["resolution"])
+              if q.get("codec"):      parts.append(q["codec"].upper())
+              fps = float(q.get("fps") or 0)
+              if fps > 30.5:          parts.append(f"{int(round(fps))}fps")
+          sz = int(q.get("size_bytes") or 0)
+          if sz:
+              if sz >= 1_073_741_824:
+                  parts.append(f"{sz/1_073_741_824:.1f}GB")
+              else:
+                  parts.append(f"{sz/1_048_576:.0f}MB")
+          print(" • ".join(parts) if parts else "")
+          PY
+            )
+            if [ -n "$QUALITY_LINE" ]; then BODY="$BODY"$'\n'"🎬 $QUALITY_LINE"; fi
+          fi
           BODY="$BODY"$'\n'"$RUN_URL"
           if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" \
               -H "Title: YT Bridge - $TOOL_NAME - $WORD" -H "Tags: $TAGS" -H "Priority: $PRIO" \

@@ -221,6 +221,19 @@ def _publish_append(args, files):
     return 0
 
 
+def _read_quality_meta() -> dict:
+    """Read quality info from QUALITY_META env (set by the download workflow)."""
+    import json as _json
+    raw = os.environ.get("QUALITY_META", "").strip()
+    if not raw:
+        return {}
+    try:
+        q = _json.loads(raw)
+        return q if isinstance(q, dict) else {}
+    except Exception:
+        return {}
+
+
 def cmd_publish(args, client_factory=core.make_client) -> int:
     mode = get_mode()
     files = _files_in(args.dir, args.file)
@@ -233,12 +246,14 @@ def cmd_publish(args, client_factory=core.make_client) -> int:
     for w in warnings:
         print(f"::warning::{w}")
     notes = _notes_text(args)
+    quality = _read_quality_meta()
     create = ["release", "create", args.tag, *for_github, *_repo_args(),
               "--prerelease", "--title", args.title or args.tag]
     if mode == "github":
-        body = notes
+        # Even in github-only mode, write the quality block so the app can read it
+        body = core.build_body(mode, infos, warnings, notes, quality) if quality else notes
     else:
-        body = core.build_body(mode, infos, warnings, notes)
+        body = core.build_body(mode, infos, warnings, notes, quality)
     if body:
         create += ["--notes-file", _write_body(body)]
     else:

@@ -241,14 +241,20 @@ def _content_type(name: str) -> str:
 # ------------------------------------------------- release body (meta) ---
 META_OPEN = "<!--ytb-storage:"
 META_CLOSE = "-->"
+QUALITY_OPEN = "<!--ytb-quality:"
 
 
-def build_body(mode: str, files: list, warnings: list, notes: str = "") -> str:
-    """Release description: a hidden JSON block the app reads, then plain
+def build_body(mode: str, files: list, warnings: list, notes: str = "",
+               quality: dict = None) -> str:
+    """Release description: hidden JSON blocks the app reads, then plain
     text for people reading the release on GitHub."""
     meta = {"v": 1, "mode": mode, "files": files, "warn": warnings}
     raw = json.dumps(meta, ensure_ascii=True, separators=(",", ":")).replace(">", "\\u003e")
     lines = [META_OPEN + raw + META_CLOSE]
+    # Quality block: written when ffprobe info is available (download workflow)
+    if quality and isinstance(quality, dict):
+        qraw = json.dumps(quality, ensure_ascii=True, separators=(",", ":")).replace(">", "\\u003e")
+        lines.append(QUALITY_OPEN + qraw + META_CLOSE)
     if notes:
         lines.append(notes)
     if files:

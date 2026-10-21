@@ -15,6 +15,8 @@ from core.exceptions import NetworkError
 _STORAGE_RE = re.compile(r"<!--ytb-storage:(.*?)-->", re.S)
 # Result of the Arvan info / cleanup workflow (scripts/arvan_maintenance.py)
 _ARVAN_INFO_RE = re.compile(r"<!--ytb-arvan:(.*?)-->", re.S)
+# Quality/codec info written by the download workflow via ffprobe
+_QUALITY_RE = re.compile(r"<!--ytb-quality:(.*?)-->", re.S)
 
 
 def _parse_block(regex, body):
@@ -36,6 +38,33 @@ def parse_storage_meta(body):
 def parse_arvan_info(body):
     """The info/cleanup block of an Arvan maintenance release, or None."""
     return _parse_block(_ARVAN_INFO_RE, body)
+
+
+def parse_quality_meta(body):
+    """The quality block of a release description as a dict, or None.
+    Keys: resolution, codec, fps, bitrate_mbps, duration_s, size_bytes,
+          quality_tag, audio_only."""
+    return _parse_block(_QUALITY_RE, body)
+
+
+def quality_label(body) -> str:
+    """A short human-readable quality string from the release body.
+    e.g. '1080p VP9' or '720p H264 60fps' or 'Audio MP3' or ''."""
+    q = parse_quality_meta(body)
+    if not q:
+        return ""
+    if q.get("audio_only"):
+        codec = q.get("codec", "").upper()
+        return f"Audio {codec}".strip()
+    parts = []
+    if q.get("resolution"):
+        parts.append(q["resolution"])
+    if q.get("codec"):
+        parts.append(q["codec"].upper())
+    fps = q.get("fps", 0)
+    if fps and float(fps) > 30.5:
+        parts.append(f"{int(round(float(fps)))}fps")
+    return " ".join(parts)
 
 
 def _arvan_files(release_json) -> list:
@@ -92,23 +121,30 @@ def get_release_links(run_id=None, tag: str = None, attempts: int = 10, delay: f
 
 def get_release_extras(run_id=None, tag: str = None) -> dict:
     """What the app shows besides the main link(s): the Arvan links of a
-    release that also has GitHub assets, and any storage warning. {} when the
-    release has no storage block (plain GitHub run). One request, no polling."""
+    release that also has GitHub assets, any storage warning, and quality info.
+    {} when the release has nothing extra. One request, no polling."""
     if tag is None:
         tag = f"run-{run_id}"
     r = client.get_allow_missing(f"{API_BASE}/releases/tags/{tag}")
     if r.status_code != 200:
         return {}
-    meta = parse_storage_meta(r.json().get("body"))
-    if not meta:
-        return {}
+    body = r.json().get("body") or ""
     extras = {}
-    arvan = [f["url"] for f in meta.get("files", []) if isinstance(f, dict) and f.get("url")]
-    if arvan:
-        extras["arvan_links"] = arvan
-    warns = [str(w) for w in meta.get("warn", [])]
-    if warns:
-        extras["storage_warn"] = "\n".join(warns)
+    meta = parse_storage_meta(body)
+    if meta:
+        arvan = [f["url"] for f in meta.get("files", []) if isinstance(f, dict) and f.get("url")]
+        if arvan:
+            extras["arvan_links"] = arvan
+        warns = [str(w) for w in meta.get("warn", [])]
+        if warns:
+            extras["storage_warn"] = "\n".join(warns)
+    # Quality info — available even for plain GitHub releases
+    qlabel = quality_label(body)
+    if qlabel:
+        extras["quality_label"] = qlabel
+    qmeta = parse_quality_meta(body)
+    if qmeta:
+        extras["quality_meta"] = qmeta
     return extras
 
 
@@ -211,6 +247,8 @@ def _history_items(rel):
     """The History items of one release: one per file."""
     tag = rel.get("tag_name", "")
     assets = rel.get("assets", [])
+    body = rel.get("body") or ""
+    qlabel = quality_label(body)   # "" when no quality block
     items = []
     if not assets:
         # Arvan-only release: the file lives on Arvan, listed in the description
@@ -225,6 +263,7 @@ def _history_items(rel):
                 "tag_name": tag,
                 "size": f.get("size", 0),
                 "storage": "arvan",
+                "quality_label": qlabel,
             })
         return items
     # One item per file: a multi-file upload keeps all its files in one release
@@ -239,6 +278,7 @@ def _history_items(rel):
             "asset_id": asset["id"],
             "tag_name": tag,
             "size": asset.get("size", 0),
+            "quality_label": qlabel,
         })
     return items
 

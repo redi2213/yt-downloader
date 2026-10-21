@@ -34,6 +34,26 @@ def add_size_label(nav, run_id, all_links):
     file_download_service.start_sizes(run_id, all_links, done)
 
 
+def add_quality_row(nav, quality_label: str, quality_meta: dict, on_redownload=None):
+    """Shows quality info (e.g. '1080p VP9') and optionally a re-download button."""
+    if not quality_label:
+        return
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44), spacing=dp(6))
+    ql = Label(
+        text=f"🎬 {quality_label}",
+        size_hint_x=0.55,
+        halign="center",
+        valign="middle",
+    )
+    ql.bind(size=ql.setter("text_size"))
+    row.add_widget(ql)
+    if on_redownload:
+        btn = Button(text="📥 کیفیت دیگر", size_hint_x=0.45, height=dp(44))
+        btn.bind(on_press=lambda i: on_redownload(quality_meta or {}))
+        row.add_widget(btn)
+    nav.add(row)
+
+
 def add_download_in_app(nav, run_id, all_links, category):
     """"Download in app": every file of this result goes to
     Download/Yt-bridge/<category> (the repo is private, so the app fetches the
@@ -101,7 +121,8 @@ def add_download_in_app(nav, run_id, all_links, category):
 
 
 def build(nav, message, link=None, retry=None, retry_message="Working...", extra_buttons=None, links=None,
-          arvan_links=None, storage_warn=None, run_id=None, category=None):
+          arvan_links=None, storage_warn=None, run_id=None, category=None,
+          quality_label: str = "", quality_meta: dict = None, on_redownload=None):
     nav.clear()
     many = bool(links) and len(links) > 1
     if many:
@@ -132,6 +153,9 @@ def build(nav, message, link=None, retry=None, retry_message="Working...", extra
     downloadable = list(links or ([link] if link else []))
     if downloadable and (run_id or category):
         add_size_label(nav, run_id, downloadable)
+    # quality info + re-download button
+    if quality_label:
+        add_quality_row(nav, quality_label, quality_meta, on_redownload=on_redownload)
     # "Download in app" - only for results that have files (not for error texts)
     if category and downloadable:
         add_download_in_app(nav, run_id, downloadable, category)

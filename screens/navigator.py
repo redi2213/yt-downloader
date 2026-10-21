@@ -151,7 +151,8 @@ class Navigator:
         )
 
     def show_result(self, message, link=None, retry=None, retry_message="Working...", extra_buttons=None,
-                    links=None, arvan_links=None, storage_warn=None, run_id=None, category=None):
+                    links=None, arvan_links=None, storage_warn=None, run_id=None, category=None,
+                    quality_label: str = "", quality_meta: dict = None, on_redownload=None):
         from screens import result
         result.build(
             self,
@@ -164,7 +165,10 @@ class Navigator:
             arvan_links=arvan_links,
             storage_warn=storage_warn,
             run_id=run_id,
-            category=category
+            category=category,
+            quality_label=quality_label,
+            quality_meta=quality_meta,
+            on_redownload=on_redownload,
         )
 
     def show_about(self):
@@ -441,6 +445,9 @@ class Navigator:
             self.show_release_file(job, RELEASE_FILE_KINDS[job.extra["action"]["id"]])
 
         else:  # download, upload
+            qlabel = job.result.get("quality_label", "")
+            qmeta  = job.result.get("quality_meta") or {}
+            redownload_cb = self._make_redownload_cb(job) if qlabel else None
             self.show_result(
                 "Ready!",
                 link=job.result.get("link"),
@@ -448,8 +455,24 @@ class Navigator:
                 arvan_links=job.result.get("arvan_links"),
                 storage_warn=job.result.get("storage_warn"),
                 run_id=job.result.get("files_run_id") or job.run_id,
-                category=self._download_category(job)
+                category=self._download_category(job),
+                quality_label=qlabel,
+                quality_meta=qmeta,
+                on_redownload=redownload_cb,
             )
+
+    def _make_redownload_cb(self, job):
+        """Returns a callback that takes the user back to the quality picker
+        for the same URL so they can pick a different quality."""
+        url = job.input or (job.result or {}).get("link", "")
+
+        def go(_qmeta=None):
+            # Navigate to YouTube download screen with URL pre-filled;
+            # show_quality_list needs formats — re-fetch them first.
+            if url:
+                self.show_youtube_download(video_url=url)
+
+        return go
 
     def _download_category(self, job):
         """Subfolder of Download/Yt-bridge for the files of a finished job."""
