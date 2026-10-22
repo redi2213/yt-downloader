@@ -216,8 +216,8 @@ jobs:
         run: |
           python3 _repo/scripts/storage_publish.py upload --dir release_asset --tag "$TAG" --idx "$IDX" --meta-out "meta/meta-$IDX.json"
 
-      - name: Keep the Arvan result for the final step
-        if: ${{ !cancelled() && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+      - name: Keep the result (Arvan links and quality) for the final step
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: storage-meta-${{ matrix.idx }}
@@ -227,10 +227,10 @@ jobs:
 
   finalize:
     needs: [prepare, upload]
-    if: ${{ !cancelled() && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    name: arvan links
+    name: arvan links and quality
     steps:
       - uses: actions/checkout@v4
         with:
@@ -243,7 +243,7 @@ jobs:
           merge-multiple: true
           path: metas
 
-      - name: Write the Arvan links into the release
+      - name: Write the Arvan links and the quality into the release
         env:
           GH_TOKEN: ${{ github.token }}
           STORAGE: ${{ inputs.storage }}

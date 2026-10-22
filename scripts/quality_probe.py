@@ -37,8 +37,25 @@ def _from_name(name):
     return (f"{int(m.group(1))}p" if m else ""), (float(f.group(1)) if f else 0)
 
 
+_install_tried = False
+
+
+def _ensure_ffprobe():
+    """On a GitHub runner without ffprobe: install ffmpeg once (about 20 s). Anywhere else: nothing."""
+    global _install_tried
+    if shutil.which("ffprobe") or _install_tried or os.environ.get("GITHUB_ACTIONS") != "true":
+        return bool(shutil.which("ffprobe"))
+    _install_tried = True
+    try:
+        subprocess.run("sudo -n apt-get update -qq && sudo -n apt-get install -y -qq ffmpeg",
+                       shell=True, capture_output=True, timeout=240)
+    except Exception:
+        pass
+    return bool(shutil.which("ffprobe"))
+
+
 def _ffprobe(path):
-    if not shutil.which("ffprobe"):
+    if not _ensure_ffprobe():
         return {}
     try:
         out = subprocess.run(

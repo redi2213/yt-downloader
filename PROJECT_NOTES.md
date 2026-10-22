@@ -206,3 +206,8 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
 - **Another quality**: برای ابزارهای Download Anything فرم همان ابزار را با ورودی‌های قبلی باز می‌کند (`show_action_input(action, initial=...)`)، برای یوتیوب صفحه‌ی YouTube Download با لینک.
 - فونت اپ ایموجی ندارد (🎬 مربع می‌شد)، پس متن ساده است: `Quality: 1080p VP9` و دکمه‌ی `Another quality` (ترجمه‌ی فارسی دارد).
 - ویدیوی عمودی (مثلاً 1080x1920) ۱۰۸۰p نوشته می‌شود، نه ۱۹۲۰p.
+
+- **چرا Any site / Upload file کیفیت نمی‌نوشتند (۲۲ مهر)**: نتیجه‌ی هر پای matrix (`meta-IDX.json`) فقط وقتی جمع می‌شد که ذخیره‌سازی `arvan` یا `both` بود
+  (هم step آپلود artifact و هم job `finalize` شرط داشتند). در حالت پیش‌فرض `github` هیچ‌وقت کیفیت به توضیح ریلیز نمی‌رسید. شرط‌ها برداشته شد؛
+  `finalize` در حالت github اگر کیفیتی نبود هنوز چیزی را عوض نمی‌کند.
+- `quality_probe.py`: اگر روی runner `ffprobe` نبود، یک بار `ffmpeg` را با apt نصب می‌کند (فقط وقتی `GITHUB_ACTIONS=true`)، پس برای همه‌ی ورک‌فلوها بدون تغییر YAML کار می‌کند.
