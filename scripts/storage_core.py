@@ -244,6 +244,14 @@ META_CLOSE = "-->"
 QUALITY_OPEN = "<!--ytb-quality:"
 
 
+def quality_block(quality: dict) -> str:
+    """The hidden quality block of a release description ('' when there is nothing to say)."""
+    if not quality or not isinstance(quality, dict):
+        return ""
+    qraw = json.dumps(quality, ensure_ascii=True, separators=(",", ":")).replace(">", "\\u003e")
+    return QUALITY_OPEN + qraw + META_CLOSE
+
+
 def build_body(mode: str, files: list, warnings: list, notes: str = "",
                quality: dict = None) -> str:
     """Release description: hidden JSON blocks the app reads, then plain
@@ -252,9 +260,8 @@ def build_body(mode: str, files: list, warnings: list, notes: str = "",
     raw = json.dumps(meta, ensure_ascii=True, separators=(",", ":")).replace(">", "\\u003e")
     lines = [META_OPEN + raw + META_CLOSE]
     # Quality block: written when ffprobe info is available (download workflow)
-    if quality and isinstance(quality, dict):
-        qraw = json.dumps(quality, ensure_ascii=True, separators=(",", ":")).replace(">", "\\u003e")
-        lines.append(QUALITY_OPEN + qraw + META_CLOSE)
+    if quality_block(quality):
+        lines.append(quality_block(quality))
     if notes:
         lines.append(notes)
     if files:

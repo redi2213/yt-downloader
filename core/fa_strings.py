@@ -439,3 +439,7 @@ PATTERNS = [
     (r"Version (.+)", "نسخه {0}"),
     (r"Font size: (.+)", "اندازه متن: {0}"),
 ]
+
+from core.fa_strings_more import MORE_EXACT, MORE_PATTERNS   # noqa: E402
+EXACT.update(MORE_EXACT)
+PATTERNS.extend(MORE_PATTERNS)

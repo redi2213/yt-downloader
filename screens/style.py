@@ -7,7 +7,7 @@ text that changes later (``label.text = ...``) goes through the same steps. Swit
 the language or the theme rebuilds the screen, so nothing has to be updated in place.
 
 Buttons keep their text in ``widget._ytb_src`` (English, as the code wrote it), because
-the Back key looks for a button named "Back".
+the Back key looks for a button named "Back". A Spinner is not translated: the code compares its value.
 """
 from kivy.core.window import Window
 from kivy.metrics import sp
@@ -132,14 +132,14 @@ def _style_label(w):
     else:
         _label_color(w)
     _apply_font(w, w.text)
-    if i18n.is_fa() and not isinstance(w, (Spinner, ToggleButton)) and not getattr(w, "_ytb_notr", False):
+    if i18n.is_fa() and not isinstance(w, Spinner) and not getattr(w, "_ytb_notr", False):
         w._ytb_src = w.text
         w._ytb_last = None
         w._ytb_busy = False
         w.bind(text=_on_text, text_size=_on_text_size)
         _convert(w, w.text)
-    elif i18n.is_fa() and isinstance(w, (Spinner, ToggleButton)):
-        _apply_font(w, w.text)
+    elif i18n.is_fa() and isinstance(w, Spinner):
+        _apply_font(w, w.text)     # its value is compared by the code: it stays as it is
 
 
 def _label_color(w):

@@ -46,6 +46,23 @@ def _one(text):
     return None
 
 
+_phrase_rx = None
+
+
+def _phrases(text):
+    """Last resort for a text built from pieces: replace every known piece, keep the rest."""
+    global _phrase_rx
+    from core.fa_strings_more import PHRASES
+    if _phrase_rx is None:
+        pieces = sorted(PHRASES, key=lambda p: -len(p[0]))
+        _phrase_rx = (re.compile("|".join(
+            r"(?<![A-Za-z0-9])" + re.escape(e) + (r"(?![A-Za-z0-9])" if e[-1].isalnum() else "")
+            for e, _p in pieces)), dict(pieces))
+    rx, table = _phrase_rx
+    out = rx.sub(lambda m: table[m.group(0)], text)
+    return out if out != text else None
+
+
 def tr(text):
     """Persian form of ``text`` or ``text`` itself when there is none."""
     if _lang != "fa" or not isinstance(text, str) or not text.strip():
@@ -59,7 +76,11 @@ def tr(text):
     if "\n" in core:
         parts, changed = [], False
         for line in core.split("\n"):
-            got = _one(line.strip()) if line.strip() else None
+            got = None
+            if line.strip():
+                got = _one(line.strip())
+                if got is None:
+                    got = _phrases(line)
             if got is None:
                 parts.append(line)
             else:
@@ -67,4 +88,6 @@ def tr(text):
                 changed = True
         if changed:
             return lead + "\n".join(parts) + tail
-    return text
+        return text
+    got = _phrases(core)
+    return lead + got + tail if got is not None else text

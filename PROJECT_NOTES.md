@@ -189,3 +189,20 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   «Clear list» فقط فهرست را پاک می‌کند، نه فایل‌ها.
 - **محدودیت‌ها**: کارهای نیمه‌تمام بعد از بستن برنامه ادامه پیدا نمی‌کنند (فقط در همان اجرای برنامه Pause/Resume کار می‌کند). فایل‌های لاگ (`save_text_file`) در این فهرست نیستند.
 - تست‌های بیرون از گوشی (سرور محلی با Range): چندتکه، قطع اتصال، Pause/Resume، Stop، صف و آزادشدن جا هنگام Pause.
+
+
+---
+
+## کیفیت کنار حجم برای همه‌ی ابزارها + «Another quality» (۲۱ مهر)
+
+- **اصل کار** (از تو): ورک‌فلو یک بلوک مخفی `<!--ytb-quality:{...}-->` در توضیح ریلیز می‌نویسد، `releases.py` آن را می‌خواند و `result.py` / `history.py` نشان می‌دهند.
+  فقط `download.yml` (یوتیوب) این بلوک را می‌ساخت.
+- **حالا همه‌ی ابزارها**: `scripts/quality_probe.py` هر فایل ویدیو/صوت را اندازه می‌گیرد (ffprobe؛ اگر نبود کیفیتِ نوشته‌شده در نام فایل مثل `_720p_30fps`).
+  `storage_publish.py` آن را خودش صدا می‌زند: `publish` (Any site تک‌لینکی، Aparat، Telegram، Filimo، Google Play)، `upload` + `finalize` (چندلینکی: Any site، Upload file).
+  برای ورک‌فلوهایی که ریلیز را خودشان می‌سازند (`drive-to-release.yml`، `mediafire-to-release.yml`) دستور جدید `storage_publish.py quality --file ... --tag ...` و یک step بعد از ساخت ریلیز اضافه شد.
+- **هر فایل کیفیت خودش را دارد**: بلوک یک کلید `by_file` دارد (نام فایل -> resolution/codec/fps/audio_only)؛ بالای بلوک مشخصات فایل اول یا `QUALITY_META` یوتیوب می‌ماند.
+  اپ (`quality_label(body, name)`) نام فایل را بدون توجه به فاصله و نویسه‌های خاص مقایسه می‌کند، چون GitHub نام asset را عوض می‌کند. اگر چند فایل بود و نام پیدا نشد، حدس نمی‌زند.
+  صفحه‌ی نتیجه با چند فایل، کیفیت‌های متفاوت را در یک خط می‌نویسد (`720p H264 · 360p H264`).
+- **Another quality**: برای ابزارهای Download Anything فرم همان ابزار را با ورودی‌های قبلی باز می‌کند (`show_action_input(action, initial=...)`)، برای یوتیوب صفحه‌ی YouTube Download با لینک.
+- فونت اپ ایموجی ندارد (🎬 مربع می‌شد)، پس متن ساده است: `Quality: 1080p VP9` و دکمه‌ی `Another quality` (ترجمه‌ی فارسی دارد).
+- ویدیوی عمودی (مثلاً 1080x1920) ۱۰۸۰p نوشته می‌شود، نه ۱۹۲۰p.

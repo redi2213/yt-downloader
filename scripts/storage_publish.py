@@ -6,6 +6,8 @@
                                 date in front; with --split a file of 2 GB or more is cut into playable parts
     storage_publish.py upload   --dir out --tag run-1 --idx 3 --meta-out m.json   one leg of a matrix, release already exists
     storage_publish.py finalize --tag run-1 --meta-dir metas          merge the legs' results into the release description
+    storage_publish.py quality  --file f.mp4 --tag run-1              (tools that create their release themselves) add the quality
+                                of the file(s) to the existing release description
 
 Environment: STORAGE = github | arvan | both (default github), ARVAN_BUCKET
 (id of the preferred bucket), ALL_SECRETS (JSON of the repo secrets),
@@ -28,6 +30,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import storage_core as core  # noqa: E402
+import quality_probe  # noqa: E402
 
 MODES = ("github", "arvan", "both")
 GITHUB_ASSET_LIMIT = 2 * 1024 ** 3  # a Release asset must be smaller than 2 GiB
@@ -234,6 +237,15 @@ def _read_quality_meta() -> dict:
         return {}
 
 
+def _quality_for(files) -> dict:
+    """The quality block of a release: the numbers the workflow gave (QUALITY_META, the YouTube
+    download) plus what ffprobe / the file names say about every file (all other tools)."""
+    try:
+        return quality_probe.merge(_read_quality_meta(), quality_probe.probe_files(files))
+    except Exception:
+        return _read_quality_meta()
+
+
 def cmd_publish(args, client_factory=core.make_client) -> int:
     mode = get_mode()
     files = _files_in(args.dir, args.file)
@@ -246,7 +258,7 @@ def cmd_publish(args, client_factory=core.make_client) -> int:
     for w in warnings:
         print(f"::warning::{w}")
     notes = _notes_text(args)
-    quality = _read_quality_meta()
+    quality = _quality_for(files)
     create = ["release", "create", args.tag, *for_github, *_repo_args(),
               "--prerelease", "--title", args.title or args.tag]
     if mode == "github":
@@ -261,6 +273,36 @@ def cmd_publish(args, client_factory=core.make_client) -> int:
     gh(*create)
     for i in infos:
         print(f"Arvan link: {i['url']}")
+    return 0
+
+
+def _gh_text(*args) -> str:
+    """Output of a gh command ('' on failure). Tests replace this function."""
+    done = subprocess.run(["gh", *args], capture_output=True, text=True)
+    return done.stdout if done.returncode == 0 else ""
+
+
+def cmd_quality(args) -> int:
+    """For workflows that make their release themselves (gh release create): measure the file(s)
+    and add the quality block to the existing release description (the other text stays)."""
+    import re
+    files = _files_in(args.dir, args.file)
+    new = quality_probe.probe_files(files)
+    if not new:
+        return 0
+    body = _gh_text("release", "view", args.tag, *_repo_args(), "--json", "body", "-q", ".body")
+    old = re.search(r"<!--ytb-quality:(.*?)-->", body, re.S)
+    if old:      # a release shared by many runs: keep the files that are already listed
+        try:
+            before = json.loads(old.group(1))
+            merged = dict(before.get("by_file") or {})
+            merged.update(new.get("by_file") or {})
+            new = dict(new, by_file=dict(list(merged.items())[-quality_probe.MAX_FILES:]))
+        except ValueError:
+            pass
+    body = re.sub(r"<!--ytb-quality:.*?-->\n?", "", body, flags=re.S)
+    gh("release", "edit", args.tag, *_repo_args(), "--notes-file",
+       _write_body(core.quality_block(new) + "\n" + body))
     return 0
 
 
@@ -284,15 +326,13 @@ def cmd_upload(args, client_factory=core.make_client) -> int:
     if args.meta_out:
         os.makedirs(os.path.dirname(os.path.abspath(args.meta_out)), exist_ok=True)
         with open(args.meta_out, "w", encoding="utf-8") as fh:
-            json.dump({"files": infos, "warn": warnings}, fh)
+            json.dump({"files": infos, "warn": warnings, "quality": _quality_for(files)}, fh)
     return 0
 
 
 def cmd_finalize(args) -> int:
     mode = get_mode()
-    if mode == "github":
-        return 0  # nothing to add: behaves exactly as before
-    infos, warnings = [], []
+    infos, warnings, by_file, first = [], [], {}, {}
     for path in sorted(glob.glob(os.path.join(args.meta_dir, "**", "*.json"), recursive=True)):
         try:
             with open(path, encoding="utf-8") as fh:
@@ -301,7 +341,16 @@ def cmd_finalize(args) -> int:
             continue
         infos += data.get("files", [])
         warnings += data.get("warn", [])
-    body = core.build_body(mode, infos, _dedupe(warnings), args.notes or "")
+        q = data.get("quality") or {}
+        if q and not first:
+            first = {k: v for k, v in q.items() if k != "by_file"}
+        for name, entry in (q.get("by_file") or {}).items():
+            if len(by_file) < quality_probe.MAX_FILES:
+                by_file[name] = entry
+    quality = dict(first, by_file=by_file) if by_file else {}
+    if mode == "github" and not quality:
+        return 0  # nothing to add: behaves exactly as before
+    body = core.build_body(mode, infos, _dedupe(warnings), args.notes or "", quality)
     gh("release", "edit", args.tag, *_repo_args(), "--notes-file", _write_body(body))
     return 0
 
@@ -324,12 +373,17 @@ def main(argv=None) -> int:
     b.add_argument("--tag", required=True)
     b.add_argument("--idx", default="1")
     b.add_argument("--meta-out", default="")
+    q = sub.add_parser("quality")
+    q.add_argument("--dir", default="")
+    q.add_argument("--file", action="append", default=[])
+    q.add_argument("--tag", required=True)
     c = sub.add_parser("finalize")
     c.add_argument("--tag", required=True)
     c.add_argument("--meta-dir", required=True)
     c.add_argument("--notes", default="")
     args = p.parse_args(argv)
-    return {"publish": cmd_publish, "upload": cmd_upload, "finalize": cmd_finalize}[args.cmd](args)
+    return {"publish": cmd_publish, "upload": cmd_upload, "finalize": cmd_finalize,
+            "quality": cmd_quality}[args.cmd](args)
 
 
 if __name__ == "__main__":

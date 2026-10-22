@@ -139,7 +139,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         size_mb = item.get("size", 0) / (1024 * 1024)
         size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
         qlabel = item.get("quality_label", "")
-        quality_text = f"  🎬 {qlabel}" if qlabel else ""
+        quality_text = f"  - {qlabel}" if qlabel else ""
         title_text = f"{item['date']}\n{item['title']}{size_text}{quality_text}"
         title_height = wrapped_label_height(title_text, extra_padding=dp(14), width=inner_width - dp(16))
 

@@ -40,7 +40,7 @@ def add_quality_row(nav, quality_label: str, quality_meta: dict, on_redownload=N
         return
     row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(44), spacing=dp(6))
     ql = Label(
-        text=f"🎬 {quality_label}",
+        text=f"Quality: {quality_label}",
         size_hint_x=0.55,
         halign="center",
         valign="middle",
@@ -48,7 +48,7 @@ def add_quality_row(nav, quality_label: str, quality_meta: dict, on_redownload=N
     ql.bind(size=ql.setter("text_size"))
     row.add_widget(ql)
     if on_redownload:
-        btn = Button(text="📥 کیفیت دیگر", size_hint_x=0.45, height=dp(44))
+        btn = Button(text="Another quality", size_hint_x=0.45, height=dp(44))
         btn.bind(on_press=lambda i: on_redownload(quality_meta or {}))
         row.add_widget(btn)
     nav.add(row)

@@ -47,24 +47,62 @@ def parse_quality_meta(body):
     return _parse_block(_QUALITY_RE, body)
 
 
-def quality_label(body) -> str:
+def _label_of(q) -> str:
+    """'1080p VP9' / '720p H264 60fps' / 'Audio MP3' from one quality dict ('' when empty)."""
+    if not isinstance(q, dict) or not q:
+        return ""
+    if q.get("audio_only"):
+        return f"Audio {str(q.get('codec', '')).upper()}".strip()
+    parts = []
+    if q.get("resolution"):
+        parts.append(str(q["resolution"]))
+    if q.get("codec"):
+        parts.append(str(q["codec"]).upper())
+    try:
+        fps = float(q.get("fps") or 0)
+    except (TypeError, ValueError):
+        fps = 0
+    if fps > 30.5:
+        parts.append(f"{int(round(fps))}fps")
+    return " ".join(parts)
+
+
+def _norm_name(name) -> str:
+    """GitHub changes spaces and odd characters of an asset name: compare only letters and digits."""
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def quality_label(body, name=None) -> str:
     """A short human-readable quality string from the release body.
-    e.g. '1080p VP9' or '720p H264 60fps' or 'Audio MP3' or ''."""
+    ``name``: the file the label is for - a release with several files has one entry per file
+    (``by_file``); without a match (or a name) the first file's quality is used. '' if unknown."""
     q = parse_quality_meta(body)
     if not q:
         return ""
-    if q.get("audio_only"):
-        codec = q.get("codec", "").upper()
-        return f"Audio {codec}".strip()
-    parts = []
-    if q.get("resolution"):
-        parts.append(q["resolution"])
-    if q.get("codec"):
-        parts.append(q["codec"].upper())
-    fps = q.get("fps", 0)
-    if fps and float(fps) > 30.5:
-        parts.append(f"{int(round(float(fps)))}fps")
-    return " ".join(parts)
+    by_file = q.get("by_file")
+    if name and isinstance(by_file, dict) and by_file:
+        wanted = _norm_name(name)
+        for fname, entry in by_file.items():
+            if _norm_name(fname) == wanted:
+                return _label_of(entry)
+        if len(by_file) > 1:
+            return ""            # several files and this one is not among them: do not guess
+    return _label_of(q)
+
+
+def quality_labels_all(body) -> str:
+    """One line for a result screen that shows several files: the different qualities,
+    in the order of the files ('720p H264 · 360p H264')."""
+    q = parse_quality_meta(body)
+    if not q:
+        return ""
+    entries = list((q.get("by_file") or {}).values()) or [q]
+    seen = []
+    for e in entries:
+        label = _label_of(e)
+        if label and label not in seen:
+            seen.append(label)
+    return " · ".join(seen)
 
 
 def _arvan_files(release_json) -> list:
@@ -139,7 +177,7 @@ def get_release_extras(run_id=None, tag: str = None) -> dict:
         if warns:
             extras["storage_warn"] = "\n".join(warns)
     # Quality info — available even for plain GitHub releases
-    qlabel = quality_label(body)
+    qlabel = quality_labels_all(body)
     if qlabel:
         extras["quality_label"] = qlabel
     qmeta = parse_quality_meta(body)
@@ -247,8 +285,7 @@ def _history_items(rel):
     """The History items of one release: one per file."""
     tag = rel.get("tag_name", "")
     assets = rel.get("assets", [])
-    body = rel.get("body") or ""
-    qlabel = quality_label(body)   # "" when no quality block
+    body = rel.get("body") or ""     # holds the quality block (when there is one) - read per file below
     items = []
     if not assets:
         # Arvan-only release: the file lives on Arvan, listed in the description
@@ -263,7 +300,7 @@ def _history_items(rel):
                 "tag_name": tag,
                 "size": f.get("size", 0),
                 "storage": "arvan",
-                "quality_label": qlabel,
+                "quality_label": quality_label(body, f.get("name")),
             })
         return items
     # One item per file: a multi-file upload keeps all its files in one release
@@ -278,7 +315,7 @@ def _history_items(rel):
             "asset_id": asset["id"],
             "tag_name": tag,
             "size": asset.get("size", 0),
-            "quality_label": qlabel,
+            "quality_label": quality_label(body, asset.get("name")),
         })
     return items
 

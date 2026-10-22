@@ -462,9 +462,18 @@ class Navigator:
             )
 
     def _make_redownload_cb(self, job):
-        """Returns a callback that takes the user back to the quality picker
-        for the same URL so they can pick a different quality."""
-        url = job.input or (job.result or {}).get("link", "")
+        """Returns a callback that takes the user back to where the quality is chosen, with
+        the same link already filled in, so they can get the file again in another quality:
+        the form of the same Download Anything tool, or the YouTube Download screen."""
+        action = (job.extra or {}).get("action")
+        if action:
+            values = dict(job.input) if isinstance(job.input, dict) else {}
+
+            def go_tool(_qmeta=None):
+                self.show_action_input(action, initial=values)
+
+            return go_tool
+        url = job.input if isinstance(job.input, str) else (job.result or {}).get("link", "")
 
         def go(_qmeta=None):
             # Navigate to YouTube download screen with URL pre-filled;
