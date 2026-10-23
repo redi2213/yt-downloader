@@ -45,6 +45,11 @@ on:
         required: false
         default: ''
         type: string
+      force:
+        description: 'yes = ignore the "this site failed before" warning and run anyway (set by the app after you confirm)'
+        required: false
+        default: 'no'
+        type: string
 
 permissions:
   contents: write
@@ -86,6 +91,15 @@ jobs:
               f.write("matrix=" + json.dumps(matrix, separators=(",", ":")) + "\n")
               f.write("tag=run-" + os.environ["GITHUB_RUN_ID"] + "\n")
           PY
+
+      # اگر سایت قبلاً فقط خطا داده، قبل از شروع متوقف می‌شود (مگر force=yes)
+      - name: Check the site history
+        if: ${{ !(inputs.quality == 'check' && inputs.format_id == '') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MATRIX: ${{ steps.collect.outputs.matrix }}
+          FORCE: ${{ inputs.force }}
+        run: python3 scripts/site_log.py check
 
       # در حالت check ریلیز ساخته نمی‌شود
       - name: Create the release
@@ -159,6 +173,11 @@ jobs:
               return (msg or "unknown error")[-300:].replace("\n", " ")
 
           def fail(msg):
+              try:
+                  with open("reason.txt", "w", encoding="utf-8") as fh:
+                      fh.write(short(msg))
+              except Exception:
+                  pass
               print(f"::error::{short(msg)}")
               sys.exit(1)
 
@@ -206,6 +225,17 @@ jobs:
 
           if extra:
               print("Working strategy: " + " ".join(extra))
+
+          META = {"extractor": data.get("extractor_key") or data.get("extractor") or ""}
+
+          def save_meta():
+              try:
+                  with open("pickmeta.json", "w", encoding="utf-8") as fh:
+                      json.dump(META, fh)
+              except Exception:
+                  pass
+
+          save_meta()
 
           # ---- 4) جمع‌آوری فرمت‌ها ----
           raw = {}
@@ -327,6 +357,8 @@ jobs:
 
           if chosen:
               ext = chosen["ext"]
+              META["height"] = chosen["h"]
+              save_meta()
               fsel = f"{chosen['id']}+ba/{chosen['id']}" if chosen["acodec"] == "none" else chosen["id"]
               print(f"Chosen: {chosen['id']} ({chosen['h'] or '?'}p, {mb(chosen['size'])}) -> {fsel}")
           else:
@@ -380,6 +412,7 @@ jobs:
 
       # ---------- حالت release ----------
       - name: Download (aria2, fallback yt-dlp)
+        id: dl
         if: ${{ inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
         env:
           URL: ${{ matrix.url }}
@@ -442,6 +475,7 @@ jobs:
             exit 1
           fi
           ls -lh work
+          stat -c %s "work/$NAME" > size.txt
 
       - name: Get the publish scripts
         if: ${{ inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
@@ -474,9 +508,134 @@ jobs:
           retention-days: 1
           if-no-files-found: ignore
 
+      # ---------- site log: one small record per link (uploaded as artifact, written by the `log` job) ----------
+      - name: Write the site-log record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          URL: ${{ matrix.url }}
+          IDX: ${{ matrix.idx }}
+          MODE: ${{ inputs.mode }}
+          QUALITY: ${{ inputs.quality }}
+          FORMAT_ID: ${{ inputs.format_id }}
+          PICK: ${{ steps.pick.outcome }}
+          DL: ${{ steps.dl.outcome }}
+          LINKFILE: ${{ env.LINKFILE }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.parse, urllib.request
+          from datetime import datetime, timezone
+
+          e = os.environ.get
+          url = e("URL", "")
+          mode = e("MODE", "")
+          q = e("QUALITY", "")
+          fid = (e("FORMAT_ID") or "").strip()
+          check = (q == "check" and not fid)
+          MIN = 10 * 1048576
+
+
+          def read(p, default=""):
+              try:
+                  with open(p, encoding="utf-8") as fh:
+                      return fh.read().strip()
+              except Exception:
+                  return default
+
+
+          def probe(u):
+              h = {"User-Agent": "Mozilla/5.0", "Referer": url, "Range": "bytes=0-0"}
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(u, headers=h), timeout=15) as r:
+                      m = re.search(r"/(\d+)$", r.headers.get("Content-Range", ""))
+                      if m:
+                          return int(m.group(1))
+                      if r.status == 200 and r.headers.get("Content-Length"):
+                          return int(r.headers["Content-Length"])
+              except Exception:
+                  return None
+              return None
+
+
+          pick = e("PICK")
+          if pick in ("skipped", "cancelled", ""):
+              print("The link was not processed (setup problem): no record.")
+              raise SystemExit(0)
+
+          try:
+              meta = json.loads(read("pickmeta.json", "{}"))
+          except ValueError:
+              meta = {}
+
+          size = None
+          status = None
+          reason = ""
+          if pick != "success":
+              status = "fail"
+              reason = read("reason.txt") or "extraction failed"
+          elif check:
+              pass
+          elif mode == "release":
+              if e("DL") != "success":
+                  status = "fail"
+                  reason = "download failed"
+              else:
+                  try:
+                      size = int(read("size.txt"))
+                  except ValueError:
+                      size = None
+          elif mode == "direct":
+              links = [l.strip() for l in read(e("LINKFILE") or "link.txt").splitlines() if l.strip()]
+              if links and not any(".m3u8" in l for l in links):
+                  sizes = [probe(l) for l in links]
+                  if all(sizes):
+                      size = sum(sizes)
+
+          if status is None and size is not None:
+              status = "success" if size >= MIN else "small"
+              if status == "small":
+                  reason = "file is under 10 MB"
+          if status is None:
+              if check:
+                  print("Successful check: nothing to record.")
+                  raise SystemExit(0)
+              status = "unknown"
+              reason = "size could not be measured"
+
+          host = (urllib.parse.urlsplit(url).hostname or "").lower()
+          if host.startswith("www."):
+              host = host[4:]
+          rec = {
+              "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "domain": host,
+              "url": url,
+              "extractor": meta.get("extractor", ""),
+              "quality": fid or q,
+              "height": meta.get("height"),
+              "size_mb": round(size / 1048576, 1) if size is not None else None,
+              "status": status,
+              "reason": reason[:200],
+              "mode": ("check" if check else mode),
+              "run": e("RUN_ID", ""),
+          }
+          with open(f"sitelog_{e('IDX', '0')}.json", "w", encoding="utf-8") as fh:
+              json.dump(rec, fh, ensure_ascii=False)
+          print("Site log record:", json.dumps(rec, ensure_ascii=False))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: sitelog-${{ matrix.idx }}
+          path: sitelog_${{ matrix.idx }}.json
+          retention-days: 1
+          if-no-files-found: ignore
+
   finalize:
     needs: [prepare, process]
-    if: ${{ !cancelled() && inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     name: arvan links and quality
@@ -502,7 +661,7 @@ jobs:
 
   collect:
     needs: process
-    if: ${{ !cancelled() && inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+    if: ${{ !cancelled() && needs.process.result != 'skipped' && inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -525,6 +684,30 @@ jobs:
           name: links
           path: links.txt
           retention-days: 1
+
+  log:
+    needs: [prepare, process]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    name: site log
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: sitelog-*
+          merge-multiple: true
+          path: logs
+
+      - name: Add the records to site-log.jsonl (config branch)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/site_log.py append
 
   notify:
     name: notify
