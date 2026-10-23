@@ -281,6 +281,8 @@ MORE_EXACT = {
 }
 
 MORE_PATTERNS = [
+    (r"Telegram bot files - page (\d+) \((\d+) files\)", "فایل‌های ربات تلگرام - صفحه {0} ({1} فایل)"),
+    (r"Could not load the bot files: (.+)", "فایل‌های ربات خوانده نشد: {0}"),
     (r"Quality: (.+)", "کیفیت: {0}"),
     (r"Android (\d+)", "اندروید {0}"),
     (r"Last (\d+) videos", "{0} ویدیوی آخر"),
@@ -410,4 +412,11 @@ PHRASES = [
 
 from core.fa_strings_msgs import MSG_EXACT, MSG_PHRASES   # noqa: E402
 MORE_EXACT.update(MSG_EXACT)
+MORE_EXACT.update({
+    "Telegram bot files": "فایل‌های ربات تلگرام",
+    "outputs of the Telegram bot": "خروجی‌های ربات تلگرام",
+    ("No access to the Telegram bot repo (aparat-bot). "
+     "Install the YT Bridge Auth app on it (Contents + Actions)."):
+        "دسترسی به ریپوی ربات تلگرام (aparat-bot) نیست. برنامه YT Bridge Auth را روی آن نصب کن (Contents و Actions).",
+})
 PHRASES.extend(MSG_PHRASES)

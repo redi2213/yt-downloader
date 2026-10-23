@@ -1794,6 +1794,14 @@ class Navigator:
     def show_release_history(self):
         """The normal Release History (from the home menu)."""
         self._history_follow = None
+        self._history_bot = False
+        self._history_page = 0
+        self.show_live_history()
+
+    def show_bot_history(self):
+        """The files of the Telegram bot (aparat-bot releases): the same screen and buttons."""
+        self._history_follow = None
+        self._history_bot = True
         self._history_page = 0
         self.show_live_history()
 
@@ -1806,6 +1814,7 @@ class Navigator:
         """The same screen (select, copy, share, rename, zip, delete), but only
         the files of one Auto follow channel's release."""
         self._history_follow = f
+        self._history_bot = False
         self.show_live_history()
 
     def show_live_history(self):
@@ -1821,18 +1830,28 @@ class Navigator:
             ),
             tag=follow_core.release_tag(f) if f else None,
             page=getattr(self, "_history_page", 0),
+            repo="bot" if getattr(self, "_history_bot", False) else None,
         )
 
     def render_history(self, res):
         from screens import history as history_screen
         items = res["items"]
         f = getattr(self, "_history_follow", None)
+        if f is None and getattr(self, "_history_bot", False):
+            if res.get("error"):
+                history_screen.build_bot_error(self, res["error"], back=self.show_release_history)
+                return
+            self._history_page = res["page"]
+            history_screen.build(
+                self, items, title="Telegram bot files", back=self.show_release_history,
+                page=res["page"], has_next=res["has_next"], bot=True)
+            return
         if f is None:
             self._history_page = res["page"]   # a page past the end falls back to the last one
             box = history_screen.build(
                 self, items, page=res["page"], has_next=res["has_next"],
                 follows=getattr(self, "_follows", None) or [], new=getattr(self, "_follow_new", None) or {},
-                on_follow=self.show_follow_history)
+                on_follow=self.show_follow_history, on_bot=self.show_bot_history)
             if box is not None:
                 self._load_follow_buttons(box)
             return

@@ -6,26 +6,42 @@ import uuid
 
 from api.github import releases, workflows
 from core.async_utils import run_in_background
+from core.config import BOT_API_BASE, BOT_DEFAULT_BRANCH
 from core.exceptions import AuthenticationError
 
 _TOKEN_ERROR = "GitHub token invalid or expired. Update it and retry."
 
 
-def start_load_live_history(on_complete=None, tag=None, page=0):
+def start_load_live_history(on_complete=None, tag=None, page=0, repo=None):
     """``on_complete({"items", "has_next", "page"})``. With ``tag`` (one Auto
-    follow channel) the whole release is returned as a single page."""
-    run_in_background(_load_live_history_thread, on_complete, tag, page)
+    follow channel) the whole release is returned as a single page. ``repo="bot"``:
+    the Telegram bot's releases (aparat-bot); a failure then comes back as ``error``."""
+    run_in_background(_load_live_history_thread, on_complete, tag, page, repo)
 
 
-def _load_live_history_thread(on_complete, tag=None, page=0):
+_BOT_NO_ACCESS = ("No access to the Telegram bot repo (aparat-bot). "
+                  "Install the YT Bridge Auth app on it (Contents + Actions).")
+
+
+def _bot_error(e):
+    status = getattr(getattr(e, "response", None), "status_code", None)
+    if isinstance(e, AuthenticationError) or status in (401, 403, 404):
+        return _BOT_NO_ACCESS
+    return f"Could not load the bot files: {str(e)[:60]}"
+
+
+def _load_live_history_thread(on_complete, tag=None, page=0, repo=None):
+    error = None
     try:
         if tag:
             items, has_next, page = releases.get_live_history(tag), False, 0
         else:
-            items, has_next, page = releases.get_live_history_page(page)
-    except Exception:
+            items, has_next, page = releases.get_live_history_page(page, repo=repo)
+    except Exception as e:
         items, has_next, page = [], False, 0
-    _emit_complete(on_complete, {"items": items, "has_next": has_next, "page": page})
+        if repo == "bot":
+            error = _bot_error(e)
+    _emit_complete(on_complete, {"items": items, "has_next": has_next, "page": page, "error": error})
 
 
 def start_delete_release(item, on_complete=None):
@@ -67,7 +83,7 @@ def start_rename_release(item, new_name, on_complete=None):
 
 def _rename_thread(item, new_name, on_complete):
     try:
-        releases.rename_release_asset(item["release_id"], item["asset_id"], new_name)
+        releases.rename_release_asset(item["release_id"], item["asset_id"], new_name, item.get("repo"))
         _emit_complete(on_complete, {"ok": True})
     except AuthenticationError:
         _emit_complete(on_complete, {"ok": False, "error": _TOKEN_ERROR})
@@ -81,19 +97,22 @@ def start_zip_release(item, on_complete=None):
 
 def _zip_thread(item, on_complete):
     job_id = uuid.uuid4().hex[:12]
+    # a Telegram bot file is zipped by the zip-release.yml of the bot's own repo
+    base = BOT_API_BASE if item.get("repo") == "bot" else None
+    ref = BOT_DEFAULT_BRANCH if base else None
     try:
         workflows.dispatch_workflow("zip-release.yml", {
             "asset_url": item["link"],
             "asset_name": item["title"],
             "release_id": str(item["release_id"]),
             "job_id": job_id,
-        })
-        run_id = workflows.get_run_id_by_job_id("zip-release.yml", job_id)
+        }, api_base=base, ref=ref)
+        run_id = workflows.get_run_id_by_job_id("zip-release.yml", job_id, api_base=base)
         if run_id is None:
             _emit_complete(on_complete, {
                 "ok": False, "error": "Could not detect the zip workflow run. It may still be running."})
             return
-        conclusion = workflows.wait_for_run(run_id)
+        conclusion = workflows.wait_for_run(run_id, api_base=base)
         if conclusion != "success":
             _emit_complete(on_complete, {"ok": False, "error": f"Zip failed ({conclusion})"})
             return

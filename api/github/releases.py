@@ -6,7 +6,7 @@ import time
 from api.github import client
 from api.github.auth import auth_headers
 from core import timeutil
-from core.config import API_BASE
+from core.config import API_BASE, BOT_API_BASE, BOT_TAG_PREFIXES
 from core.exceptions import NetworkError
 
 # A release whose description starts with this hidden block was written by
@@ -281,7 +281,7 @@ def _read_text_asset(asset) -> str:
     return lines[0]
 
 
-def _history_items(rel):
+def _history_items(rel, repo=None):
     """The History items of one release: one per file."""
     tag = rel.get("tag_name", "")
     assets = rel.get("assets", [])
@@ -296,6 +296,7 @@ def _history_items(rel):
                 "link": f["url"],
                 "date": when,
                 "release_id": rel["id"],
+                "repo": repo,
                 "asset_id": None,          # not a GitHub asset
                 "tag_name": tag,
                 "size": f.get("size", 0),
@@ -312,6 +313,7 @@ def _history_items(rel):
             # the date of the commit its tag points to, not when it was made.
             "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
             "release_id": rel["id"],
+            "repo": repo,
             "asset_id": asset["id"],
             "tag_name": tag,
             "size": asset.get("size", 0),
@@ -339,10 +341,19 @@ def get_live_history(tag=None):
     return items
 
 
+def _base(repo=None):
+    """API base of the repo an item belongs to: None = the app's own repo, "bot" = the Telegram bot's."""
+    return BOT_API_BASE if repo == "bot" else API_BASE
+
+
+def _prefixes(repo=None):
+    return BOT_TAG_PREFIXES if repo == "bot" else ("run-", "job-")
+
+
 HISTORY_PAGE_SIZE = 20
 
 
-def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE):
+def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE, repo=None):
     """One page of the History: ``(items, has_next, page)``.
 
     GitHub lists releases newest first, 100 per request. Releases that are not
@@ -354,12 +365,12 @@ def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE):
     page = max(0, int(page or 0))
     items, github_page, more = [], 1, True
     while more:
-        r = client.get(f"{API_BASE}/releases?per_page=100&page={github_page}")
+        r = client.get(f"{_base(repo)}/releases?per_page=100&page={github_page}")
         batch = r.json()
         for rel in batch:
             t = rel.get("tag_name", "")
-            if t.startswith("run-") or t.startswith("job-"):
-                items.extend(_history_items(rel))
+            if t.startswith(_prefixes(repo)):
+                items.extend(_history_items(rel, repo))
         more = len(batch) >= 100
         github_page += 1
         if len(items) > (page + 1) * page_size:
@@ -371,12 +382,12 @@ def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE):
     return items[start:start + page_size], has_next, page
 
 
-def delete_release(release_id, tag_name) -> None:
+def delete_release(release_id, tag_name, repo=None) -> None:
     """Deletes the release and its underlying git tag so it doesn't linger."""
-    url = f"{API_BASE}/releases/{release_id}"
+    url = f"{_base(repo)}/releases/{release_id}"
     client.delete(url)
     # Best-effort: also remove the tag itself (release deletion alone leaves it behind)
-    tag_url = f"{API_BASE}/git/refs/tags/{tag_name}"
+    tag_url = f"{_base(repo)}/git/refs/tags/{tag_name}"
     try:
         client.delete(tag_url)
     except Exception:
@@ -387,23 +398,24 @@ def delete_history_item(item) -> None:
     """Deletes one file from History. When it is the release's last file the
     whole release (and its tag) goes; otherwise only that file is removed, so
     the other files of a multi-file upload stay."""
-    r = client.get_allow_missing(f"{API_BASE}/releases/{item['release_id']}")
+    repo = item.get("repo")
+    r = client.get_allow_missing(f"{_base(repo)}/releases/{item['release_id']}")
     if r.status_code != 200:
         return  # already gone
     assets = r.json().get("assets", [])
     if item.get("asset_id") is None or len(assets) <= 1:
         # (an Arvan-only item has no asset: the release holds only its link;
         # the file itself is removed from the bucket by the daily cleanup)
-        delete_release(item["release_id"], item["tag_name"])
+        delete_release(item["release_id"], item["tag_name"], repo)
     else:
-        client.delete(f"{API_BASE}/releases/assets/{item['asset_id']}")
+        client.delete(f"{_base(repo)}/releases/assets/{item['asset_id']}")
 
 
-def rename_release_asset(release_id, asset_id, new_filename):
+def rename_release_asset(release_id, asset_id, new_filename, repo=None):
     """Renames an existing release asset in place via GitHub's asset-update API
     (no need to re-download/re-upload the file)."""
     if asset_id is None:
         raise ValueError("A file kept only on Arvan cannot be renamed")
-    url = f"{API_BASE}/releases/assets/{asset_id}"
+    url = f"{_base(repo)}/releases/assets/{asset_id}"
     r = client.patch(url, json={"name": new_filename})
     return r.json().get("browser_download_url")

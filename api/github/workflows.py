@@ -51,7 +51,7 @@ _claimed_runs = set()
 _TOKEN_SUFFIX_RE = re.compile(r"\s*\[[0-9a-f]{12}\]" + rerun.PACKED_TAIL_RE + r"\s*$")
 
 
-def dispatch_workflow(workflow_file: str, inputs: dict) -> str:
+def dispatch_workflow(workflow_file: str, inputs: dict, api_base: str = None, ref: str = None) -> str:
     """Dispatch a workflow and return the UTC timestamp (ISO, second
     precision) just before dispatch, so the caller can reliably find *this*
     run afterwards instead of guessing "the latest run belongs to me".
@@ -61,8 +61,8 @@ def dispatch_workflow(workflow_file: str, inputs: dict) -> str:
     whichever branch this specific APK was built from, since they all funnel
     through this one function."""
     dispatch_time = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
-    url = f"{API_BASE}/actions/workflows/{workflow_file}/dispatches"
-    client.post(url, json={"ref": GITHUB_BRANCH, "inputs": inputs})
+    url = f"{api_base or API_BASE}/actions/workflows/{workflow_file}/dispatches"
+    client.post(url, json={"ref": ref or GITHUB_BRANCH, "inputs": inputs})
     return dispatch_time
 
 
@@ -214,12 +214,13 @@ def _dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12,
         return _find_unclaimed_run_after(workflow_file, dispatch_time, attempts, delay)
 
 
-def get_run_id_by_job_id(workflow_file: str, job_id: str, attempts: int = 20, delay: float = 2):
+def get_run_id_by_job_id(workflow_file: str, job_id: str, attempts: int = 20, delay: float = 2,
+                         api_base: str = None):
     """Finds the run whose display name/title equals job_id. Used for
     upload-file.yml, where the workflow's job name is set to the job_id
     input - a more reliable match than dispatch-time comparison since it's
     a unique UUID rather than a timestamp that could theoretically collide."""
-    url = f"{API_BASE}/actions/workflows/{workflow_file}/runs?per_page=20"
+    url = f"{api_base or API_BASE}/actions/workflows/{workflow_file}/runs?per_page=20"
     for _ in range(attempts):
         r = client.get(url)
         runs = r.json().get("workflow_runs", [])
@@ -231,7 +232,7 @@ def get_run_id_by_job_id(workflow_file: str, job_id: str, attempts: int = 20, de
 
 
 def wait_for_run(run_id, on_status=None, poll_interval: float = 3, stop_event=None,
-                 network_grace: float = NETWORK_GRACE_SECONDS):
+                 network_grace: float = NETWORK_GRACE_SECONDS, api_base: str = None):
     """Polls until the run completes. If stop_event is set while waiting,
     returns "cancelled_locally" without cancelling the run on GitHub itself
     (use cancel_run for that).
@@ -239,7 +240,7 @@ def wait_for_run(run_id, on_status=None, poll_interval: float = 3, stop_event=No
     A dropped connection does not end the wait: the run keeps going on
     GitHub, so polling just tries again. Only if the connection stays down
     for ``network_grace`` seconds in a row is the NetworkError raised."""
-    url = f"{API_BASE}/actions/runs/{run_id}"
+    url = f"{api_base or API_BASE}/actions/runs/{run_id}"
     last_status = None
     offline_since = None
     while True:

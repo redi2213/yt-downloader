@@ -25,6 +25,13 @@ REPO_OWNER = "redi2213"
 REPO_NAME = "yt-downloader"
 API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
 
+# The Telegram bot's repo: its releases (tg-* / url-*) are shown in Release History
+# behind the "Telegram bot files" button (same repo owner as the app).
+BOT_REPO_NAME = "aparat-bot"
+BOT_API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{BOT_REPO_NAME}"
+BOT_TAG_PREFIXES = ("tg-", "url-")
+BOT_DEFAULT_BRANCH = "main"
+
 
 # Times from GitHub are UTC; they are shown in Tehran time. Iran has had no
 # daylight saving since 2022, so a fixed +03:30 offset is correct (the device
