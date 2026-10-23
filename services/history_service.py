@@ -4,9 +4,9 @@ those releases.
 """
 import uuid
 
-from api.github import releases, workflows
+from api.github import client, releases, workflows
 from core.async_utils import run_in_background
-from core.config import BOT_API_BASE, BOT_DEFAULT_BRANCH
+from core.config import BOT_API_BASE, BOT_DEFAULT_BRANCH, BOT_WORKER_URL
 from core.exceptions import AuthenticationError
 
 _TOKEN_ERROR = "GitHub token invalid or expired. Update it and retry."
@@ -30,6 +30,25 @@ def _bot_error(e):
     return f"Could not load the bot files: {str(e)[:60]}"
 
 
+def _sign_bot_links(items):
+    """Replace the plain GitHub link of each bot file with a signed Worker link (the repo is
+    private, so GitHub's own link gives 404 without a login). On any failure the items keep
+    their GitHub link."""
+    todo = [it for it in items if it.get("asset_id") and it.get("tag_name") and it.get("title")]
+    if not todo:
+        return
+    try:
+        r = client.post(f"{BOT_WORKER_URL}/app/sign",
+                        json={"items": [{"tag": it["tag_name"], "name": it["title"]} for it in todo]})
+        links = r.json().get("links") or []
+    except Exception:
+        return
+    if len(links) != len(todo):
+        return
+    for it, link in zip(todo, links):
+        it["link"] = link
+
+
 def _load_live_history_thread(on_complete, tag=None, page=0, repo=None):
     error = None
     try:
@@ -37,6 +56,8 @@ def _load_live_history_thread(on_complete, tag=None, page=0, repo=None):
             items, has_next, page = releases.get_live_history(tag), False, 0
         else:
             items, has_next, page = releases.get_live_history_page(page, repo=repo)
+            if repo == "bot":
+                _sign_bot_links(items)
     except Exception as e:
         items, has_next, page = [], False, 0
         if repo == "bot":

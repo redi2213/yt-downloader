@@ -31,6 +31,9 @@ BOT_REPO_NAME = "aparat-bot"
 BOT_API_BASE = f"https://api.github.com/repos/{REPO_OWNER}/{BOT_REPO_NAME}"
 BOT_TAG_PREFIXES = ("tg-", "url-")
 BOT_DEFAULT_BRANCH = "main"
+# The bot's Worker: the repo is private, so the links the app shows/copies for the bot's files are
+# signed Worker links (POST /app/sign with the GitHub token; only the repo owner is accepted).
+BOT_WORKER_URL = "https://aparat-bot.hajirpost.workers.dev"
 
 
 # Times from GitHub are UTC; they are shown in Tehran time. Iran has had no
