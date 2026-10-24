@@ -31,6 +31,7 @@ PACKED_TAIL_RE = r"(?:\s+~[A-Za-z0-9_\-]+)?"
 # The input that carries the link, per workflow (to prefill the manual page)
 URL_KEYS = {
     "download.yml": "video_url",
+    "download-batch.yml": "urls",
     "list-formats.yml": "video_url",
     "list-playlist.yml": "playlist_url",
     "aparat-download.yml": "aparat_url",

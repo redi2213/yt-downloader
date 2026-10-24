@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 # workflow file -> tool name shown in lists
 TOOL_LABELS = {
     "download.yml": "YouTube download",
+    "download-batch.yml": "YouTube batch",
     "list-formats.yml": "YouTube qualities",
     "list-playlist.yml": "YouTube playlist",
     "upload-file.yml": "Upload",

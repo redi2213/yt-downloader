@@ -1,0 +1,87 @@
+name: Download Batch
+run-name: ${{ inputs.run_title || 'YouTube batch' }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+# Many YouTube videos in ONE run, done on GitHub (the app can be closed).
+# scripts/batch_download.py runs list-formats + download.yml for every link,
+# max_parallel videos at the same time, and prints one RESULT line per video
+# that the app reads back. Every video still gets its own run-<id> release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: 'YouTube links, one per line'
+        required: true
+      height:
+        description: 'Quality: a height like 360, or 99999 for the best'
+        required: false
+        default: '99999'
+        type: string
+      hdr:
+        description: 'Prefer HDR formats (true/false)'
+        required: false
+        default: 'false'
+        type: string
+      audio_only:
+        description: 'true for audio-only MP3'
+        required: false
+        default: 'false'
+        type: string
+      max_parallel:
+        description: 'How many videos at the same time (1-20)'
+        required: false
+        default: '6'
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app: the other inputs packed into the run name (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the files: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  batch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    steps:
+      - name: Get the batch script
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Run the batch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref_name }}
+          URLS: ${{ inputs.urls }}
+          HEIGHT: ${{ inputs.height }}
+          HDR: ${{ inputs.hdr }}
+          AUDIO_ONLY: ${{ inputs.audio_only }}
+          MAX_PARALLEL: ${{ inputs.max_parallel }}
+          STORAGE: ${{ inputs.storage }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+        run: python3 -u _repo/scripts/batch_download.py

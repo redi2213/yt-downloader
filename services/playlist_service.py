@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from api import run_mode_prefs
 from api.github import workflows, releases, logs as gh_logs
 from core.async_utils import run_in_background
-from core.config import MAX_PARALLEL_JOBS, PLAYLIST_POLL_INTERVAL
+from core.config import BATCH_MAX_PARALLEL, MAX_PARALLEL_JOBS, PLAYLIST_POLL_INTERVAL
 from core.exceptions import AuthenticationError, NetworkError
 from core.jobs.job_manager import JobManager
 from core.models.job import Job, JOB_TYPE_PLAYLIST_LINKS, JOB_TYPE_PLAYLIST_DOWNLOAD
@@ -317,6 +317,9 @@ def _try_recover(item, attempts: int = 3) -> bool:
     """A video that "failed" because the connection dropped after its
     download run started may well have finished: look for its release."""
     try:
+        _resolve_batch_item(item)
+        if item.get("batch_run_id") and item.get("run_id") == item.get("batch_run_id"):
+            return False   # its own download run is not known (yet)
         link = releases.get_release_link(item["run_id"], attempts=attempts, delay=2)
     except Exception:
         return False
@@ -343,6 +346,121 @@ def _recheck_thread(job, on_complete):
         on_complete(job)
 
 
+# ---- the whole batch on GitHub (download-batch.yml) ------------------------
+BATCH_WORKFLOW = "download-batch.yml"
+# download-batch.yml prints "RESULT|<video link>|<download run id>|ok" for every
+# video ("failed: <reason>" instead of ok when it did not work out)
+_RESULT_RE = re.compile(r"RESULT\|([^|\s]+)\|(\d*)\|([^\r\n]*)")
+
+
+def _batch_results(log_text):
+    """{video link: (download run id or None, "ok" / "failed: ...")} read from the batch run's log."""
+    results = {}
+    for url, run_id, status in _RESULT_RE.findall(log_text or ""):
+        results[url] = (int(run_id) if run_id else None, status.strip())
+    return results
+
+
+def _resolve_batch_item(item):
+    """An item that only knows its batch run gets its own download run id
+    from that run's log (once the batch has printed it)."""
+    batch_id = item.get("batch_run_id")
+    if not batch_id or item.get("run_id") != batch_id:
+        return
+    results = _batch_results(_net_retry(gh_logs.get_run_log_text, batch_id))
+    run_id, _status = results.get(item["url"], (None, ""))
+    if run_id:
+        item["run_id"] = run_id
+
+
+def _fail_all(items, error, net_error=False):
+    for item in items:
+        item.update(state="failed", error=error, net_error=net_error)
+
+
+def _run_batch_on_github(job, run_items, target_height, want_hdr, audio_only, on_status) -> bool:
+    """Sends all the videos to GitHub as ONE run of download-batch.yml, which
+    picks the qualities and downloads there (BATCH_MAX_PARALLEL at a time), so
+    the phone can sleep or the app be closed meanwhile.
+
+    True when the batch was handled (the items are updated); False when the
+    app should use its own per-video loop (e.g. the workflow is not on this
+    branch)."""
+    inputs = {
+        "urls": "\n".join(i["url"] for i in run_items),
+        "height": str(target_height),
+        "hdr": "true" if want_hdr else "false",
+        "audio_only": "true" if audio_only else "false",
+        "max_parallel": str(BATCH_MAX_PARALLEL),
+    }
+    try:
+        batch_id = _net_retry(workflows.dispatch_and_find_run, BATCH_WORKFLOW, inputs)
+    except AuthenticationError:
+        _fail_all(run_items, "GitHub token invalid or expired")
+        return True
+    except NetworkError:
+        _fail_all(run_items, "connection lost - tap Retry")
+        return True
+    except Exception:
+        return False   # the workflow file is not on this branch (HTTP 404) or similar
+    if batch_id is None:
+        _fail_all(run_items, "could not detect the batch run - look in Actions")
+        return True
+
+    for item in run_items:
+        item.update(state="downloading", run_id=batch_id, batch_run_id=batch_id)
+    job.status = f"Running {len(run_items)} videos on GitHub"
+    _emit(on_status, f"Running {len(run_items)} videos on GitHub...")
+
+    cancel_evt, done_evt = threading.Event(), threading.Event()
+
+    def _watch_cancel():
+        while not done_evt.is_set():
+            if job.cancel_requested:
+                cancel_evt.set()
+                return
+            done_evt.wait(2)
+
+    threading.Thread(target=_watch_cancel, daemon=True).start()
+    try:
+        conclusion = workflows.wait_for_run(batch_id, poll_interval=PLAYLIST_POLL_INTERVAL, stop_event=cancel_evt)
+    except NetworkError:
+        _fail_all(run_items, "connection lost - the batch keeps running on GitHub, tap Recheck failed later", True)
+        return True
+    except AuthenticationError:
+        _fail_all(run_items, "GitHub token invalid or expired")
+        return True
+    finally:
+        done_evt.set()
+    if conclusion == "cancelled_locally":
+        try:
+            workflows.cancel_run(batch_id)   # the batch cancels its own videos too
+        except Exception:
+            pass
+        return True
+
+    try:
+        results = _batch_results(_net_retry(gh_logs.get_run_log_text, batch_id))
+    except NetworkError:
+        _fail_all(run_items, "connection lost - the batch finished on GitHub, tap Recheck failed", True)
+        return True
+    for item in run_items:
+        run_id, status = results.get(item["url"], (None, ""))
+        if run_id:
+            item["run_id"] = run_id
+        if status == "ok":
+            link = releases.get_release_link(run_id, attempts=30) if run_id else None
+            if link:
+                item.update(state="done", link=link, error=None, net_error=False)
+            else:
+                item.update(state="failed", error="no release link produced")
+        elif status:
+            item.update(state="failed", error=status.replace("failed: ", "", 1)[:80])
+        else:
+            item.update(state="failed", error=f"the batch run ended ({conclusion}) before this video was done")
+    return True
+
+
 def _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, audio_only, on_status, on_complete):
     run_items = job.extra.get("run_items") or []
     total = len(run_items)
@@ -358,20 +476,25 @@ def _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, a
             job.status = f"Processing {done_count}/{total}"
             _emit(on_status, f"Processing {done_count}/{total}...")
 
-    # Process multiple videos concurrently instead of one-at-a-time, since
-    # each video's work is a separate GitHub Actions run anyway.
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOBS) as pool:
-        futures = {
-            pool.submit(_run_item, item, target_height, want_hdr, audio_only): item
-            for item in run_items
-        }
-        for future in as_completed(futures):
-            if job.cancel_requested:
-                for f in futures:
-                    f.cancel()
-                return  # job already marked done by the caller's cancel action
-            future.result()
-            update_progress()
+    # Two or more videos: ONE batch run on GitHub does everything (the phone may
+    # sleep). One video, or a branch without download-batch.yml: the app's own loop.
+    handled = len(run_items) >= 2 and _run_batch_on_github(
+        job, run_items, target_height, want_hdr, audio_only, on_status)
+    if not handled:
+        # Process multiple videos concurrently instead of one-at-a-time, since
+        # each video's work is a separate GitHub Actions run anyway.
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOBS) as pool:
+            futures = {
+                pool.submit(_run_item, item, target_height, want_hdr, audio_only): item
+                for item in run_items
+            }
+            for future in as_completed(futures):
+                if job.cancel_requested:
+                    for f in futures:
+                        f.cancel()
+                    return  # job already marked done by the caller's cancel action
+                future.result()
+                update_progress()
 
     if job.cancel_requested:
         return
