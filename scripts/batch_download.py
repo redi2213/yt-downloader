@@ -103,10 +103,20 @@ def wait_run(run_id):
 
 
 def first_job_log(run_id):
+    """The log of a run's first job. Read with curl: newer gh refuses to print
+    a log that contains terminal colour codes."""
     jobs = json.loads(gh("api", f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=5")).get("jobs", [])
     if not jobs:
         return ""
-    return gh("api", f"repos/{REPO}/actions/jobs/{jobs[0]['id']}/logs")
+    url = f"https://api.github.com/repos/{REPO}/actions/jobs/{jobs[0]['id']}/logs"
+    headers = ["-H", f"Authorization: Bearer {os.environ['GH_TOKEN']}",
+               "-H", "Accept: application/vnd.github+json"]
+    for n in range(4):
+        p = subprocess.run(["curl", "-sSL", "--fail", *headers, url], capture_output=True)
+        if p.returncode == 0:
+            return p.stdout.decode("utf-8", "replace")
+        time.sleep(3 * (n + 1))
+    raise RuntimeError("could not read the list-formats log")
 
 
 # ---- quality picking (same rules as the app) --------------------------------
