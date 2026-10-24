@@ -106,6 +106,11 @@ def build(nav, job, kind):
     nav.add(home_btn)
 
     _active[job.job_id] = (status, download_btn, kind, install_btn, (open_btn, share_file_btn))
+
+    # --- auto-download / auto-install coming from build/update flow ------------------------------
+    if job.extra.get("auto_download") and not job.extra.get("dl_state"):
+        nav.start_file_download(job)
+
     refresh(job)
 
 
@@ -117,6 +122,13 @@ def refresh(job):
         return
     status, button, kind, install_btn, file_buttons = entry
     state = job.extra.get("dl_state")
+    # اگر فایل قبلاً دانلوده شده (location وجود داشته باشد) ولی وضعیت ثبت نشده،
+    # دوباره ازatoms دانلود نشود:状態 را done در نظر می‌گیریم.
+    if state is None and job.extra.get("dl_location"):
+        state = "done"
+        job.extra["dl_state"] = "done"
+        job.extra["dl_text"] = job.extra.get("dl_text") or "Saved"
+
     for file_btn in file_buttons:
         file_btn.disabled = state != "done" or not job.extra.get("dl_location")
     if install_btn is not None:
@@ -132,3 +144,9 @@ def refresh(job):
         button.text = "Download again"
     else:
         button.text = _ASK[kind]
+
+    # --- auto-install after download completes --------------------------------------------------
+    if job.extra.get("auto_install") and state == "done" and job.extra.get("dl_location"):
+        problem = android_install.open_installer(job.extra["dl_location"])
+        if problem:
+            status.text = problem

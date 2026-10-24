@@ -53,8 +53,19 @@ def _release_files(run_id):
 
 # -- one file of a job ---------------------------------------------------------
 def start_download(job, link, on_update, category="Other"):
-    if not link or job.extra.get("dl_state") == "running":
+    if not link:
         return
+    # اگر دانلود در حال اجرا است، دوباره شروع نکن
+    if job.extra.get("dl_state") == "running":
+        return
+    # اگر قبلاً فایل ذخیره شده است (dl_location وجود دارد) و وضعیت running نیست,
+    # دوباره دانلود ازatoms آغاز نشود؛ وضعیت را done در نظر می‌گیریم.
+    if job.extra.get("dl_state") is None and job.extra.get("dl_location"):
+        job.extra["dl_state"] = "done"
+        job.extra["dl_text"] = job.extra.get("dl_text") or "Saved"
+        on_update()
+        return
+
     folder = android_downloads.folder_label(category)
     job.extra["dl_state"] = "running"
     job.extra["dl_text"] = f"Downloading to {folder} ... 0%"

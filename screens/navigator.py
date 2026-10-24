@@ -48,6 +48,11 @@ class Navigator:
         # Rebuilds the last menu-type screen the user was on. A job's "Back"
         # button returns there (see back_from_working).
         self._last_menu = None
+        # Remembered from Settings > App tools when the user starts an update:
+        # auto-build after update, auto-download after build, auto-install after download.
+        self._auto_build_after_update = False
+        self._auto_download_after_build = False
+        self._auto_install_after_build = False
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
@@ -263,7 +268,7 @@ class Navigator:
         return run_mode_prefs.label()
 
     def run_mode_other_side(self):
-        """"phone" or "github": what the per-tool exception buttons offer."""
+        """\"phone\" or \"github\": what the per-tool exception buttons offer."""
         return run_mode_prefs.other_side()
 
     def cycle_run_mode(self):
@@ -510,7 +515,10 @@ class Navigator:
         from screens import release_file
         release_file.build(self, job, kind)
         if kind == "backup" and not job.extra.get("dl_state"):
-            self.start_file_download(job)
+            # Only auto-start if nothing saved yet; if dl_location already
+            # exists the release_file screen will mark it done and not restart.
+            if not job.extra.get("dl_location"):
+                self.start_file_download(job)
 
     def start_file_download(self, job):
         from screens import release_file
@@ -530,7 +538,7 @@ class Navigator:
         self.set_status(text)
 
     def _status_and_complete_callbacks(self, job=None, job_ref=None):
-        """``job_ref`` is a dict whose "job" entry is filled in later, for
+        """``job_ref`` is a dict whose ``"job"`` entry is filled in later, for
         flows where the service creates the job itself."""
         def on_status(text):
             target = job_ref.get("job") if job_ref is not None else job
@@ -567,13 +575,13 @@ class Navigator:
         extra_buttons = None
 
         if formats_for_reselect:
-            extra_buttons = [(
-                "Pick a different quality",
-                lambda: self.reselect_quality(
-                    job,
-                    url,
-                    formats_for_reselect
-                ),
+            extra_buttons = [
+                ("Pick a different quality",
+                 lambda: self.reselect_quality(
+                     job,
+                     url,
+                     formats_for_reselect
+                 ),
             )]
 
         self.show_working(
@@ -699,7 +707,7 @@ class Navigator:
         self.start_fetch_playlist(url)
 
     def handle_pick_playlist(self, url, where=None):
-        """"Choose videos" button: reads the playlist, then shows its video
+        """\"Choose videos\" button: reads the playlist, then shows its video
         titles to tick before anything is downloaded. ``where`` overrides the
         Settings default for this one press."""
         url = url.strip()
@@ -881,7 +889,11 @@ class Navigator:
 
     # -- links shared into the app (Android Share menu) -----------------------
     # -- app update (Settings): update.zip and the APK build -------------------
-    def pick_file_for_update(self):
+    def pick_file_for_update(self, auto_build_after_update=False):
+        """User tapped Update project. ``auto_build_after_update`` comes from
+        the Settings checkbox: after a successful repo update, start a build
+        automatically (which may then auto-download and auto-install)."""
+        self._auto_build_after_update = auto_build_after_update
         from core import android_files
         android_files.pick_files(on_files=self.handle_update_files, on_error=self.set_status)
 
@@ -964,12 +976,21 @@ class Navigator:
         extra = None
         if res.get("ok") and res.get("changed"):
             # "Build now?" - new code only reaches the phone through a new APK
-            extra = [("Build APK now", self.start_build_apk)]
+            if self._auto_build_after_update:
+                # Auto-build: start build with auto-download + auto-install flags
+                self.start_build_apk(
+                    auto_download=self._auto_download_after_build,
+                    auto_install=self._auto_install_after_build,
+                )
+            else:
+                extra = [("Build APK now", self.start_build_apk)]
         self.show_result(res["message"], extra_buttons=extra)
 
-    def start_build_apk(self):
+    def start_build_apk(self, auto_download=False, auto_install=False):
         action = {"id": "build_apk", "workflow": "build-apk.yml", "workflow_inputs": {}}
         job = generic_action_service.create_action_job(self.job_manager, action, {"input": "Build APK"})
+        job.extra["auto_download"] = auto_download
+        job.extra["auto_install"] = auto_install
         self.show_working("Starting the build (takes about 15-30 minutes)...", job=job)
         on_status, on_complete = self._status_and_complete_callbacks(job)
         generic_action_service.run_action_job(
@@ -1596,7 +1617,7 @@ class Navigator:
 
     # -- Run again -----------------------------------------------------------------
     def rerun_run(self, run_id):
-        """\"Run again\" on a run's page: the same workflow with the same inputs
+        """"Run again" on a run's page: the same workflow with the same inputs
         (read from the run's name). Runs whose inputs cannot be read open the
         manual-run page with the workflow's inputs prefilled instead."""
         run = getattr(self, "_run_ctx", None) or {"run_id": run_id, "origin": "status"}
@@ -1644,7 +1665,7 @@ class Navigator:
             show(res.get("text", "") if res.get("ok") else "")
         error_help_service.start_error_help(run_id, jobs, done)
 
-    # -- Auto follow -----------------------------------------------------------------------
+    # -- Auto follow ----------------------------------------------------------------------
     def show_follow_menu(self):
         from screens import follow
         self.remember(self.show_follow_menu)
@@ -1787,7 +1808,7 @@ class Navigator:
 
         follow_service.start_files(f, done)
 
-    # -- Health and ntfy notifications --------------------------------------------
+    # -- Health and ntfy notifications ------------------------------------------
     def show_health(self):
         from screens import health
         self.remember(self.show_health)
@@ -1828,7 +1849,7 @@ class Navigator:
         ntfy_service.start_test(
             topic, lambda res: show("Sent: it should arrive in the ntfy app." if res.get("ok") else res["error"]))
 
-    # -- job history -------------------------------------------------------
+    # -- job history ------------------------------------------------------
     def show_job_history(self, origin="status"):
         """Recent jobs. ``origin`` ("status" or "running") is the screen it
         was opened from - Back returns there."""
@@ -2008,4 +2029,3 @@ class Navigator:
             self.show_result(
                 res.get("error")
         )
-        
