@@ -1,0 +1,90 @@
+name: Cleanup artifacts
+run-name: Cleanup artifacts
+
+# Safety net for the GitHub Actions artifact storage (500 MB on a private repo).
+# Videos and APKs live in Releases, not in artifacts; artifacts here are only small helper files
+# that every workflow already expires after 1 day. This job deletes whatever is still older than
+# `older_than_hours` (old APK artifacts from before the build moved to Releases, docker build records, ...)
+# so a forgotten artifact can never fill the quota again. The newest 3 `ytdownloader-apk` artifacts are kept.
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    inputs:
+      older_than_hours:
+        description: 'Delete artifacts older than this many hours (default 48)'
+        required: false
+        default: '48'
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete old artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOURS: ${{ inputs.older_than_hours || '48' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          from datetime import datetime, timedelta, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          try:
+              hours = float(os.environ.get("HOURS") or 48)
+          except ValueError:
+              hours = 48.0
+          cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+
+          def api(method, path):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/{path}", method=method,
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                           "X-GitHub-Api-Version": "2022-11-28"})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  body = r.read()
+              return json.loads(body) if body else {}
+
+
+          arts, page = [], 1
+          while True:
+              got = api("GET", f"actions/artifacts?per_page=100&page={page}").get("artifacts", [])
+              arts += got
+              if len(got) < 100:
+                  break
+              page += 1
+
+          def created(a):
+              return datetime.strptime(a["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+          keep = {a["id"] for a in sorted((a for a in arts if a["name"] == "ytdownloader-apk"),
+                                          key=created, reverse=True)[:3]}
+          deleted = freed = 0
+          for a in arts:
+              if a["id"] in keep or created(a) >= cutoff:
+                  continue
+              try:
+                  api("DELETE", f"actions/artifacts/{a['id']}")
+                  deleted += 1
+                  freed += a["size_in_bytes"]
+              except Exception as e:
+                  print(f"::warning::could not delete {a['name']} ({a['id']}): {e}")
+
+          total = sum(a["size_in_bytes"] for a in arts)
+          line = (f"Artifacts: {len(arts)} found ({total / 1048576:.0f} MB). Deleted {deleted} "
+                  f"older than {hours:g} h ({freed / 1048576:.0f} MB). Now about {(total - freed) / 1048576:.0f} MB of 500 MB.")
+          print(line)
+          summ = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summ:
+              with open(summ, "a", encoding="utf-8") as fh:
+                  fh.write(line + "\n")
+          PY
