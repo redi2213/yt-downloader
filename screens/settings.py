@@ -9,7 +9,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.boxlayout import BoxLayout
 
-from api import download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs
+from api import auto_build_prefs, download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs
 from core import android_downloads
 from screens.common import back_button, GAP, paste_row, wrapped_label
 from services import ntfy_service, token_service
@@ -147,35 +147,50 @@ def _account(nav):
 
 
 # -- App tools ----------------------------------------------------------------------------------------------------
+def _flag_row(text, active, on_change):
+    """One tick-box with its text on a full-width row. Returns (row, check box)."""
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=52, spacing=GAP)
+    box = CheckBox(active=bool(active), size_hint_x=None, width=52)
+    box.bind(active=lambda _instance, value: on_change(value))
+    label = Label(text=text, halign="left", valign="middle")
+    label.bind(size=lambda instance, size: setattr(instance, "text_size", size))
+    row.add_widget(box)
+    row.add_widget(label)
+    return row, box
+
+
 def _tools(nav):
     nav.add(Label(text="App update", size_hint_y=None, height=32))
 
-    # --- check-boxes for auto build / auto download / auto install -------------------------------
-    auto_build_cb = CheckBox(active=False)
-    auto_download_cb = CheckBox(active=False)
-    auto_install_cb = CheckBox(active=False)
+    # What happens by itself - saved, so the choice stays after the app is closed.
+    boxes = {}
 
-    flags_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44, spacing=GAP)
-    flags_row.add_widget(Label(text="بیلد اتومات بعد از آپدیت", size_hint_y=None, height=44))
-    flags_row.add_widget(auto_build_cb)
-    flags_row.add_widget(Label(text="دانلود خودکار بعد از بیلد", size_hint_y=None, height=44))
-    flags_row.add_widget(auto_download_cb)
-    flags_row.add_widget(Label(text="نصب خودکار بعد از دانلود", size_hint_y=None, height=44))
-    flags_row.add_widget(auto_install_cb)
-    nav.add(flags_row)
+    def on_download(value):
+        auto_build_prefs.set_download_after_build(value)
+        if not value and boxes["install"].active:
+            boxes["install"].active = False
+
+    def on_install(value):
+        auto_build_prefs.set_install_after_download(value)
+        if value and not boxes["download"].active:
+            boxes["download"].active = True
+
+    build_row, _build_box = _flag_row("Build automatically after the update",
+                                      auto_build_prefs.build_after_update(),
+                                      auto_build_prefs.set_build_after_update)
+    download_row, boxes["download"] = _flag_row("Download automatically after the build",
+                                                auto_build_prefs.download_after_build(), on_download)
+    install_row, boxes["install"] = _flag_row("Install automatically after the download",
+                                              auto_build_prefs.install_after_download(), on_install)
+    nav.add(build_row)
+    nav.add(download_row)
+    nav.add(install_row)
 
     update_btn = Button(text="Update project (zip or files)", size_hint_y=None, height=48)
-    update_btn.bind(
-        on_press=lambda i: nav.pick_file_for_update(auto_build_after_update=auto_build_cb.active)
-    )
+    update_btn.bind(on_press=lambda i: nav.pick_file_for_update())
     nav.add(update_btn)
     build_btn = Button(text="Build APK", size_hint_y=None, height=48)
-    build_btn.bind(
-        on_press=lambda i: nav.start_build_apk(
-            auto_download=auto_download_cb.active,
-            auto_install=auto_install_cb.active,
-        )
-    )
+    build_btn.bind(on_press=lambda i: nav.start_build_apk())
     nav.add(build_btn)
     backup_btn = Button(text="Backup project (zip to release)", size_hint_y=None, height=48)
     backup_btn.bind(on_press=lambda i: nav.start_project_backup())

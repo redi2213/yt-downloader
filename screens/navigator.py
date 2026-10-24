@@ -48,11 +48,10 @@ class Navigator:
         # Rebuilds the last menu-type screen the user was on. A job's "Back"
         # button returns there (see back_from_working).
         self._last_menu = None
-        # Remembered from Settings > App tools when the user starts an update:
-        # auto-build after update, auto-download after build, auto-install after download.
-        self._auto_build_after_update = False
-        self._auto_download_after_build = False
-        self._auto_install_after_build = False
+        # False while the app is in the background. Kivy's clock is stopped then, so anything that
+        # must happen for the user while they are away is started from a worker thread (see
+        # _auto_after_finish), never from a scheduled callback.
+        self.app_active = True
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
@@ -515,19 +514,66 @@ class Navigator:
         from screens import release_file
         release_file.build(self, job, kind)
         if kind == "backup" and not job.extra.get("dl_state"):
-            # Only auto-start if nothing saved yet; if dl_location already
-            # exists the release_file screen will mark it done and not restart.
-            if not job.extra.get("dl_location"):
-                self.start_file_download(job)
+            self.start_file_download(job)
 
     def start_file_download(self, job):
-        from screens import release_file
+        """Downloads the finished job's file (backup zip / APK) to the Downloads folder. Safe to
+        call from a worker thread: the download runs in its own thread and the screen is only
+        refreshed through the (coalesced) scheduled callback."""
         kind = RELEASE_FILE_KINDS.get((job.extra.get("action") or {}).get("id"))
+        job.extra["install_asked"] = False
+        refresh_queued = {"on": False}
+
+        def on_update():
+            # Called from the download thread (also while the app is in the background).
+            if (job.extra.get("dl_state") == "done" and job.extra.get("auto_install")
+                    and not job.extra.get("install_asked")):
+                job.extra["install_asked"] = True
+                job.extra["install_pending"] = True
+                if not self.app_active:
+                    from services.notify_service import notify
+                    notify("YT Bridge", "The APK is downloaded. Open the app to install it.")
+            if refresh_queued["on"] and job.extra.get("dl_state") == "running":
+                return   # progress is frequent; one queued refresh is enough
+            refresh_queued["on"] = True
+
+            def run():
+                refresh_queued["on"] = False
+                self._after_download_update(job)
+            self.schedule(run)
+
         file_download_service.start_download(
             job, (job.result or {}).get("link"),
-            on_update=lambda: self.schedule(lambda: release_file.refresh(job)),
+            on_update=on_update,
             category="APK" if kind == "apk" else "Backup",
         )
+
+    def _after_download_update(self, job):
+        """Main thread: redraw the screen, and open the installer once when the APK is saved
+        (auto-install). Runs when the app is on screen - right away, or when the user comes back."""
+        from screens import release_file
+        release_file.refresh(job)
+        if job.extra.get("install_pending"):
+            job.extra["install_pending"] = False
+            from core import android_install
+            problem = android_install.open_installer(job.extra.get("dl_location"))
+            if problem:
+                job.extra["dl_text"] = f"{job.extra.get('dl_text', '')}\n{problem}".strip()
+                release_file.refresh(job)
+
+    def _auto_after_finish(self, job):
+        """Worker thread, the moment a job finishes - before (and whether or not) any screen is
+        shown. A finished backup zip, or an APK when "Download automatically" is on, is downloaded
+        right here. Waiting for the screen would not work: Kivy's clock is stopped while the app is
+        in the background, and nothing is shown at all when the user left the job's screen."""
+        kind = RELEASE_FILE_KINDS.get((job.extra.get("action") or {}).get("id"))
+        if not kind or not getattr(job, "ok", False) or not (job.result or {}).get("link"):
+            return
+        if kind == "apk" and not job.extra.get("auto_download"):
+            return
+        if job.extra.get("dl_state") or job.extra.get("dl_location"):
+            return
+        self.start_file_download(job)
 
     def _relay_status(self, job, text):
         """Several jobs can run at once. A job's status line may only be
@@ -543,9 +589,12 @@ class Navigator:
         def on_status(text):
             target = job_ref.get("job") if job_ref is not None else job
             self._relay_status(target, text)
-        on_complete = lambda job: self.schedule(
-            lambda: self._handle_job_complete(job)
-        )
+        def on_complete(job):
+            try:
+                self._auto_after_finish(job)       # worker thread: does not wait for a screen
+            except Exception:
+                pass
+            self.schedule(lambda: self._handle_job_complete(job))
         return on_status, on_complete
 
     # -- starting jobs --------------------------------------------------------
@@ -889,11 +938,7 @@ class Navigator:
 
     # -- links shared into the app (Android Share menu) -----------------------
     # -- app update (Settings): update.zip and the APK build -------------------
-    def pick_file_for_update(self, auto_build_after_update=False):
-        """User tapped Update project. ``auto_build_after_update`` comes from
-        the Settings checkbox: after a successful repo update, start a build
-        automatically (which may then auto-download and auto-install)."""
-        self._auto_build_after_update = auto_build_after_update
+    def pick_file_for_update(self):
         from core import android_files
         android_files.pick_files(on_files=self.handle_update_files, on_error=self.set_status)
 
@@ -960,7 +1005,7 @@ class Navigator:
         repo_update_service.start_apply(
             plan,
             on_status=lambda text: self.set_status(text),
-            on_done=lambda res: self.schedule(lambda: self._after_repo_update(res)),
+            on_done=self._repo_update_finished,
         )
 
     def start_repo_update(self, data):
@@ -969,33 +1014,58 @@ class Navigator:
         repo_update_service.start_repo_update(
             data,
             on_status=lambda text: self.set_status(text),
-            on_done=lambda res: self.schedule(lambda: self._after_repo_update(res)),
+            on_done=self._repo_update_finished,
         )
 
-    def _after_repo_update(self, res):
-        extra = None
-        if res.get("ok") and res.get("changed"):
-            # "Build now?" - new code only reaches the phone through a new APK
-            if self._auto_build_after_update:
-                # Auto-build: start build with auto-download + auto-install flags
-                self.start_build_apk(
-                    auto_download=self._auto_download_after_build,
-                    auto_install=self._auto_install_after_build,
-                )
-            else:
-                extra = [("Build APK now", self.start_build_apk)]
-        self.show_result(res["message"], extra_buttons=extra)
+    def _repo_update_finished(self, res):
+        """Worker thread, when the repo update is done. With "Build automatically after the update"
+        the build is started here, not from a screen, so it also starts when the app is in the
+        background."""
+        auto_job = None
+        try:
+            from api import auto_build_prefs
+            if res.get("ok") and res.get("changed") and auto_build_prefs.build_after_update():
+                auto_job = self.start_build_apk(headless=True)
+        except Exception:
+            auto_job = None
+        self.schedule(lambda: self._after_repo_update(res, auto_job))
 
-    def start_build_apk(self, auto_download=False, auto_install=False):
+    def _after_repo_update(self, res, auto_job=None):
+        extra = None
+        message = res["message"]
+        if auto_job is not None:
+            message += "\n\nThe build started by itself (about 15-30 minutes). It keeps going if you leave this screen."
+            extra = [("Show the build", lambda: self.view_job_from_history(auto_job))]
+        elif res.get("ok") and res.get("changed"):
+            # "Build now?" - new code only reaches the phone through a new APK
+            extra = [("Build APK now", self.start_build_apk)]
+        self.show_result(message, extra_buttons=extra)
+
+    def start_build_apk(self, auto_download=None, auto_install=None, headless=False):
+        """Starts the APK build. The two flags default to the Settings tick-boxes: download the
+        APK when the build is done, and open the installer when it is saved (install implies
+        download). ``headless`` = no screen (started from a worker thread); returns the job."""
+        from api import auto_build_prefs
+        if auto_install is None:
+            auto_install = auto_build_prefs.install_after_download()
+        if auto_download is None:
+            auto_download = auto_build_prefs.download_after_build()
+        auto_download = bool(auto_download or auto_install)
         action = {"id": "build_apk", "workflow": "build-apk.yml", "workflow_inputs": {}}
+        previous = self.job_manager.current_job
         job = generic_action_service.create_action_job(self.job_manager, action, {"input": "Build APK"})
         job.extra["auto_download"] = auto_download
-        job.extra["auto_install"] = auto_install
-        self.show_working("Starting the build (takes about 15-30 minutes)...", job=job)
+        job.extra["auto_install"] = bool(auto_install)
+        if headless:
+            if previous is not None:     # do not take over the screen the user is looking at
+                self.job_manager.current_job = previous
+        else:
+            self.show_working("Starting the build (takes about 15-30 minutes)...", job=job)
         on_status, on_complete = self._status_and_complete_callbacks(job)
         generic_action_service.run_action_job(
             self.job_manager, job, on_status=on_status, on_complete=on_complete
         )
+        return job
 
     def start_project_backup(self):
         """Settings > Backup project: a workflow zips the latest main and

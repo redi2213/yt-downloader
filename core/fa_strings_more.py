@@ -449,3 +449,14 @@ MORE_PATTERNS.extend([
     (r"Last: (\d{4}-\d{2}-\d{2})", "آخرین: {0}"),
     (r"Could not read the site log: (.+)", "گزارش سایت‌ها خوانده نشد: {0}"),
 ])
+
+
+MORE_EXACT.update({
+    "Build automatically after the update": "بیلد خودکار بعد از آپدیت",
+    "Download automatically after the build": "دانلود خودکار بعد از بیلد",
+    "Install automatically after the download": "نصب خودکار بعد از دانلود",
+    "Show the build": "نمایش بیلد",
+    "The build started by itself (about 15-30 minutes). It keeps going if you leave this screen.":
+        "بیلد خودکار شروع شد (حدود ۱۵ تا ۳۰ دقیقه). اگر از این صفحه بیرون بروی ادامه پیدا می‌کند.",
+    "The APK is downloaded. Open the app to install it.": "APK دانلود شد. برای نصب، اپ را باز کن.",
+})

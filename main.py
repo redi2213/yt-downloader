@@ -45,6 +45,15 @@ class YTBridgeApp(App):
             return bool(self.nav.go_back())
         return False
 
+    def on_pause(self):
+        # Stay alive in the background: downloads and builds go on. Kivy's clock stops meanwhile,
+        # so the navigator starts everything that matters from worker threads.
+        self.nav.app_active = False
+        return True
+
+    def on_resume(self):
+        self.nav.app_active = True
+
     def on_start(self):
         # Links shared into the app from other apps (Android Share menu).
         # No-op on desktop or if the Android hooks are unavailable.

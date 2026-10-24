@@ -64,18 +64,6 @@ def get(task_id):
         return _tasks.get(task_id)
 
 
-def find_finished(name, category):
-    """Return a finished (DONE) task for the same name + category if one exists,
-    otherwise None. Used to avoid restarting a download from zero when the user
-    comes back to the result page after leaving it."""
-    with _cond:
-        for t in _tasks.values():
-            if (t.name == name and t.category == category
-                    and t.state == DONE and t.saved):
-                return t
-    return None
-
-
 def _new_task(name, category):
     global _counter
     with _cond:
@@ -120,12 +108,6 @@ def run(url, name, on_progress=None, headers=None, category="Other"):
     Raises ``segmented_download.Cancelled`` when the user stops it."""
     from core import android_downloads
     name = name or android_downloads.file_name_from_url(url)
-
-    # اگر همین فایل (نام + دسته) قبلاً با موفقیت دانلوده شده، دوباره ازatoms شروع نکن.
-    prev = find_finished(name, category)
-    if prev is not None and prev.saved:
-        return prev.saved
-
     task = _new_task(name, category)
     fd, tmp_path = tempfile.mkstemp(suffix=".part")
     os.close(fd)
