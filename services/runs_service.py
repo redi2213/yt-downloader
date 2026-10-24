@@ -25,7 +25,7 @@ MENU_GROUPS = [
                            "drive-to-release.yml"]),
     ("Auto follow", ["Auto-Follow.yml"]),
     ("Build and backup", ["build-apk.yml", "backup-project.yml"]),
-    ("Maintenance", ["zip-release.yml", "cleanup-releases.yml", "arvan-maintenance.yml"]),
+    ("Maintenance", ["zip-release.yml", "cleanup-releases.yml", "cleanup-artifacts.yml"]),
 ]
 OTHER_GROUP = "Other"
 
