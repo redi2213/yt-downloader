@@ -41,6 +41,9 @@ def _options(extra=None, clients=None):
     return opts
 
 
+POPULAR_POOL = 500
+
+
 def channel_list_url(url, sort="latest"):
     """The videos tab of a channel / page link ("popular" = most viewed first).
     A playlist link is returned unchanged."""
@@ -52,7 +55,7 @@ def channel_list_url(url, sort="latest"):
     for tab in ("/videos", "/streams", "/shorts", "/featured", "/live"):
         if base.endswith(tab):
             base = base[: -len(tab)]
-    return base + ("/videos?view=0&sort=p" if sort == "popular" else "/videos")
+    return base + "/videos"
 
 
 def list_playlist(url, sort=None, limit=None):
@@ -62,7 +65,11 @@ def list_playlist(url, sort=None, limit=None):
     extra = {"extract_flat": "in_playlist", "noplaylist": False}
     if sort:
         url = channel_list_url(url, sort)
-        if limit:
+        if sort == "popular":
+            # yt-dlp cannot ask YouTube for "most viewed": read the newest POPULAR_POOL videos
+            # with their view counts and sort them here
+            extra["playlistend"] = max(int(limit or 30), POPULAR_POOL)
+        elif limit:
             extra["playlistend"] = int(limit)
     opts = _options(extra)
     with yt_dlp.YoutubeDL(opts) as ydl:
@@ -76,7 +83,12 @@ def list_playlist(url, sort=None, limit=None):
         entries.append({
             "url": f"https://www.youtube.com/watch?v={video_id}",
             "title": (entry.get("title") or "").strip() or video_id,
+            "views": entry.get("view_count") or 0,
         })
+    if sort == "popular":
+        entries.sort(key=lambda e: e["views"], reverse=True)   # stable: ties keep the newest first
+    if sort and limit:
+        entries = entries[:int(limit)]
     return entries
 
 

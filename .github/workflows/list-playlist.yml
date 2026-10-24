@@ -63,21 +63,31 @@ jobs:
           SORT: ${{ inputs.sort }}
           LIMIT: ${{ inputs.limit }}
         run: |
-          ARGS=()
+          set -o pipefail
+          case "$LIMIT" in ''|*[!0-9]*) LIMIT=30 ;; esac
+          MODE=playlist
           case "$URL" in
             *list=*|*/playlist*) ;;   # a normal playlist: as before
             *)
               if [ -n "$SORT" ]; then   # a channel / page link
                 BASE="${URL%%\?*}"; BASE="${BASE%/}"
                 BASE=$(echo "$BASE" | sed -E 's#/(videos|streams|shorts|featured|live)$##')
-                if [ "$SORT" = "popular" ]; then URL="$BASE/videos?view=0&sort=p"; else URL="$BASE/videos"; fi
-                case "$LIMIT" in ''|*[!0-9]*) LIMIT=30 ;; esac
-                ARGS=(--playlist-end "$LIMIT")
+                URL="$BASE/videos"
+                MODE="$SORT"
               fi ;;
           esac
-          yt-dlp --cookies cookies.txt --remote-components ejs:github \
-            --flat-playlist "${ARGS[@]}" --print "ITEM|%(id)s|%(title)s" \
-            "$URL" | tee -a $GITHUB_STEP_SUMMARY
+          YT=(yt-dlp --cookies cookies.txt --remote-components ejs:github --flat-playlist)
+          if [ "$MODE" = "popular" ]; then
+            # YouTube's own "most viewed" order is not available to yt-dlp: read the newest 500
+            # videos with their view counts and sort them here.
+            "${YT[@]}" --playlist-end 500 --print "%(view_count|0)s|%(id)s|%(title)s" "$URL" \
+              | sort -t'|' -k1,1nr | head -n "$LIMIT" \
+              | sed -E 's/^[^|]*\|(.*)$/ITEM|\1/' | tee -a $GITHUB_STEP_SUMMARY
+          elif [ "$MODE" = "latest" ]; then
+            "${YT[@]}" --playlist-end "$LIMIT" --print "ITEM|%(id)s|%(title)s" "$URL" | tee -a $GITHUB_STEP_SUMMARY
+          else
+            "${YT[@]}" --print "ITEM|%(id)s|%(title)s" "$URL" | tee -a $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Clean up cookies
         if: always()
