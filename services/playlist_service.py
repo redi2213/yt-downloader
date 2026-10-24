@@ -68,12 +68,14 @@ def _playlist_quick_thread(job_manager, job, playlist_url, target_height, want_h
 
 
 def create_playlist_links_job(job_manager: JobManager, playlist_url: str, pick: bool = False,
-                              where: str = None) -> Job:
+                              where: str = None, sort: str = None, limit: int = None) -> Job:
     """``pick=True``: the result is shown as a list of titles to choose from
     (the "Choose videos" button) instead of going straight to the quality
     picker for the whole playlist."""
     job = Job(job_id=_new_job_id(), type=JOB_TYPE_PLAYLIST_LINKS, input=playlist_url)
     job.extra["pick"] = pick
+    job.extra["sort"] = sort
+    job.extra["limit"] = limit
     job.extra["where"] = where or run_mode_prefs.get_mode()
     job_manager.start(job)
     return job
@@ -96,7 +98,8 @@ def start_fetch_playlist_links(job_manager: JobManager, playlist_url: str,
 def _fetch_playlist_thread(job_manager, job, on_status, on_complete):
     try:
         _emit(on_status, "Reading playlist...")
-        entries = get_playlist_entries(job.input, where=job.extra.get("where"), on_status=on_status)
+        entries = get_playlist_entries(job.input, where=job.extra.get("where"), on_status=on_status,
+                                       sort=job.extra.get("sort"), limit=job.extra.get("limit"))
         if job.cancel_requested:
             return  # job already marked done by the caller's cancel action
         if not entries:
@@ -129,26 +132,31 @@ def parse_playlist_entries(log_text: str) -> list:
     return [{"url": u, "title": u} for u in dict.fromkeys(_YOUTUBE_URL_RE.findall(log_text))]
 
 
-def get_playlist_entries(playlist_url: str, where: str = None, on_status=None) -> list:
+def get_playlist_entries(playlist_url: str, where: str = None, on_status=None, sort: str = None,
+                         limit: int = None) -> list:
     """The playlist's videos. ``where``: "github", "phone" or "auto" (phone
     first, GitHub when it finds nothing); None = the Settings default."""
     where = where or run_mode_prefs.get_mode()
     if where in ("phone", "auto"):
         _emit(on_status, "Reading the playlist on this phone...")
         try:
-            entries = phone_youtube_service.list_playlist(playlist_url)
+            entries = phone_youtube_service.list_playlist(playlist_url, sort, limit)
         except Exception:
             entries = []
         if entries or where == "phone":
-            return entries
+            return entries[:limit] if limit else entries
         _emit(on_status, "The phone could not do it - using GitHub...")
-    run_id = workflows.dispatch_and_find_run("list-playlist.yml", {"playlist_url": playlist_url})
+    inputs = {"playlist_url": playlist_url}
+    if sort:
+        inputs.update({"sort": sort, "limit": str(limit or 30)})
+    run_id = workflows.dispatch_and_find_run("list-playlist.yml", inputs)
     if run_id is None:
         return []
     conclusion = workflows.wait_for_run(run_id)
     if conclusion != "success":
         return []
-    return parse_playlist_entries(gh_logs.get_run_log_text(run_id))
+    found = parse_playlist_entries(gh_logs.get_run_log_text(run_id))
+    return found[:limit] if limit else found
 
 
 def get_playlist_links(playlist_url: str):

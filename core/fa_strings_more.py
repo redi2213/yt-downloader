@@ -460,3 +460,16 @@ MORE_EXACT.update({
         "بیلد خودکار شروع شد (حدود ۱۵ تا ۳۰ دقیقه). اگر از این صفحه بیرون بروی ادامه پیدا می‌کند.",
     "The APK is downloaded. Open the app to install it.": "APK دانلود شد. برای نصب، اپ را باز کن.",
 })
+
+
+MORE_EXACT.update({
+    "Channel or page videos (latest / most viewed)": "ویدیوهای کانال یا صفحه (آخرین / پربازدیدترین)",
+    "YouTube channel or page link (youtube.com/@name)": "لینک کانال یا صفحه یوتیوب (youtube.com/@name)",
+    "How many videos (1-500)": "تعداد ویدیو (۱ تا ۵۰۰)",
+    "Choose from latest videos": "انتخاب از آخرین ویدیوها",
+    "Choose from most viewed videos": "انتخاب از پربازدیدترین ویدیوها",
+    "Enter a channel or page link": "لینک کانال یا صفحه را وارد کن",
+    "Only YouTube channel or page links work here": "اینجا فقط لینک کانال یا صفحه یوتیوب کار می‌کند",
+    "That is ONE video. Paste the channel or page link (youtube.com/@name)": "این لینک یک ویدیو است. لینک کانال یا صفحه را بچسبان (youtube.com/@name)",
+    "Type how many videos: a number from 1 to 500": "تعداد ویدیو را بنویس: عددی از ۱ تا ۵۰۰",
+})

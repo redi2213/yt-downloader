@@ -41,10 +41,30 @@ def _options(extra=None, clients=None):
     return opts
 
 
-def list_playlist(url):
-    """[{"url", "title"}] in playlist order (empty list when nothing was found)."""
+def channel_list_url(url, sort="latest"):
+    """The videos tab of a channel / page link ("popular" = most viewed first).
+    A playlist link is returned unchanged."""
+    url = (url or "").strip().split("#")[0]
+    base, _, query = url.partition("?")
+    if "list=" in query or "/playlist" in base:
+        return url
+    base = base.rstrip("/")
+    for tab in ("/videos", "/streams", "/shorts", "/featured", "/live"):
+        if base.endswith(tab):
+            base = base[: -len(tab)]
+    return base + ("/videos?view=0&sort=p" if sort == "popular" else "/videos")
+
+
+def list_playlist(url, sort=None, limit=None):
+    """[{"url", "title"}] in playlist order (empty list when nothing was found).
+    ``sort`` ("latest" / "popular") + ``limit`` are for channel / page links."""
     yt_dlp = _yt_dlp()
-    opts = _options({"extract_flat": "in_playlist", "noplaylist": False})
+    extra = {"extract_flat": "in_playlist", "noplaylist": False}
+    if sort:
+        url = channel_list_url(url, sort)
+        if limit:
+            extra["playlistend"] = int(limit)
+    opts = _options(extra)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     entries, seen = [], set()

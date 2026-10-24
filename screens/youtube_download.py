@@ -110,6 +110,26 @@ def build(nav, video_url="", playlist_url=""):
         nav, playlist_url_input, 0, False, audio_only=True))
     nav.add(playlist_audio_btn)
 
+    # -- channel / page: latest or most viewed videos, then tick the ones you want ---
+    nav.add(Label(text="Channel or page videos (latest / most viewed)", size_hint_y=None, height=32))
+    channel_input = TextInput(
+        hint_text="YouTube channel or page link (youtube.com/@name)", multiline=False,
+        size_hint_y=None, height=48,
+    )
+    nav.add(channel_input)
+    nav.add(paste_row(channel_input))
+    count_input = TextInput(
+        text="30", hint_text="How many videos (1-500)", multiline=False, input_filter="int",
+        size_hint_y=None, height=48,
+    )
+    nav.add(count_input)
+    latest_btn = Button(text="Choose from latest videos", size_hint_y=None, height=56)
+    latest_btn.bind(on_press=lambda i: nav.handle_pick_channel(channel_input.text, "latest", count_input.text))
+    nav.add(latest_btn)
+    popular_btn = Button(text="Choose from most viewed videos", size_hint_y=None, height=56)
+    popular_btn.bind(on_press=lambda i: nav.handle_pick_channel(channel_input.text, "popular", count_input.text))
+    nav.add(popular_btn)
+
     nav.add(back_button(nav))
 
     status_label = Label(text="", size_hint_y=None, height=40)

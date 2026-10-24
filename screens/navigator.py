@@ -724,12 +724,14 @@ class Navigator:
             custom_name.strip()
         )
 
-    def start_fetch_playlist(self, url, pick=False, where=None):
+    def start_fetch_playlist(self, url, pick=False, where=None, sort=None, limit=None):
         job = playlist_service.create_playlist_links_job(
             self.job_manager,
             url,
             pick=pick,
-            where=where
+            where=where,
+            sort=sort,
+            limit=limit
         )
 
         self.show_working(
@@ -754,6 +756,26 @@ class Navigator:
             return
 
         self.start_fetch_playlist(url)
+
+    def handle_pick_channel(self, url, sort, count_text, where=None):
+        """\"Choose from latest / most viewed\": reads the newest (or most viewed)
+        videos of a channel / page link, then shows them to tick (like a playlist)."""
+        url = self.youtube_links(url)[0] if self.youtube_links(url) else ""
+        if not url:
+            self.set_status("Enter a channel or page link")
+            return
+        low = url.lower()
+        if "youtube.com" not in low and "youtu.be" not in low:
+            self.set_status("Only YouTube channel or page links work here")
+            return
+        if "watch?v=" in low or "youtu.be/" in low or "/shorts/" in low:
+            self.set_status("That is ONE video. Paste the channel or page link (youtube.com/@name)")
+            return
+        text = str(count_text or "").strip()
+        if not text.isdigit() or not (1 <= int(text) <= 500):
+            self.set_status("Type how many videos: a number from 1 to 500")
+            return
+        self.start_fetch_playlist(url, pick=True, where=where, sort=sort, limit=int(text))
 
     def handle_pick_playlist(self, url, where=None):
         """\"Choose videos\" button: reads the playlist, then shows its video

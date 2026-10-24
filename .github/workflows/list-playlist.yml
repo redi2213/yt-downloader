@@ -5,8 +5,18 @@ on:
   workflow_dispatch:
     inputs:
       playlist_url:
-        description: 'YouTube playlist URL'
+        description: 'YouTube playlist URL, or a channel / page link (then sort and limit are used)'
         required: true
+      sort:
+        description: 'Channel links only: latest or popular (most viewed)'
+        required: false
+        default: ''
+        type: string
+      limit:
+        description: 'Channel links only: how many videos to list'
+        required: false
+        default: '30'
+        type: string
       job_id:
         description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
         required: false
@@ -48,10 +58,26 @@ jobs:
           chmod 600 cookies.txt
 
       - name: List playlist entries
+        env:
+          URL: ${{ inputs.playlist_url }}
+          SORT: ${{ inputs.sort }}
+          LIMIT: ${{ inputs.limit }}
         run: |
+          ARGS=()
+          case "$URL" in
+            *list=*|*/playlist*) ;;   # a normal playlist: as before
+            *)
+              if [ -n "$SORT" ]; then   # a channel / page link
+                BASE="${URL%%\?*}"; BASE="${BASE%/}"
+                BASE=$(echo "$BASE" | sed -E 's#/(videos|streams|shorts|featured|live)$##')
+                if [ "$SORT" = "popular" ]; then URL="$BASE/videos?view=0&sort=p"; else URL="$BASE/videos"; fi
+                case "$LIMIT" in ''|*[!0-9]*) LIMIT=30 ;; esac
+                ARGS=(--playlist-end "$LIMIT")
+              fi ;;
+          esac
           yt-dlp --cookies cookies.txt --remote-components ejs:github \
-            --flat-playlist --print "ITEM|%(id)s|%(title)s" \
-            "${{ github.event.inputs.playlist_url }}" | tee -a $GITHUB_STEP_SUMMARY
+            --flat-playlist "${ARGS[@]}" --print "ITEM|%(id)s|%(title)s" \
+            "$URL" | tee -a $GITHUB_STEP_SUMMARY
 
       - name: Clean up cookies
         if: always()
