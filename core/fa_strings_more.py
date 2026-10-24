@@ -483,3 +483,10 @@ MORE_EXACT.update({
     "Playlist finished": "پلی‌لیست تمام شد",
     "Finished - tap to see the result": "تمام شد - برای دیدن نتیجه بزن",
 })
+
+
+MORE_EXACT.update({
+    "APK builds": "ساخت‌های APK",
+    "Cancel run": "لغو اجرا",
+    "Cancelling the run...": "در حال لغو اجرا...",
+})

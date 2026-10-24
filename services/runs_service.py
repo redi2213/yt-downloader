@@ -257,3 +257,11 @@ def start_rerun_dispatch(workflow_file, inputs, on_done):
             raise
         return {"run_id": run_id}
     run_in_background(_guarded, on_done, work)
+
+
+def start_cancel_run(run_id, on_done):
+    """Stops a run on GitHub (works for any run, also one the app did not start)."""
+    def work():
+        workflows.cancel_run(run_id)
+        return {}
+    run_in_background(_guarded, on_done, work)

@@ -12,11 +12,11 @@ from core.exceptions import AuthenticationError
 _TOKEN_ERROR = "GitHub token invalid or expired. Update it and retry."
 
 
-def start_load_live_history(on_complete=None, tag=None, page=0, repo=None):
+def start_load_live_history(on_complete=None, tag=None, page=0, repo=None, apk=False):
     """``on_complete({"items", "has_next", "page"})``. With ``tag`` (one Auto
     follow channel) the whole release is returned as a single page. ``repo="bot"``:
     the Telegram bot's releases (aparat-bot); a failure then comes back as ``error``."""
-    run_in_background(_load_live_history_thread, on_complete, tag, page, repo)
+    run_in_background(_load_live_history_thread, on_complete, tag, page, repo, apk)
 
 
 _BOT_NO_ACCESS = ("No access to the Telegram bot repo (aparat-bot). "
@@ -49,13 +49,13 @@ def _sign_bot_links(items):
         it["link"] = link
 
 
-def _load_live_history_thread(on_complete, tag=None, page=0, repo=None):
+def _load_live_history_thread(on_complete, tag=None, page=0, repo=None, apk=False):
     error = None
     try:
         if tag:
             items, has_next, page = releases.get_live_history(tag), False, 0
         else:
-            items, has_next, page = releases.get_live_history_page(page, repo=repo)
+            items, has_next, page = releases.get_live_history_page(page, repo=repo, apk=apk)
             if repo == "bot":
                 _sign_bot_links(items)
     except Exception as e:

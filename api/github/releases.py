@@ -353,7 +353,13 @@ def _prefixes(repo=None):
 HISTORY_PAGE_SIZE = 20
 
 
-def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE, repo=None):
+def is_app_build(rel) -> bool:
+    """Release made by build-apk.yml (not, say, a Google Play download)."""
+    return str(rel.get("name") or "").startswith("YT Bridge ") and any(
+        str(a.get("name", "")).lower().endswith(".apk") for a in rel.get("assets", []))
+
+
+def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE, repo=None, apk=False):
     """One page of the History: ``(items, has_next, page)``.
 
     GitHub lists releases newest first, 100 per request. Releases that are not
@@ -369,8 +375,11 @@ def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE, repo=None):
         batch = r.json()
         for rel in batch:
             t = rel.get("tag_name", "")
-            if t.startswith(_prefixes(repo)):
-                items.extend(_history_items(rel, repo))
+            if not t.startswith(_prefixes(repo)):
+                continue
+            if repo is None and is_app_build(rel) != apk:
+                continue   # app builds live behind their own button
+            items.extend(_history_items(rel, repo))
         more = len(batch) >= 100
         github_page += 1
         if len(items) > (page + 1) * page_size:

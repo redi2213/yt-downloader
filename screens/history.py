@@ -45,11 +45,11 @@ def build_bot_error(nav, message, back=None):
 
 
 def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False,
-          follows=None, new=None, on_follow=None, bot=False, on_bot=None):
+          follows=None, new=None, on_follow=None, bot=False, on_bot=None, apk=False, on_apk=None):
     """``title`` / ``back``: another title and parent screen when this list shows only
     one Auto follow channel's files. ``extra``: (button text, function) shown at the top."""
     nav.clear()
-    paged = back is None or bot   # the normal list and the bot's list are paged; one Auto follow channel is not
+    paged = back is None or bot or apk   # the normal list and the bot's list are paged; one Auto follow channel is not
     heading = f"{title} - page {page + 1} ({len(items)} files)" if paged else f"{title} ({len(items)} found)"
     nav.add(Label(text=heading, size_hint_y=None, height=BTN_H))
 
@@ -59,8 +59,13 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         bot_btn.bind(on_press=lambda i: on_bot())
         nav.add(bot_btn)
 
+    if on_apk and not bot and not apk and page == 0:
+        apk_btn = Button(text="APK builds", size_hint_y=None, height=BTN_H)
+        apk_btn.bind(on_press=lambda i: on_apk())
+        nav.add(apk_btn)
+
     follow_box = None
-    if paged and not bot and page == 0:
+    if paged and not bot and not apk and page == 0:
         follow_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
         follow_box.bind(minimum_height=follow_box.setter("height"))
         nav.add(follow_box)

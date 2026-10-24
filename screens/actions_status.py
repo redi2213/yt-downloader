@@ -218,6 +218,11 @@ def build_run_detail(nav, run_id, jobs, origin="status"):
         if failed:
             _add_help_label(nav, run_id, jobs)
         _add_rerun_button(nav, run_id, failed=failed)
+        if any(j.get("status") != "completed" for j in jobs):
+            cancel_btn = Button(text="Cancel run", size_hint_y=None, height=BTN_H,
+                                background_color=(1.0, 0.55, 0.55, 1))
+            cancel_btn.bind(on_press=lambda i: nav.cancel_run_by_id(run_id, origin))
+            nav.add(cancel_btn)
         result_btn = Button(text="Result (files of this run)", size_hint_y=None, height=BTN_H)
         result_btn.bind(on_press=lambda i: nav.show_run_result(run_id))
         nav.add(result_btn)

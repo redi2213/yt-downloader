@@ -67,6 +67,9 @@ def build(nav):
         buttons.add_widget(open_btn)
         buttons.add_widget(steps_btn)
         buttons.add_widget(github_btn)
+        cancel_btn = Button(text="Cancel", background_color=(1.0, 0.55, 0.55, 1))
+        cancel_btn.bind(on_press=lambda i, j=job: nav.cancel_running_job(j))
+        buttons.add_widget(cancel_btn)
         row.add_widget(buttons)
         nav.add(row)
 

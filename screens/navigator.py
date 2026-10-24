@@ -388,6 +388,28 @@ class Navigator:
         job_service.cancel(self.job_manager, job)
         self.back_from_working()
 
+    def cancel_running_job(self, job):
+        """Cancel button of the Running jobs list."""
+        job_service.cancel(self.job_manager, job)
+        self.show_running_jobs()
+
+    def cancel_run_by_id(self, run_id, origin="status"):
+        """Cancel button on a run's page: stops that run on GitHub."""
+        self.show_working("Cancelling the run...")
+
+        def done(res):
+            def after():
+                if not res.get("ok"):
+                    self.show_result(res["error"])
+                    return
+                for j in list(self.job_manager.active_jobs):   # a job of this app: close it too
+                    if j.run_id == run_id:
+                        self.job_manager.cancel(j)
+                self.show_run_detail({"run_id": run_id, "workflow": "", "origin": origin})
+            self.schedule(after)
+
+        runs_service.start_cancel_run(run_id, done)
+
     def reselect_quality(self, job, url, formats):
         """Abandons the in-progress download run (if any) and goes straight
         back to the quality list - no need to re-run list-formats since we
@@ -2003,6 +2025,15 @@ class Navigator:
         """The normal Release History (from the home menu)."""
         self._history_follow = None
         self._history_bot = False
+        self._history_apk = False
+        self._history_page = 0
+        self.show_live_history()
+
+    def show_apk_history(self):
+        """The APKs built by the app (build-apk.yml), kept apart from the downloaded files."""
+        self._history_follow = None
+        self._history_bot = False
+        self._history_apk = True
         self._history_page = 0
         self.show_live_history()
 
@@ -2010,6 +2041,7 @@ class Navigator:
         """The files of the Telegram bot (aparat-bot releases): the same screen and buttons."""
         self._history_follow = None
         self._history_bot = True
+        self._history_apk = False
         self._history_page = 0
         self.show_live_history()
 
@@ -2023,6 +2055,7 @@ class Navigator:
         the files of one Auto follow channel's release."""
         self._history_follow = f
         self._history_bot = False
+        self._history_apk = False
         self.show_live_history()
 
     def show_live_history(self):
@@ -2039,6 +2072,7 @@ class Navigator:
             tag=follow_core.release_tag(f) if f else None,
             page=getattr(self, "_history_page", 0),
             repo="bot" if getattr(self, "_history_bot", False) else None,
+            apk=getattr(self, "_history_apk", False),
         )
 
     def render_history(self, res):
@@ -2054,12 +2088,18 @@ class Navigator:
                 self, items, title="Telegram bot files", back=self.show_release_history,
                 page=res["page"], has_next=res["has_next"], bot=True)
             return
+        if f is None and getattr(self, "_history_apk", False):
+            self._history_page = res["page"]
+            history_screen.build(
+                self, items, title="APK builds", back=self.show_release_history,
+                page=res["page"], has_next=res["has_next"], apk=True)
+            return
         if f is None:
             self._history_page = res["page"]   # a page past the end falls back to the last one
             box = history_screen.build(
                 self, items, page=res["page"], has_next=res["has_next"],
                 follows=getattr(self, "_follows", None) or [], new=getattr(self, "_follow_new", None) or {},
-                on_follow=self.show_follow_history, on_bot=self.show_bot_history)
+                on_follow=self.show_follow_history, on_bot=self.show_bot_history, on_apk=self.show_apk_history)
             if box is not None:
                 self._load_follow_buttons(box)
             return
