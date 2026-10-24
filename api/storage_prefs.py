@@ -21,8 +21,11 @@ def _read() -> dict:
 
 
 def get_mode() -> str:
-    mode = _read().get("mode", "github")
-    return mode if mode in MODES else "github"
+    """Arvan Cloud is switched off for now: every file stays on GitHub, whatever an older
+    version of the app saved. To bring it back, restore the lines below (git history)."""
+    return "github"
+    # mode = _read().get("mode", "github")
+    # return mode if mode in MODES else "github"
 
 
 def set_mode(mode: str) -> None:
@@ -40,7 +43,7 @@ def next_mode(current: str = None) -> str:
 
 
 def get_bucket() -> str:
-    return _read().get("bucket", "") or ""
+    return ""   # Arvan is switched off (see get_mode); was: _read().get("bucket", "") or ""
 
 
 def set_bucket(bucket_id: str) -> None:
