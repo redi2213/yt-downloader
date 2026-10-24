@@ -19,20 +19,32 @@ _FORMATS_RE = re.compile(r"FORMATS_JSON=(\{.*\})\s*$")
 _LINK_JOB_RE = re.compile(r"^link\s+(\d+)", re.IGNORECASE)
 
 
-def parse_formats_log(text):
-    """The payload dicts found in a job log (usually one per link)."""
+# GitHub hides every "5" in a log when a secret's value is "5" (the digit becomes ***), which breaks the
+# numbers of FORMATS_JSON. The workflow therefore also prints FORMATS_SAFE, the same JSON with each 5 sent
+# as this sign; it is turned back before reading. FORMATS_SAFE is preferred, FORMATS_JSON is the fallback.
+_SAFE_RE = re.compile(r"FORMATS_SAFE=(\{.*\})\s*$")
+_FIVE_SIGN = "\u00a4"
+
+
+def _collect(text, regex, decode):
     found = []
     for line in (text or "").splitlines():
-        m = _FORMATS_RE.search(line)
+        m = regex.search(line)
         if not m:
             continue
+        raw = m.group(1).replace(_FIVE_SIGN, "5") if decode else m.group(1)
         try:
-            payload = json.loads(m.group(1))
+            payload = json.loads(raw)
         except ValueError:
             continue
         if isinstance(payload, dict) and payload.get("url"):
             found.append(payload)
     return found
+
+
+def parse_formats_log(text):
+    """The payload dicts found in a job log (usually one per link)."""
+    return _collect(text, _SAFE_RE, True) or _collect(text, _FORMATS_RE, False)
 
 
 def start_check(action, urls, on_status, on_done):
