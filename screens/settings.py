@@ -107,6 +107,9 @@ def _notify(nav):
     health_btn = Button(text="Health check", size_hint_y=None, height=48)
     health_btn.bind(on_press=lambda i: nav.show_health())
     nav.add(health_btn)
+    site_log_btn = Button(text="Site log (which sites work)", size_hint_y=None, height=48)
+    site_log_btn.bind(on_press=lambda i: nav.show_site_log())
+    nav.add(site_log_btn)
 
 
 # -- Account and sign-in ------------------------------------------------------------------------------------------
