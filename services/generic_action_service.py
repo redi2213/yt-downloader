@@ -62,6 +62,9 @@ def _resolve_inputs(action: dict, field_values: dict) -> dict:
     # only when set, so every other action (and older workflow files) is untouched.
     if field_values.get("format_id") and action.get("handler") == "anysite":
         resolved["format_id"] = str(field_values["format_id"])
+    # Any site: the user answered "Yes, run anyway" to the "this site failed before" question.
+    if field_values.get("force") == "yes" and action.get("handler") == "anysite":
+        resolved["force"] = "yes"
     return resolved
 
 
