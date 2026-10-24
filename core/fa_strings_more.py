@@ -490,3 +490,15 @@ MORE_EXACT.update({
     "Cancel run": "لغو اجرا",
     "Cancelling the run...": "در حال لغو اجرا...",
 })
+
+MORE_EXACT.update({
+    "YouTube link (video, playlist or channel)": "لینک یوتیوب (ویدیو، پلی‌لیست یا کانال)",
+    "Paste a YouTube link: a video, a playlist or a channel": "یک لینک یوتیوب بچسبان: ویدیو، پلی‌لیست یا کانال",
+    "This is not a YouTube link": "این لینک یوتیوب نیست",
+    "Video link detected": "لینک ویدیو شناسایی شد",
+    "Playlist link detected": "لینک پلی‌لیست شناسایی شد",
+    "Channel or page link detected": "لینک کانال یا صفحه شناسایی شد",
+    "More from this video's channel (latest / most viewed)": "ویدیوهای بیشتر از کانال این ویدیو (آخرین / پربازدیدترین)",
+    "Finding the channel of this video...": "در حال پیدا کردن کانال این ویدیو...",
+    "Could not find the channel of this video": "کانال این ویدیو پیدا نشد",
+})

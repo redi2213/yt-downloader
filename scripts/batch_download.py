@@ -214,7 +214,7 @@ def cancel_everything(_signum=None, _frame=None):
 
 def main():
     urls = []
-    for item in re.split(r"[\s,]+", os.environ.get("URLS", "")):
+    for item in re.split(r"\s+", os.environ.get("URLS", "")):
         if item.startswith("http") and item not in urls:
             urls.append(item)
     if not urls:
