@@ -165,12 +165,23 @@ jobs:
           done
           echo "::warning::Could not save version.txt (the APK is already published). Set it to ${VERSION} by hand."
 
+  # A separate job: it starts only after the build job has fully ended, including the
+  # "Post Cache buildozer" step (saving the cache takes minutes). As a last step of the
+  # build job the message came before that and looked like the build was already done.
+  notify:
+    name: notify
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
       - name: Notify (ntfy)
-        if: always()
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_STATUS: ${{ job.status }}
+          JOB_STATUS: ${{ needs.build.result }}
           TOOL_NAME: Build APK
           ONLY_FAILURE: 'false'
           RUN_TITLE: ${{ inputs.run_title }}
