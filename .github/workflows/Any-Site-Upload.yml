@@ -316,6 +316,11 @@ jobs:
                   json.dump(payload, fh, ensure_ascii=False, indent=1)
               # یک خط فشرده در لاگ، برای اپ (اگر آپلود artifact به خاطر سهمیه جواب نداد)
               print("FORMATS_JSON=" + json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+              # GitHub hides every character that equals a secret value (a secret whose value is "5"
+              # turns each 5 into ***, which breaks the numbers). This copy carries 5 as the sign U+00A4;
+              # the app turns it back before reading the JSON.
+              safe = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).replace("5", "\u00a4")
+              print("FORMATS_SAFE=" + safe)
 
               summ = os.environ.get("GITHUB_STEP_SUMMARY")
               if summ:
