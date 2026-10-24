@@ -420,3 +420,32 @@ MORE_EXACT.update({
         "دسترسی به ریپوی ربات تلگرام (aparat-bot) نیست. برنامه YT Bridge Auth را روی آن نصب کن (Contents و Actions).",
 })
 PHRASES.extend(MSG_PHRASES)
+
+
+MORE_EXACT.update({
+    "Site log": "گزارش سایت‌ها",
+    "Site log (which sites work)": "گزارش سایت‌ها (کدام سایت کار می‌کند)",
+    "Loading the site log...": "در حال خواندن گزارش سایت‌ها...",
+    "Checking the site history...": "در حال بررسی سابقه سایت...",
+    "This site failed before": "این سایت قبلاً خطا داده است",
+    "Run it anyway?": "با این حال اجرا شود؟",
+    "Yes, run anyway": "بله، اجرا کن",
+    "No, go back": "نه، برگرد",
+    "Works": "کار می‌کند",
+    "Sometimes works": "گاهی کار می‌کند",
+    "Never worked": "تا حالا کار نکرده",
+    "Not sure yet": "هنوز مشخص نیست",
+    "No sites recorded yet. Every Any site run adds its link here.":
+        "هنوز سایتی ثبت نشده. هر بار که «Any site» اجرا شود، اینجا ثبت می‌شود.",
+    "Sites that ran through Any site (success = file over 10 MB).":
+        "سایت‌هایی که با «Any site» اجرا شده‌اند (موفق = فایل بیشتر از ۱۰ مگابایت).",
+    "Could not read the site log.": "گزارش سایت‌ها خوانده نشد.",
+})
+MORE_PATTERNS.extend([
+    (r"Failed (\d+) time\(s\), worked 0 times\.", "{0} بار ناموفق بوده، هیچ‌بار موفق نبوده."),
+    (r"Last problem: (.+)", "آخرین مشکل: {0}"),
+    (r"worked (\d+)  ·  under 10 MB (\d+)  ·  failed (\d+)", "موفق {0}  ·  زیر ۱۰ مگ {1}  ·  ناموفق {2}"),
+    (r"Unclear: (\d+)", "نامشخص: {0}"),
+    (r"Last: (\d{4}-\d{2}-\d{2})", "آخرین: {0}"),
+    (r"Could not read the site log: (.+)", "گزارش سایت‌ها خوانده نشد: {0}"),
+])
