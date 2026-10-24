@@ -1198,6 +1198,36 @@ class Navigator:
             on_back=lambda: self.show_action_input(action, initial=form),
         )
 
+    def start_anysite_history_check(self, action, cleaned, extra):
+        """Reads the site log; when a link's site failed before and never worked, asks
+        yes / no first. Any problem reading the log just lets the run start."""
+        from services import site_log_service
+        self.show_working("Checking the site history...")
+
+        def _go(force):
+            self.start_dynamic_action(action, cleaned, extra={**(extra or {}), "force": force})
+
+        def _done(res):
+            def _show():
+                warnings = res.get("warnings") or []
+                if warnings:
+                    self.show_site_warning(action, cleaned, extra, warnings)
+                else:
+                    _go("no")
+            self.schedule(_show)
+
+        site_log_service.start_check_history(cleaned.get("urls", ""), _done)
+
+    def show_site_warning(self, action, cleaned, extra, warnings):
+        from screens import site_log as site_log_screen
+        self.remember(lambda: self.show_site_warning(action, cleaned, extra, warnings))
+        site_log_screen.build_warning(
+            self, warnings,
+            on_yes=lambda: self.start_dynamic_action(
+                action, cleaned, extra={**(extra or {}), "force": "yes"}),
+            on_no=lambda: self.show_action_input(action, initial=cleaned),
+        )
+
     def start_dynamic_action(self, action, field_values, extra=None):
         # field_values: dict of {field_key: value}. Text fields need
         # trimming and a non-empty check; choice fields (already a resolved
@@ -1228,6 +1258,9 @@ class Navigator:
                 cleaned["quality"] = "highest"  # ignored by the workflow when format_id is set
             elif cleaned.get("quality") == "check":
                 return self.start_anysite_check(action, cleaned)
+            # before a download: ask if a link's site failed before and never worked
+            if not (extra and "force" in extra):
+                return self.start_anysite_history_check(action, cleaned, extra)
 
         # One Filimo button, two modes: "phone" gets the link from this
         # phone's network; anything else goes through the GitHub workflow.
@@ -1764,6 +1797,19 @@ class Navigator:
             self.schedule(lambda: health.build(self, res, self.show_health, lambda: self.show_settings_section("notify")))
 
         health_service.start_health(done)
+
+    # -- Site log (which sites worked) --------------------------------------------
+    def show_site_log(self):
+        from screens import site_log as site_log_screen
+        from services import site_log_service
+        self.remember(self.show_site_log)
+        back = lambda: self.show_settings_section("notify")  # noqa: E731
+        site_log_screen.build_loading(self, back)
+
+        def done(res):
+            self.schedule(lambda: site_log_screen.build(self, res, self.show_site_log, back))
+
+        site_log_service.start_load_summary(done)
 
     def save_ntfy_topic(self, topic, show):
         show("Saving the topic...")
