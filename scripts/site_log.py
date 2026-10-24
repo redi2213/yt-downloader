@@ -2,7 +2,7 @@
 """Site log for the Any-Site-Upload workflow.
 
 check   - before anything starts: warn (and stop) if a link's site failed before and never worked
-append  - after the run: add the per-link records (logs/*.json) to site-log.jsonl on the config branch
+append  - add record files (given as arguments, default logs/*.json) to site-log.jsonl on the config branch
 summary - print a per-site table from a log file (or stdin)
 
 The log is a plain JSON-lines file on the `config` branch, so no APK rebuild is needed to read it.
@@ -118,9 +118,9 @@ def cmd_check():
     return 1
 
 
-def cmd_append():
+def cmd_append(paths=None):
     recs = []
-    for p in sorted(glob.glob("logs/*.json")):
+    for p in (paths or sorted(glob.glob("logs/*.json"))):
         try:
             with open(p, encoding="utf-8") as fh:
                 recs.append(json.load(fh))
@@ -130,7 +130,7 @@ def cmd_append():
         print("Nothing to log.")
         return 0
     new = [json.dumps(r, ensure_ascii=False, separators=(",", ":")) for r in recs]
-    for attempt in range(1, 7):
+    for attempt in range(1, 9):
         try:
             text, sha = read_log()
             lines = [l for l in text.splitlines() if l.strip()] + new
@@ -146,7 +146,7 @@ def cmd_append():
             print(f"Logged {len(new)} record(s) to {PATH} on the {BRANCH} branch.")
             return 0
         except urllib.error.HTTPError as e:
-            if e.code in (409, 422) and attempt < 6:
+            if e.code in (409, 422) and attempt < 8:
                 time.sleep(random.uniform(1, 4))      # another run wrote at the same time
                 continue
             print(f"::warning::site log could not be written: HTTP {e.code}")
@@ -188,7 +188,7 @@ if __name__ == "__main__":
     if cmd == "check":
         sys.exit(cmd_check())
     if cmd == "append":
-        sys.exit(cmd_append())
+        sys.exit(cmd_append(sys.argv[2:]))
     if cmd == "summary":
         sys.exit(cmd_summary(sys.argv[2] if len(sys.argv) > 2 else None))
     print("usage: site_log.py check | append | summary [file]")
