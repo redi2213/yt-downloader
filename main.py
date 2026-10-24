@@ -57,8 +57,10 @@ class YTBridgeApp(App):
     def on_start(self):
         # Links shared into the app from other apps (Android Share menu).
         # No-op on desktop or if the Android hooks are unavailable.
-        from core import android_share
-        android_share.setup(self.nav.handle_shared_text, self.nav.handle_shared_file)
+        from core import android_notify, android_share
+        android_notify.request_permission()
+        android_share.setup(self.nav.handle_shared_text, self.nav.handle_shared_file,
+                            self.nav.open_from_notification)
 
     def clear_content(self):
         self.content.clear_widgets()

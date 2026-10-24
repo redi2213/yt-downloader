@@ -384,10 +384,6 @@ def _playlist_download_thread(job_manager, job, urls, target_height, want_hdr, a
 
     ok = sum(1 for i in run_items if i["state"] == "done")
     bad = total - ok
-    if bad:
-        notify("YT Bridge Git", f"Playlist done: {ok}/{total} ready, {bad} failed")
-    else:
-        notify("YT Bridge Git", f"Playlist done: {ok}/{total} ready")
     job_manager.complete(job, ok=True, result_data=_summarize(job.extra["items"], settings))
     _emit_complete(on_complete, job)
 

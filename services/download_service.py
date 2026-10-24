@@ -174,7 +174,6 @@ def _finish_download(job_manager, run_id, job, on_complete):
         _emit_complete(on_complete, job)
         return
     if link:
-        notify("YT Bridge Git", "Link ready!")
         result = {"link": link}
         result.update(_storage_extras(run_id))
         job_manager.complete(job, ok=True, result_data=result)

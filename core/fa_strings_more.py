@@ -473,3 +473,13 @@ MORE_EXACT.update({
     "That is ONE video. Paste the channel or page link (youtube.com/@name)": "این لینک یک ویدیو است. لینک کانال یا صفحه را بچسبان (youtube.com/@name)",
     "Type how many videos: a number from 1 to 500": "تعداد ویدیو را بنویس: عددی از ۱ تا ۵۰۰",
 })
+
+
+MORE_EXACT.update({
+    "Job failed": "کار ناموفق بود",
+    "APK build finished": "بیلد APK تمام شد",
+    "Project backup finished": "بکاپ پروژه تمام شد",
+    "Qualities are ready": "کیفیت‌ها آماده است",
+    "Playlist finished": "پلی‌لیست تمام شد",
+    "Finished - tap to see the result": "تمام شد - برای دیدن نتیجه بزن",
+})

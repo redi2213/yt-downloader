@@ -138,7 +138,6 @@ def _finish_action(job_manager, run_id, job, on_complete):
         _emit_complete(on_complete, job)
         return
     if link:
-        notify("YT Bridge", "Link ready!")
         result = {"link": link}
         try:
             # A release can hold several files (multi-file upload, Aparat "upload files")

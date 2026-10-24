@@ -52,11 +52,12 @@ def stream_uri_from_intent(intent):
         return None
 
 
-def setup(on_text, on_file=None):
+def setup(on_text, on_file=None, on_notification=None):
     """Starts listening. ``on_text(text)`` is called on the Kivy thread with
     the shared text, each time something is shared; ``on_file(bytes, name)`` with
     the content and file name of a shared file (an update zip, config.json,
-    a workflow .yml, a .py file...). Returns
+    a workflow .yml, a .py file...); ``on_notification(job_id, run_id)`` when the user taps one
+    of the app's own notifications (core/android_notify.py). Returns
     True if the Android hooks could be installed."""
     try:
         from jnius import autoclass
@@ -79,6 +80,12 @@ def setup(on_text, on_file=None):
             Clock.schedule_once(lambda dt: on_file(data, name))
 
         def _deliver(intent):
+            if on_notification is not None:
+                from core import android_notify
+                ids = android_notify.ids_from_intent(intent)
+                if ids:
+                    Clock.schedule_once(lambda dt: on_notification(*ids))
+                    return
             if on_file is not None:
                 uri = stream_uri_from_intent(intent)
                 if uri is not None:

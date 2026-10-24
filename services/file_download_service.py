@@ -80,7 +80,7 @@ def _run_one(job, link, on_update, category):
         job.extra["dl_location"] = getattr(saved, "location", None)
         job.extra["dl_name"] = name or android_downloads.file_name_from_url(url)
         job.extra["dl_text"] = f"Saved:\n{saved}"
-        notify("YT Bridge", "Saved in Downloads")
+        notify("YT Bridge", "Saved in Downloads", job_id=job.job_id, run_id=job.run_id)
     except segmented_download.Cancelled:
         job.extra["dl_state"] = "error"
         job.extra["dl_text"] = "Stopped. Press Download to start again."
@@ -158,7 +158,9 @@ def _run_many(run_id, links, category, on_text, on_finish):
             text += f"\n{stopped[0]} stopped"
         on_text(text)
         if saved_count:
-            notify("YT Bridge", "Saved in Downloads")
+            one_run = run_id if isinstance(run_id, int) else (
+                run_id[0] if isinstance(run_id, (list, tuple)) and run_id else None)
+            notify("YT Bridge", "Saved in Downloads", run_id=one_run)
     except Exception as e:
         on_text(f"Download failed: {str(e)[:80]}")
     finally:

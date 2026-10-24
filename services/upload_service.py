@@ -94,7 +94,6 @@ def _track_upload_run(job_manager, run_id, job, on_status, on_complete):
         tag = f"run-{run_id}"
         links = releases.get_release_links(tag=tag)
         if links:
-            notify("YT Bridge Git", "Upload link ready!" if len(links) == 1 else f"{len(links)} upload links ready!")
             job_manager.complete(job, ok=True, result_data=_links_result(links, tag))
             _emit_complete(on_complete, job)
         else:

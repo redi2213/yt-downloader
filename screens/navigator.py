@@ -531,8 +531,10 @@ class Navigator:
                 job.extra["install_asked"] = True
                 job.extra["install_pending"] = True
                 if not self.app_active:
+                    from core.i18n import tr
                     from services.notify_service import notify
-                    notify("YT Bridge", "The APK is downloaded. Open the app to install it.")
+                    notify("YT Bridge", tr("The APK is downloaded. Open the app to install it."),
+                           job_id=job.job_id, run_id=job.run_id)
             if refresh_queued["on"] and job.extra.get("dl_state") == "running":
                 return   # progress is frequent; one queued refresh is enough
             refresh_queued["on"] = True
@@ -560,6 +562,49 @@ class Navigator:
             if problem:
                 job.extra["dl_text"] = f"{job.extra.get('dl_text', '')}\n{problem}".strip()
                 release_file.refresh(job)
+
+    def _notify_job_finished(self, job):
+        """Worker thread, when a job ends (done or failed): a notification, unless the user is
+        looking at this very job right now. Tapping it opens the job's result screen
+        (open_from_notification), also when the app was in the background."""
+        ok = getattr(job, "ok", None)
+        if ok is None or getattr(job, "cancel_requested", False):
+            return
+        if self.app_active and self.job_manager.current_job is job:
+            return
+        from core.i18n import tr
+        from services.notify_service import notify
+        kind = RELEASE_FILE_KINDS.get((job.extra.get("action") or {}).get("id"))
+        if ok is False:
+            text = tr("Job failed") + ": " + str(job.error or "")[:80]
+        elif kind == "apk":
+            text = tr("APK build finished")
+        elif kind == "backup":
+            text = tr("Project backup finished")
+        elif job.type == "formats":
+            text = tr("Qualities are ready")
+        elif job.type == JOB_TYPE_PLAYLIST_DOWNLOAD:
+            text = tr("Playlist finished")
+        else:
+            text = tr("Finished - tap to see the result")
+        notify("YT Bridge", text, job_id=job.job_id, run_id=job.run_id)
+
+    def open_from_notification(self, job_id, run_id):
+        """Main thread: the user tapped one of the app's notifications. Opens that job's screen;
+        if the job is no longer in memory (the app was closed meanwhile), the run's result page."""
+        job = None
+        manager = self.job_manager
+        for candidate in [manager.current_job, *manager.active_jobs, *manager.history]:
+            if candidate is not None and job_id and candidate.job_id == job_id:
+                job = candidate
+                break
+        if job is not None:
+            self.view_job_from_history(job)
+        elif str(run_id or "").isdigit():
+            self._run_ctx = None
+            self.show_run_result(int(run_id))
+        else:
+            self.show_home()
 
     def _auto_after_finish(self, job):
         """Worker thread, the moment a job finishes - before (and whether or not) any screen is
@@ -592,6 +637,10 @@ class Navigator:
         def on_complete(job):
             try:
                 self._auto_after_finish(job)       # worker thread: does not wait for a screen
+            except Exception:
+                pass
+            try:
+                self._notify_job_finished(job)     # worker thread: also works in the background
             except Exception:
                 pass
             self.schedule(lambda: self._handle_job_complete(job))
