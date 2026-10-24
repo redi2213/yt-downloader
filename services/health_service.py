@@ -28,7 +28,7 @@ REQUIRED_WORKFLOWS = [
     "filimo-direct-link.yml", "google-play-download.yml", "Series-Links.yml", "Auto-Follow.yml",
     "drive-to-release.yml",
     "build-apk.yml", "backup-project.yml", "zip-release.yml",
-    "cleanup-releases.yml", "arvan-maintenance.yml",
+    "cleanup-releases.yml", "cleanup-artifacts.yml",
 ]
 
 # (secret, needed for) - the ones a missing value only affects one tool
@@ -44,7 +44,8 @@ SECRET_SPECS = [
     ("KEY_ALIAS", "Build APK (signing)"),
     ("KEY_PASSWORD", "Build APK (signing)"),
 ]
-ARVAN_SECRETS = [("ARVAN_ACCESS_KEY", "Arvan storage"), ("ARVAN_SECRET_KEY", "Arvan storage")]
+# Arvan Cloud is switched off for now (see api/storage_prefs.py), so no Arvan Secret is checked.
+ARVAN_SECRETS = []
 
 # Minutes a month included with each GitHub plan (private repos)
 PLAN_MINUTES = {"free": 2000, "pro": 3000, "team": 3000, "enterprise": 50000}
