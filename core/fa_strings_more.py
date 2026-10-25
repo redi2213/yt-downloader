@@ -502,3 +502,8 @@ MORE_EXACT.update({
     "Finding the channel of this video...": "در حال پیدا کردن کانال این ویدیو...",
     "Could not find the channel of this video": "کانال این ویدیو پیدا نشد",
 })
+
+
+MORE_EXACT.update({
+    "APK builds and backups": "ساخت‌های APK و بکاپ‌ها",
+})

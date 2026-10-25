@@ -354,9 +354,14 @@ HISTORY_PAGE_SIZE = 20
 
 
 def is_app_build(rel) -> bool:
-    """Release made by build-apk.yml (not, say, a Google Play download)."""
-    return str(rel.get("name") or "").startswith("YT Bridge ") and any(
-        str(a.get("name", "")).lower().endswith(".apk") for a in rel.get("assets", []))
+    """Release made by build-apk.yml (not, say, a Google Play download) or by
+    backup-project.yml (the Settings project backup zip): both live behind the
+    "APK builds and backups" button, away from the downloaded files."""
+    name = str(rel.get("name") or "")
+    names = [str(a.get("name", "")).lower() for a in rel.get("assets", [])]
+    if name.startswith("YT Bridge ") and any(n.endswith(".apk") for n in names):
+        return True
+    return name.startswith("Project backup ") and any(n.endswith(".zip") for n in names)
 
 
 def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE, repo=None, apk=False):

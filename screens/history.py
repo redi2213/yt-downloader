@@ -60,7 +60,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         nav.add(bot_btn)
 
     if on_apk and not bot and not apk and page == 0:
-        apk_btn = Button(text="APK builds", size_hint_y=None, height=BTN_H)
+        apk_btn = Button(text="APK builds and backups", size_hint_y=None, height=BTN_H)
         apk_btn.bind(on_press=lambda i: on_apk())
         nav.add(apk_btn)
 

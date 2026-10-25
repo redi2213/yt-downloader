@@ -2091,7 +2091,7 @@ class Navigator:
         if f is None and getattr(self, "_history_apk", False):
             self._history_page = res["page"]
             history_screen.build(
-                self, items, title="APK builds", back=self.show_release_history,
+                self, items, title="APK builds and backups", back=self.show_release_history,
                 page=res["page"], has_next=res["has_next"], apk=True)
             return
         if f is None:
