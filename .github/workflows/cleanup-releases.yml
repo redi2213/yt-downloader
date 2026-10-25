@@ -1,9 +1,18 @@
 name: Cleanup old releases
 
+# Deletes (1) releases whose file is gone and (2) video releases older than 7 days.
+# APK builds and project backups are kept. Rules: scripts/cleanup_releases.py
+
 on:
   schedule:
-    - cron: '0 3 */3 * *'
+    - cron: '0 3 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = only list what would be deleted'
+        required: false
+        default: 'false'
+        type: string
 
 permissions:
   contents: write
@@ -11,42 +20,13 @@ permissions:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Delete video releases older than 7 days (skip app releases)
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Delete empty and old releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-        run: |
-          repo="${{ github.repository }}"
-          cutoff=$(date -d '7 days ago' +%s)
-
-          gh release list \
-            --repo "$repo" \
-            --limit 200 \
-            --json tagName,createdAt \
-            --jq '.[] | [.tagName, .createdAt] | @tsv' |
-          while IFS=$'\t' read -r tag created; do
-
-            # Skip non-video releases
-            if [[ "$tag" != run-* ]]; then
-              echo "Skipping non-video release: $tag"
-              continue
-            fi
-
-            created_ts=$(date -d "$created" +%s)
-
-            # Delete releases older than 7 days
-            if [ "$created_ts" -lt "$cutoff" ]; then
-              echo "Deleting old release: $tag"
-
-              gh release delete \
-                "$tag" \
-                --repo "$repo" \
-                --yes \
-                --cleanup-tag || true
-            else
-              echo "Keeping recent release: $tag"
-            fi
-
-          done
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/cleanup_releases.py
