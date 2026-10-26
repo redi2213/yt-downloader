@@ -1,0 +1,53 @@
+name: Mornye Cloudflare Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Compare Zarz API responses from GitHub runner
+        shell: bash
+        run: |
+          set +e
+
+          probe() {
+            name="$1"
+            shift
+            headers="$(mktemp)"
+            body="$(mktemp)"
+            errors="$(mktemp)"
+
+            echo
+            echo "===== $name ====="
+            code="$(curl --silent --show-error --max-time 25 -D "$headers" -o "$body" -w '%{http_code}' "$@" 2>"$errors")"
+            rc=$?
+            echo "curl_exit=$rc http_status=${code:-000}"
+            grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" || true
+            if [ -s "$errors" ]; then
+              echo "curl_error:"
+              cat "$errors"
+            fi
+            echo "response_body:"
+            head -c 1000 "$body"
+            echo
+            rm -f "$headers" "$body" "$errors"
+          }
+
+          probe "Health endpoint" \
+            "https://api.zarz.moe/v1/health"
+
+          probe "Resolve Spotify track" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data '{"url":"https://open.spotify.com/track/03IUfVosqAULvUhkQMFrZm"}' \
+            "https://api.zarz.moe/v1/resolve"
+
+          probe "Tidal bootstrap endpoint" \
+            -H "User-Agent: SpotiFLAC-Mobile/tidal-web@1.2.5" \
+            "https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5"
