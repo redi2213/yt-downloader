@@ -71,12 +71,23 @@ jobs:
       - name: Install system dependencies and Mornye
         run: |
           set -euo pipefail
-          if ! command -v ffmpeg >/dev/null 2>&1; then
+
+          # ffmpeg: FLAC muxing. xvfb + xauth: the providers (tidal-web / qobuz-web)
+          # pass a Turnstile check through a real browser, which needs a virtual display.
+          missing=()
+          command -v ffmpeg >/dev/null 2>&1 || missing+=(ffmpeg)
+          command -v xvfb-run >/dev/null 2>&1 || missing+=(xvfb xauth)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Installing: ${missing[*]}"
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
+            sudo apt-get install -y --no-install-recommends "${missing[@]}"
           else
             ffmpeg -version | head -n 1
           fi
+
+          # Ubuntu 24.04 blocks unprivileged user namespaces, which Chrome sandbox needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
           if [ ! -x .venv/bin/mornye ]; then
             python -m venv .venv
             .venv/bin/python -m pip install --upgrade pip
@@ -130,36 +141,63 @@ jobs:
           print("Registry JSON and required entries verified.")
           PY
 
-      - name: Verify Mornye CLI
+      - name: Verify Mornye CLI and virtual display
         run: |
           set -euo pipefail
           .venv/bin/python -c "from importlib.metadata import version; print('Mornye version:', version('mornye'))"
-          .venv/bin/mornye --help
+          .venv/bin/mornye --help >/dev/null
+          command -v xvfb-run
+          command -v ffmpeg
+          (google-chrome --version || chromium --version || true) 2>&1 | head -n 1
 
       - name: Download with provider fallback
         env:
-          SPOTIFY_URL: ${{ inputs.spotify_url }}
+          SPOTIFY_URL_RAW: ${{ inputs.spotify_url }}
           QUALITY: ${{ inputs.quality }}
           SERVICE_LIST: ${{ inputs.services }}
+          JOB_ID: ${{ inputs.job_id }}
         run: |
           set -euo pipefail
           mkdir -p out
+
+          # Clean the URL. Mornye exits silently (code 0, no output) when the URL
+          # has leading spaces, so trim whitespace and drop ?si=... / #fragment.
+          SPOTIFY_URL="$(printf '%s' "$SPOTIFY_URL_RAW" | tr -d '\r\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/[?#].*$//')"
+          if ! [[ "$SPOTIFY_URL" =~ ^https://open\.spotify\.com/(intl-[A-Za-z]+/)?(track|album|playlist|artist)/[A-Za-z0-9]+$ ]]; then
+            echo "::error::Invalid Spotify URL after cleanup: '$SPOTIFY_URL'"
+            exit 1
+          fi
 
           read -r -a SERVICES <<< "$SERVICE_LIST"
 
           printf 'Quality: %s\n' "$QUALITY"
           printf 'Provider order: %s\n' "$SERVICE_LIST"
-          printf 'Job ID: %s\n' "${{ inputs.job_id }}"
+          printf 'Job ID: %s\n' "$JOB_ID"
+          printf 'URL: %s\n' "$SPOTIFY_URL"
 
-          .venv/bin/mornye "$SPOTIFY_URL" out \
-            --service "${SERVICES[@]}" \
-            --quality "$QUALITY" \
-            --no-lyrics \
-            --no-enrich \
-            --verbose
+          set +e
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
+            .venv/bin/mornye "$SPOTIFY_URL" out \
+              --service "${SERVICES[@]}" \
+              --quality "$QUALITY" \
+              --no-lyrics \
+              --no-enrich \
+              --max-concurrent 1 \
+              --verbose 2>&1 | tee mornye.log
+          status="${PIPESTATUS[0]}"
+          set -e
 
-          if ! find out -type f -size +0c -print -quit | grep -q .; then
-            echo "::error::Mornye completed without producing output files."
+          # Mornye returns exit code 0 even when every provider fails,
+          # so judge success by real output files.
+          if ! find out -type f -size +0c ! -name '*.part' -print -quit | grep -q .; then
+            echo "::error::Mornye produced no output files (exit code ${status})."
+            grep -E 'FAILED|✗|Xvfb|Traceback|Error' mornye.log | cut -c1-300 | tail -n 15 || true
+            {
+              echo "### Mornye failed"
+              echo '```'
+              grep -E 'FAILED|✗' mornye.log | cut -c1-300 | tail -n 10 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
@@ -170,14 +208,24 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TITLE: ${{ inputs.run_title || format('Mornye {0}', inputs.quality) }}
         run: |
           set -euo pipefail
           python3 scripts/storage_publish.py publish \
             --dir out \
             --tag "run-${{ github.run_id }}" \
-            --title "${{ inputs.run_title || format('Mornye {0}', inputs.quality) }}"
+            --title "$RELEASE_TITLE"
+
+      - name: Upload Mornye log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mornye-log-${{ github.run_id }}
+          path: mornye.log
+          retention-days: 3
+          if-no-files-found: ignore
 
       - name: Report failure
         if: failure()
         run: |
-          echo "::error::Mornye test failed. Review the registry, extension installation, and provider logs."
+          echo "::error::Mornye failed. See the 'Download with provider fallback' step and the mornye-log artifact."
