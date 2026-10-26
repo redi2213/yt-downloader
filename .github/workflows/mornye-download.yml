@@ -51,9 +51,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
+        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Cache Mornye environment
+        id: mornye-cache
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-mornye-1.0.4-v1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -69,8 +77,14 @@ jobs:
           else
             ffmpeg -version | head -n 1
           fi
-          python -m pip install --upgrade pip
-          python -m pip install mornye
+          if [ ! -x .venv/bin/mornye ]; then
+            python -m venv .venv
+            .venv/bin/python -m pip install --upgrade pip
+            .venv/bin/python -m pip install 'mornye==1.0.4'
+          else
+            echo 'Restored cached Mornye environment.'
+            .venv/bin/python -m pip --version
+          fi
 
       - name: Verify registry and provider entries
         run: |
@@ -112,8 +126,8 @@ jobs:
       - name: Verify Mornye CLI
         run: |
           set -euo pipefail
-          python -c "from importlib.metadata import version; print('Mornye version:', version('mornye'))"
-          mornye --help
+          .venv/bin/python -c "from importlib.metadata import version; print('Mornye version:', version('mornye'))"
+          .venv/bin/mornye --help
 
       - name: Download with provider fallback
         env:
@@ -130,7 +144,7 @@ jobs:
           printf 'Provider order: %s\n' "$SERVICE_LIST"
           printf 'Job ID: %s\n' "${{ inputs.job_id }}"
 
-          mornye "$SPOTIFY_URL" out \
+          .venv/bin/mornye "$SPOTIFY_URL" out \
             --service "${SERVICES[@]}" \
             --quality "$QUALITY" \
             --no-lyrics \
