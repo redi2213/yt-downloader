@@ -48,6 +48,19 @@ _SPOTIFY_RE = re.compile(
 _EXT_BY_MIME = {"audio/flac": ".flac", "audio/x-flac": ".flac", "audio/mp4": ".m4a",
                 "audio/mpeg": ".mp3"}
 
+_LOG = []
+
+
+def _log(message) -> None:
+    """A short trail of what happened (no secrets) for 'Copy log' in the app."""
+    _LOG.append(time.strftime("%H:%M:%S ") + str(message)[:300])
+    del _LOG[:-200]
+
+
+def get_log() -> str:
+    return "\n".join(_LOG)
+
+
 _http = requests.Session()
 _http.headers.update({"Accept": "application/json", "Accept-Encoding": "gzip",
                       "User-Agent": GATEWAY_UA})
@@ -161,6 +174,7 @@ def _bootstrap(rec: dict) -> dict:
                          params={"install_id": rec["install_id"], "app_version": APP_VERSION})
     except requests.exceptions.RequestException as e:
         raise MornyeError(f"Network error: {str(e)[:80]}") from e
+    _log(f"bootstrap http {resp.status_code}")
     _check_blocked(resp)
     if resp.status_code != 200:
         raise MornyeError(f"Mornye gateway: {_error_text(resp)}")
@@ -206,6 +220,8 @@ def _exchange(rec: dict, grant: str) -> None:
             "app_version": APP_VERSION, "platform": PLATFORM})
     except requests.exceptions.RequestException as e:
         raise MornyeError(f"Network error: {str(e)[:80]}") from e
+    _log(f"exchange http {resp.status_code}"
+         + ("" if resp.status_code == 200 else " " + resp.text[:160]))
     _check_blocked(resp)
     if resp.status_code != 200:
         raise MornyeError(f"Verification was not accepted: {_error_text(resp)}")
@@ -297,6 +313,8 @@ def _signed_post(path: str, obj: dict, extra: dict = None):
         resp = _http.post(BASE + path, data=body, headers=headers, timeout=TIMEOUT)
     except requests.exceptions.RequestException as e:
         raise MornyeError(f"Network error: {str(e)[:80]}") from e
+    _log(f"POST {path} -> http {resp.status_code}"
+         + ("" if resp.status_code < 400 else " " + resp.text[:200]))
     _check_blocked(resp)
     if _gateway_says_verify(resp):
         clear_session()
@@ -417,6 +435,7 @@ def get_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
         raise MornyeError("Unreadable manifest") from e
     if not url:
         raise MornyeError("The manifest has no direct link")
+    _log("link host: " + (urlparse(url).netloc or "?"))
     mime = str(bts.get("mimeType") or data.get("manifestMimeType") or "audio/flac").lower()
     bits = data.get("bitDepth")
     rate = data.get("sampleRate")
@@ -447,6 +466,7 @@ def fetch_links(url: str, quality: str, progress, ask_grant, cancel=None) -> dic
     #name=... fragment (never sent to the server)."""
     progress = progress or (lambda text: None)
     quality = quality or "LOSSLESS"
+    del _LOG[:]
     kind, sid = parse_spotify(url)
     if not kind:
         raise MornyeError("Paste a Spotify track, album, playlist or artist link")
@@ -454,6 +474,7 @@ def fetch_links(url: str, quality: str, progress, ask_grant, cancel=None) -> dic
     listing = list_tracks(kind, sid)
     tracks = listing["tracks"]
     total = len(tracks)
+    _log(f"spotify {kind}: {total} track(s)")
     progress(f"{total} track(s) found - matching on Tidal...")
 
     matched, failed = [], []
@@ -472,6 +493,9 @@ def fetch_links(url: str, quality: str, progress, ask_grant, cancel=None) -> dic
             continue
         matched.append((track, tidal_id, label))
         time.sleep(0.25)
+    _log(f"matched on Tidal: {len(matched)}/{total}")
+    for line in failed:
+        _log("match failed: " + line)
     if not matched:
         raise MornyeError("None of the tracks were found on Tidal")
 
@@ -494,12 +518,14 @@ def fetch_links(url: str, quality: str, progress, ask_grant, cancel=None) -> dic
                 _verify(progress, ask_grant)
             except MornyeError as e:
                 failed.append(f"{label}: {e}")
+                _log(f"link failed: {label}: {e}")
                 break
         if result:
             links.append(result["url"])
             names.append(_file_name(len(links), len(matched), track, result["ext"], numbered))
             infos.append(result["info"])
         time.sleep(0.2)
+    _log(f"links made: {len(links)}/{len(matched)}")
     if not links:
         raise MornyeError("No link could be made. " + (failed[0] if failed else ""))
     named = [u + "#name=" + quote(n, safe="") for u, n in zip(links, names)]

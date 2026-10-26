@@ -1271,8 +1271,11 @@ class Navigator:
                 if not res.get("ok"):
                     self.show_result(
                         res.get("error", "Failed"),
-                        extra_buttons=[("Try again",
-                                        lambda: self.start_mornye_phone_links(values))],
+                        extra_buttons=[
+                            ("Copy log", lambda: Clipboard.copy(
+                                res.get("log") or res.get("error", ""))),
+                            ("Try again",
+                             lambda: self.start_mornye_phone_links(values))],
                     )
                     return
                 links, names, named = res["links"], res["names"], res["named_links"]
@@ -1290,6 +1293,7 @@ class Navigator:
                 if failed:
                     buttons.append(("Copy failed tracks",
                                     lambda: Clipboard.copy("\n".join(failed))))
+                buttons.append(("Copy log", lambda: Clipboard.copy(res.get("log", ""))))
                 buttons.append(("Refresh links",
                                 lambda: self.start_mornye_phone_links(
                                     values, "Refreshing links...")))

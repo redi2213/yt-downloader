@@ -58,8 +58,9 @@ def _thread(url, quality, progress, show_verify, on_done):
 
     try:
         res = mornye.fetch_links(url, quality, progress, ask, _cancelled.is_set)
-        on_done({"ok": True, **res})
+        on_done({"ok": True, **res, "log": mornye.get_log()})
     except mornye.MornyeError as e:
-        on_done({"ok": False, "error": str(e)})
+        on_done({"ok": False, "error": str(e), "log": mornye.get_log()})
     except Exception as e:
-        on_done({"ok": False, "error": f"Error: {str(e)[:80]}"})
+        mornye._log(f"unexpected {type(e).__name__}: {str(e)[:200]}")
+        on_done({"ok": False, "error": f"Error: {str(e)[:80]}", "log": mornye.get_log()})
