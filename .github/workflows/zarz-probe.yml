@@ -1,0 +1,33 @@
+name: Zarz Probe
+run-name: Zarz Probe (temporary)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe api.zarz.moe from the runner
+        run: |
+          B=https://api.zarz.moe/v2
+          probe() {
+            local method="$1" url="$2" data="${3:-}"
+            echo "=== $method $url"
+            if [ -n "$data" ]; then
+              curl -sS -m 20 -X "$method" -H 'Content-Type: application/json' -d "$data" -D /tmp/h -o /tmp/b -w 'http=%{http_code}\n' "$url" || true
+            else
+              curl -sS -m 20 -X "$method" -D /tmp/h -o /tmp/b -w 'http=%{http_code}\n' "$url" || true
+            fi
+            grep -iE '^(server|cf-ray|cf-mitigated|content-type|retry-after):' /tmp/h | tr -d '\r' || true
+            head -c 300 /tmp/b | tr '\n' ' '; echo
+          }
+          probe GET  "https://api.zarz.moe/"
+          probe GET  "$B/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5"
+          probe GET  "$B/challenge"
+          probe POST "$B/session/exchange" '{"grant":"x","install_id":"x","app_version":"tidal-web@1.2.5","platform":"linux"}'
+          probe POST "$B/session/refresh" '{}'
+          probe GET  "$B/resolve"
+          echo "=== runner egress"
+          curl -sS -m 15 https://ipinfo.io/json | head -c 400 || true
