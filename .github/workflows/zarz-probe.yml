@@ -1,5 +1,5 @@
 name: Zarz Probe
-run-name: Zarz Probe (temporary)
+run-name: Zarz Probe WARP (temporary)
 
 on:
   workflow_dispatch:
@@ -7,27 +7,39 @@ on:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Probe api.zarz.moe from the runner
+      - name: Install Cloudflare WARP (proxy mode)
         run: |
-          B=https://api.zarz.moe/v2
+          set -x
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cloudflare-warp
+          sleep 3
+          warp-cli --accept-tos registration new || true
+          warp-cli --accept-tos mode proxy || warp-cli --accept-tos set-mode proxy || true
+          warp-cli --accept-tos connect || true
+          for i in $(seq 1 20); do
+            warp-cli --accept-tos status | head -n 3
+            warp-cli --accept-tos status | grep -qi 'Connected' && break
+            sleep 2
+          done
+          warp-cli --accept-tos status || true
+
+      - name: Probe api.zarz.moe through WARP and directly
+        run: |
+          P="socks5h://127.0.0.1:40000"
           probe() {
-            local method="$1" url="$2" data="${3:-}"
-            echo "=== $method $url"
-            if [ -n "$data" ]; then
-              curl -sS -m 20 -X "$method" -H 'Content-Type: application/json' -d "$data" -D /tmp/h -o /tmp/b -w 'http=%{http_code}\n' "$url" || true
-            else
-              curl -sS -m 20 -X "$method" -D /tmp/h -o /tmp/b -w 'http=%{http_code}\n' "$url" || true
-            fi
-            grep -iE '^(server|cf-ray|cf-mitigated|content-type|retry-after):' /tmp/h | tr -d '\r' || true
-            head -c 300 /tmp/b | tr '\n' ' '; echo
+            local label="$1"; shift
+            echo "=== $label"
+            curl -sS -m 25 "$@" -D /tmp/h -o /tmp/b -w 'http=%{http_code}\n' || true
+            grep -iE '^(server|cf-mitigated|content-type):' /tmp/h | tr -d '\r' || true
+            head -c 200 /tmp/b | tr '\n' ' '; echo
           }
-          probe GET  "https://api.zarz.moe/"
-          probe GET  "$B/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5"
-          probe GET  "$B/challenge"
-          probe POST "$B/session/exchange" '{"grant":"x","install_id":"x","app_version":"tidal-web@1.2.5","platform":"linux"}'
-          probe POST "$B/session/refresh" '{}'
-          probe GET  "$B/resolve"
-          echo "=== runner egress"
-          curl -sS -m 15 https://ipinfo.io/json | head -c 400 || true
+          echo "--- egress IP via WARP"
+          curl -sS -m 20 -x "$P" https://ipinfo.io/json | head -c 300 || true
+          probe "WARP bootstrap" -x "$P" "https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5"
+          probe "WARP challenge" -x "$P" "https://api.zarz.moe/v2/challenge"
+          probe "WARP resolve" -x "$P" "https://api.zarz.moe/v2/resolve"
+          probe "DIRECT bootstrap (control)" "https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5"
