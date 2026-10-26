@@ -68,19 +68,40 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Detect runner image version
+        id: img
+        run: echo "ver=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached apt packages
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .apt-debs/*.deb
+          key: apt-debs-${{ steps.img.outputs.ver }}-ffmpeg-xvfb-v1
+
       - name: Install system dependencies and Mornye
         run: |
           set -euo pipefail
 
           # ffmpeg: FLAC muxing. xvfb + xauth: the providers (tidal-web / qobuz-web)
           # pass a Turnstile check through a real browser, which needs a virtual display.
-          missing=()
-          command -v ffmpeg >/dev/null 2>&1 || missing+=(ffmpeg)
-          command -v xvfb-run >/dev/null 2>&1 || missing+=(xvfb xauth)
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "Installing: ${missing[*]}"
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends "${missing[@]}"
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v xvfb-run >/dev/null 2>&1; then
+            mkdir -p .apt-debs/partial
+            need_apt=1
+            if ls .apt-debs/*.deb >/dev/null 2>&1; then
+              echo "Installing from cached .deb files"
+              if sudo dpkg -i .apt-debs/*.deb >/dev/null 2>&1; then
+                need_apt=0
+              else
+                echo "Cached install failed, falling back to apt"
+              fi
+            fi
+            if [ "$need_apt" = "1" ]; then
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends \
+                -o Dir::Cache::archives="$PWD/.apt-debs" \
+                ffmpeg xvfb xauth
+            fi
           else
             ffmpeg -version | head -n 1
           fi
@@ -96,6 +117,13 @@ jobs:
             echo 'Restored cached Mornye environment.'
             .venv/bin/python -m pip --version
           fi
+
+      - name: Save apt packages cache
+        if: always() && steps.apt-cache.outputs.cache-hit != 'true' && hashFiles('.apt-debs/*.deb') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .apt-debs/*.deb
+          key: apt-debs-${{ steps.img.outputs.ver }}-ffmpeg-xvfb-v1
 
       - name: Save Mornye environment cache
         if: always() && steps.mornye-cache.outputs.cache-hit != 'true' && hashFiles('.venv/bin/mornye') != ''
@@ -191,6 +219,9 @@ jobs:
           # so judge success by real output files.
           if ! find out -type f -size +0c ! -name '*.part' -print -quit | grep -q .; then
             echo "::error::Mornye produced no output files (exit code ${status})."
+            if grep -q 'zarz.moe/v2/bootstrap.*403\|403 Forbidden.*zarz.moe' mornye.log; then
+              echo "::error::api.zarz.moe answered 403 Forbidden to this GitHub runner IP, so the providers cannot start. This is an IP block, not a workflow bug."
+            fi
             grep -E 'FAILED|✗|Xvfb|Traceback|Error' mornye.log | cut -c1-300 | tail -n 15 || true
             {
               echo "### Mornye failed"
@@ -216,16 +247,7 @@ jobs:
             --tag "run-${{ github.run_id }}" \
             --title "$RELEASE_TITLE"
 
-      - name: Upload Mornye log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mornye-log-${{ github.run_id }}
-          path: mornye.log
-          retention-days: 3
-          if-no-files-found: ignore
-
       - name: Report failure
         if: failure()
         run: |
-          echo "::error::Mornye failed. See the 'Download with provider fallback' step and the mornye-log artifact."
+          echo "::error::Mornye failed. See the 'Download with provider fallback' step."
