@@ -1,0 +1,39 @@
+name: Delete All Workflow Artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  delete-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all existing workflow artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t ARTIFACT_IDS < <(
+            gh api --paginate "repos/${GH_REPO}/actions/artifacts?per_page=100" --jq '.artifacts[].id'
+          )
+
+          COUNT=${#ARTIFACT_IDS[@]}
+          echo "Found ${COUNT} artifact(s) to delete."
+
+          if [ "${COUNT}" -eq 0 ]; then
+            echo "No artifacts found."
+            exit 0
+          fi
+
+          for ID in "${ARTIFACT_IDS[@]}"; do
+            echo "Deleting artifact ID: ${ID}"
+            gh api --method DELETE "repos/${GH_REPO}/actions/artifacts/${ID}"
+          done
+
+          echo "Deleted ${COUNT} artifact(s)."
