@@ -13,30 +13,25 @@ jobs:
     steps:
       - name: Probe API health
         shell: bash
+        continue-on-error: true
         run: |
-          set +e
-          probe() {
-            name="$1"
-            shift
-            headers="$(mktemp)"
-            body="$(mktemp)"
-            status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' "$@" 2>&1)"
-            rc=$?
-            echo "===== $name ====="
-            echo "curl_exit=$rc status=$status"
-            grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
-            head -c 1000 "$body" 2>/dev/null || true
-            echo
-            rm -f "$headers" "$body"
-          }
-          probe "health" "https://api.zarz.moe/v1/health"
-      - name: Probe Spotify resolve endpoint
-        shell: bash
-        run: |
-          set +e
           headers="$(mktemp)"
           body="$(mktemp)"
-          status="$(curl -sS --max-time 25 -D "$headers" -o "$body" -w '%{http_code}' -H 'Content-Type: application/json' -d '{"url":"https://open.spotify.com/track/03IUfVosqAULvUhkQMFrZm"}' 'https://api.zarz.moe/v1/resolve' 2>&1)
+          status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' 'https://api.zarz.moe/v1/health' 2>&1)"
+          rc=$?
+          echo "===== health ====="
+          echo "curl_exit=$rc status=$status"
+          grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+          head -c 1000 "$body" 2>/dev/null || true
+          echo
+          rm -f "$headers" "$body"
+      - name: Probe Spotify resolve endpoint
+        shell: bash
+        continue-on-error: true
+        run: |
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          status="$(curl -sS --max-time 25 -D "$headers" -o "$body" -w '%{http_code}' -H 'Content-Type: application/json' -d '{"url":"https://open.spotify.com/track/03IUfVosqAULvUhkQMFrZm"}' 'https://api.zarz.moe/v1/resolve' 2>&1)"
           rc=$?
           echo "===== resolve ====="
           echo "curl_exit=$rc status=$status"
@@ -46,11 +41,11 @@ jobs:
           rm -f "$headers" "$body"
       - name: Probe bootstrap endpoint
         shell: bash
+        continue-on-error: true
         run: |
-          set +e
           headers="$(mktemp)"
           body="$(mktemp)"
-          status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' -A 'SpotiFLAC-Mobile/tidal-web@1.2.5' 'https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5' 2>&1)
+          status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' -A 'SpotiFLAC-Mobile/tidal-web@1.2.5' 'https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5' 2>&1)"
           rc=$?
           echo "===== bootstrap ====="
           echo "curl_exit=$rc status=$status"
