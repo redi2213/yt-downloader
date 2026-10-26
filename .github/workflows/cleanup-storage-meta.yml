@@ -1,0 +1,73 @@
+name: Cleanup temporary storage metadata
+run-name: Cleanup temporary storage metadata
+
+on:
+  workflow_run:
+    workflows: ["Any Site Extract and Upload"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete completed-run storage metadata artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def api(method, path):
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/{path}",
+                  method=method,
+                  headers=headers,
+              )
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  body = response.read()
+              return json.loads(body) if body else {}
+
+          artifacts = []
+          page = 1
+          while True:
+              batch = api("GET", f"actions/artifacts?per_page=100&page={page}").get("artifacts", [])
+              artifacts.extend(batch)
+              if len(batch) < 100:
+                  break
+              page += 1
+
+          removed = 0
+          kept_running = 0
+          for artifact in artifacts:
+              if not artifact.get("name", "").startswith("storage-meta-"):
+                  continue
+              run_id = artifact.get("workflow_run", {}).get("id")
+              if not run_id:
+                  continue
+              try:
+                  run = api("GET", f"actions/runs/{run_id}")
+                  if run.get("status") != "completed":
+                      kept_running += 1
+                      continue
+                  api("DELETE", f"actions/artifacts/{artifact['id']}")
+                  removed += 1
+                  print(f"Deleted {artifact['name']} from completed run {run_id}")
+              except Exception as exc:
+                  print(f"::warning::Could not clean artifact {artifact['id']}: {exc}")
+
+          print(f"Cleanup finished: {removed} metadata artifact(s) deleted; {kept_running} from active runs preserved.")
+          PY
