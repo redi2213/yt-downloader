@@ -56,9 +56,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Cache Mornye environment
+      - name: Restore cached Mornye environment
         id: mornye-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .venv
           key: ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-mornye-1.0.4-v1
@@ -85,6 +85,13 @@ jobs:
             echo 'Restored cached Mornye environment.'
             .venv/bin/python -m pip --version
           fi
+
+      - name: Save Mornye environment cache
+        if: always() && steps.mornye-cache.outputs.cache-hit != 'true' && hashFiles('.venv/bin/mornye') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .venv
+          key: ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-mornye-1.0.4-v1
 
       - name: Verify registry and provider entries
         run: |
