@@ -1,5 +1,5 @@
 {
-  "config_version": 18,
+  "config_version": 19,
   "actions": [
     {
       "id": "tiktok_download",
@@ -630,6 +630,41 @@
         "quality": "{quality}",
         "subtitle": "{subtitle}",
         "output_mode": "GitHub Release"
+      }
+    },
+    {
+      "id": "mornye",
+      "title": "Mornye (Spotify lossless)",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "open.spotify.com"
+      ],
+      "handler": "mornye_phone",
+      "workflow": "mornye-download.yml",
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Spotify link",
+          "hint": "Track, album, playlist or artist link"
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Lossless (FLAC)",
+              "value": "LOSSLESS"
+            }
+          ],
+          "default": "LOSSLESS"
+        }
+      ],
+      "workflow_inputs": {
+        "spotify_url": "{url}",
+        "quality": "{quality}"
       }
     }
   ],
