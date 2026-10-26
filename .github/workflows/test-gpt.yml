@@ -8,13 +8,53 @@ permissions:
 
 jobs:
   test-gpt:
-    name: Test GPT workflow
+    name: Test GPT API connectivity
     runs-on: ubuntu-24.04
     steps:
-      - name: Report workflow test
+      - name: Probe API health
+        shell: bash
         run: |
-          echo "Test gpt workflow started successfully."
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Runner: $RUNNER_OS"
-          echo "No files changed and no downloads were started."
+          set +e
+          probe() {
+            name="$1"
+            shift
+            headers="$(mktemp)"
+            body="$(mktemp)"
+            status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' "$@" 2>&1)"
+            rc=$?
+            echo "===== $name ====="
+            echo "curl_exit=$rc status=$status"
+            grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+            head -c 1000 "$body" 2>/dev/null || true
+            echo
+            rm -f "$headers" "$body"
+          }
+          probe "health" "https://api.zarz.moe/v1/health"
+      - name: Probe Spotify resolve endpoint
+        shell: bash
+        run: |
+          set +e
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          status="$(curl -sS --max-time 25 -D "$headers" -o "$body" -w '%{http_code}' -H 'Content-Type: application/json' -d '{"url":"https://open.spotify.com/track/03IUfVosqAULvUhkQMFrZm"}' 'https://api.zarz.moe/v1/resolve' 2>&1)
+          rc=$?
+          echo "===== resolve ====="
+          echo "curl_exit=$rc status=$status"
+          grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+          head -c 1000 "$body" 2>/dev/null || true
+          echo
+          rm -f "$headers" "$body"
+      - name: Probe bootstrap endpoint
+        shell: bash
+        run: |
+          set +e
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' -A 'SpotiFLAC-Mobile/tidal-web@1.2.5' 'https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5' 2>&1)
+          rc=$?
+          echo "===== bootstrap ====="
+          echo "curl_exit=$rc status=$status"
+          grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+          head -c 1000 "$body" 2>/dev/null || true
+          echo
+          rm -f "$headers" "$body"
