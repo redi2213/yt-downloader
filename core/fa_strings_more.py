@@ -77,7 +77,7 @@ MORE_EXACT = {
     "expires at the next cleanup": "در پاکسازی بعدی منقضی می‌شود",
     # --- about
     "Download from YouTube to GitHub": "دانلود از یوتیوب به GitHub",
-    "Note: files are auto-deleted after 2 days": "توجه: فایل‌ها بعد از ۲ روز خودکار حذف می‌شوند",
+    "Note: video files are auto-deleted after 7 days": "توجه: فایل‌های ویدیویی بعد از ۷ روز خودکار حذف می‌شوند",
     # --- Auto follow
     "Series: next episode each time": "سریال: هر بار قسمت بعدی",
     "Latest videos": "آخرین ویدیوها",
@@ -506,4 +506,11 @@ MORE_EXACT.update({
 
 MORE_EXACT.update({
     "APK builds and backups": "ساخت‌های APK و بکاپ‌ها",
+})
+
+
+MORE_EXACT.update({
+    "Paste any link here": "هر لینکی را اینجا بچسبان",
+    "Go": "برو",
+    "Paste a link first": "اول یک لینک بچسبان",
 })
