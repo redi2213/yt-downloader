@@ -1,0 +1,9 @@
+Mornye log 2026-10-27 08:19:06 | track 0kosUz0jePvjiz4ctmR6wL | providers tidal,qobuz | OK
+08:18:51 providers: tidal,qobuz
+08:18:52 spotify track: 1 track(s)
+08:18:54 found on a provider: 1/1
+08:18:55 POST /tickets -> http 200
+08:18:57 POST /dl/tid -> http 200
+08:18:57 tidal: DASH, 56 media segments, host sp-ad-fa.audio.tidal.com
+08:19:06 saved Dai Dai.flac (tidal, dash)
+08:19:06 saved: 1/1
