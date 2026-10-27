@@ -403,6 +403,52 @@ def list_tracks(kind: str, sid: str) -> dict:
     return {"title": title, "tracks": tracks}
 
 
+_TRACK_LINK_RE = re.compile(r"open\.spotify\.com/(?:intl-[a-z]+/)?track/([A-Za-z0-9]{22})")
+
+
+def search_spotify(query: str, limit: int = 5) -> list:
+    """A song name -> [{'id', 'title', 'artist'}]. No Spotify login: the track
+    links come from a web search, the names from each track's embed page."""
+    query = _tidy(query)
+    if not query:
+        raise MornyeError("Type a song name or paste a Spotify link")
+    sources = (
+        ("https://html.duckduckgo.com/html/", {"q": "site:open.spotify.com/track " + query}),
+        ("https://www.bing.com/search", {"q": "site:open.spotify.com/track " + query}),
+    )
+    ids = []
+    last = ""
+    for url, params in sources:
+        try:
+            resp = _http.get(url, params=params, timeout=TIMEOUT,
+                             headers={"User-Agent": BROWSER_UA, "Accept": "text/html"})
+        except requests.exceptions.RequestException as e:
+            last = f"Network error: {str(e)[:60]}"
+            continue
+        if resp.status_code != 200:
+            last = f"Search returned HTTP {resp.status_code}"
+            continue
+        for found in _TRACK_LINK_RE.findall(unquote(resp.text)):
+            if found not in ids:
+                ids.append(found)
+        if ids:
+            break
+    if not ids:
+        if last:
+            raise MornyeError(last + " - paste the Spotify link instead")
+        return []
+    results = []
+    for sid in ids[:limit + 2]:
+        try:
+            info = list_tracks("track", sid)["tracks"][0]
+        except (MornyeError, KeyError, IndexError):
+            continue
+        results.append({"id": sid, "title": info["title"], "artist": info["artist"]})
+        if len(results) >= limit:
+            break
+    return results
+
+
 def resolve_ids(spotify_track_id: str) -> dict:
     """Spotify track id -> {'tidal': id, 'qobuz': id, 'deezer': id} (only the ones that exist)."""
     payload = {"url": "https://open.spotify.com/track/" + spotify_track_id}

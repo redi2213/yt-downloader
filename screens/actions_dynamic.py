@@ -352,6 +352,12 @@ def build_input(nav, action, prefill=None, share_url=None, initial=None):
         pick_btn.bind(on_press=lambda i: nav.start_aparat_pick(action, values))
         nav.add(pick_btn)
 
+    # Mornye: source order, fallback ticks and the extension repo link
+    if action.get("handler") == "mornye_phone":
+        set_btn = Button(text="Settings (sources, order, repo)", size_hint_y=None, height=56)
+        set_btn.bind(on_press=lambda i: nav.show_mornye_settings(action, values))
+        nav.add(set_btn)
+
     start_btn = Button(text="Start", size_hint_y=None, height=56)
     start_btn.bind(on_press=lambda i: nav.start_dynamic_action(action, values))
     nav.add(start_btn)

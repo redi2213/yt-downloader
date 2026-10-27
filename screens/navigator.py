@@ -1262,6 +1262,7 @@ class Navigator:
         Mornye. Everything runs on the phone (api.zarz.moe blocks GitHub's IPs): the
         links are made, downloaded and saved straight away because they expire."""
         from kivy.core.clipboard import Clipboard
+        from api import mornye_prefs
         from services import mornye_link_service
         self.show_working(message, extra_buttons=[("Cancel", mornye_link_service.cancel)])
 
@@ -1300,11 +1301,46 @@ class Navigator:
 
         mornye_link_service.start_download(
             values.get("url", ""), values.get("quality", "LOSSLESS"),
-            values.get("providers", "tidal,qobuz"),
+            mornye_prefs.providers_string(),
             self.set_status,
             lambda link, provider="": self.schedule(
                 lambda: self.show_mornye_verify(link, provider)),
             _done, target=values.get("target", "phone"))
+
+    def show_mornye_settings(self, action, values):
+        from screens import mornye_settings
+        mornye_settings.build(self, lambda: self.show_action_input(action, initial=values))
+
+    def start_mornye_search(self, action, cleaned):
+        """A song name instead of a link: search Spotify, then pick the track."""
+        from api import mornye
+        from core.async_utils import run_in_background
+        self.show_working("Searching Spotify...")
+
+        def _work():
+            try:
+                found = mornye.search_spotify(cleaned.get("url", ""))
+                err = "" if found else "Nothing found - try another name or paste the link"
+            except mornye.MornyeError as e:
+                found, err = [], str(e)
+            self.schedule(lambda: self.show_mornye_results(action, cleaned, found, err))
+        run_in_background(_work)
+
+    def show_mornye_results(self, action, cleaned, found, err=""):
+        from kivy.metrics import dp
+        from kivy.uix.label import Label
+        self.clear()
+        self.add(Label(text="Pick the track" if found else (err or "Nothing found"),
+                       size_hint_y=None, height=dp(48)))
+        for item in found:
+            btn = Button(text="%s - %s" % (item["title"], item["artist"]),
+                         size_hint_y=None, height=common.BTN_H)
+            link = "https://open.spotify.com/track/" + item["id"]
+            btn.bind(on_press=lambda i, u=link: self.start_mornye_phone_links(
+                dict(cleaned, url=u)))
+            self.add(btn)
+        self.add(common.back_button(
+            self, text="Back", to=lambda: self.show_action_input(action, initial=cleaned)))
 
     def show_mornye_verify(self, link, provider=""):
         """The one-time browser check: open the page, then wait for the code."""
@@ -1539,6 +1575,9 @@ class Navigator:
 
         # Mornye: the links come from this phone's network, never from GitHub.
         if action.get("handler") == "mornye_phone":
+            from api import mornye as _mornye
+            if not _mornye.parse_spotify(cleaned.get("url", "")):
+                return self.start_mornye_search(action, cleaned)
             return self.start_mornye_phone_links(cleaned)
 
         # Aparat: "Links on phone" never goes to GitHub; otherwise the chosen
