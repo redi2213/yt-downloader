@@ -38,8 +38,10 @@ jobs:
 
     - name: Prepare Cookies (اگر داده شده باشد)
       if: ${{ github.event.inputs.cookies_content != '' }}
+      env:
+        COOKIES_CONTENT: ${{ github.event.inputs.cookies_content }}
       run: |
-        echo "${{ github.event.inputs.cookies_content }}" > cookies.txt
+        printf '%s\n' "$COOKIES_CONTENT" > cookies.txt
 
     - name: Download from Instagram
       env:

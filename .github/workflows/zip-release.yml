@@ -27,12 +27,15 @@ jobs:
       - name: Download existing asset, zip it, and replace
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_ASSET_NAME: ${{ github.event.inputs.asset_name }}
+          INPUT_RELEASE_ID: ${{ github.event.inputs.release_id }}
+          INPUT_ASSET_URL: ${{ github.event.inputs.asset_url }}
         run: |
           set -euo pipefail
-          ASSET_NAME="${{ github.event.inputs.asset_name }}"
-          RELEASE_ID="${{ github.event.inputs.release_id }}"
+          ASSET_NAME="$INPUT_ASSET_NAME"
+          RELEASE_ID="$INPUT_RELEASE_ID"
 
-          curl -L --fail --retry 3 -o "$ASSET_NAME" "${{ github.event.inputs.asset_url }}"
+          curl -L --fail --retry 3 -o "$ASSET_NAME" "$INPUT_ASSET_URL"
 
           ZIP_NAME="${ASSET_NAME%.*}.zip"
           zip -r "$ZIP_NAME" "$ASSET_NAME"
@@ -41,7 +44,7 @@ jobs:
 
           ASSET_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/$REPO/releases/$RELEASE_ID" \
-            | python3 -c "import json,sys; data=json.load(sys.stdin); print(next((a['id'] for a in data['assets'] if a['name']=='$ASSET_NAME'), ''))")
+            | python3 -c "import json,os,sys; data=json.load(sys.stdin); print(next((a['id'] for a in data['assets'] if a['name']==os.environ['INPUT_ASSET_NAME']), ''))")
 
           if [ -n "$ASSET_ID" ]; then
             curl -s -X DELETE -H "Authorization: token $GH_TOKEN" \
