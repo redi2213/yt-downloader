@@ -1,5 +1,5 @@
 {
-  "config_version": 21,
+  "config_version": 22,
   "actions": [
     {
       "id": "tiktok_download",
@@ -646,8 +646,8 @@
         {
           "key": "url",
           "type": "text",
-          "label": "Spotify link",
-          "hint": "Track, album, playlist or artist link"
+          "label": "Spotify link or song name",
+          "hint": "Link, or a song name (e.g. Shakira Waka Waka)"
         },
         {
           "key": "quality",
@@ -660,26 +660,6 @@
             }
           ],
           "default": "LOSSLESS"
-        },
-        {
-          "key": "providers",
-          "type": "choice",
-          "label": "Sources (in order)",
-          "choices": [
-            {
-              "label": "Tidal, Qobuz, Deezer",
-              "value": "tidal,qobuz,deezer"
-            },
-            {
-              "label": "Qobuz, Tidal, Deezer",
-              "value": "qobuz,tidal,deezer"
-            },
-            {
-              "label": "Deezer, Tidal, Qobuz",
-              "value": "deezer,tidal,qobuz"
-            }
-          ],
-          "default": "tidal,qobuz,deezer"
         },
         {
           "key": "target",
