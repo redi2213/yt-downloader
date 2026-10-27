@@ -1,0 +1,11 @@
+Mornye log 2026-10-28 03:00:28 | track 0kosUz0jePvjiz4ctmR6wL | providers tidal,qobuz,deezer | target github | OK
+02:59:34 providers: tidal,qobuz,deezer
+02:59:34 spotify track: 1 track(s)
+02:59:37 found on a provider: 1/1
+02:59:38 POST /tickets (tidal) -> http 200
+02:59:38 POST /dl/tid (tidal) -> http 200
+02:59:38 tidal: DASH, 56 media segments, host sp-ad-fa.audio.tidal.com
+02:59:38 queued Shakira, Burna Boy - Dai Dai (tidal, dash)
+02:59:39 saved: 1/1
+02:59:43 dispatched mornye-from-links.yml: 1 track(s), run 40602494513
+03:00:28 run 40602494513: success
