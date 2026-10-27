@@ -1,0 +1,22 @@
+Mornye log 2026-10-27 23:33:17 | track 2ac1TL4ZecxprQDidPH6rZ | providers tidal,qobuz,deezer | target github | FAILED: Nothing could be downloaded. Macan Band - Ye Lahze Negam Kon: tidal: The browser check was not finished in time; qobuz: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur; deezer: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:27:34 providers: tidal,qobuz,deezer
+23:27:37 spotify track: 1 track(s)
+23:28:04 POST /dl/qbz (qobuz) -> http 503 {"error":"Provider temporarily unavailable","code":"PROVIDER_UNAVAILABLE","origin":"provider","retryable":true,"retry_mode":"same_operation","retry_after_seconds":10}
+23:28:04 qobuz failed for Macan Band - Ye Lahze Negam Kon: Qobuz: Provider temporarily unavailable
+23:28:05 bootstrap tidal http 200
+23:28:23 found on a provider: 1/1
+23:28:24 bootstrap tidal http 200
+23:29:16 exchange tidal http 400 {"error":"Invalid request"}
+23:29:16 tidal failed for Macan Band - Ye Lahze Negam Kon: Verification was not accepted: Invalid request
+23:29:16 POST /tickets (deezer) -> http 200
+23:29:24 POST /dl/dzr (deezer) -> http 200
+23:29:24 deezer failed for Macan Band - Ye Lahze Negam Kon: Deezer: this stream needs decryption (not supported yet)
+23:29:24 saved: 0/1
+23:33:04 tidal failed for Macan Band - Ye Lahze Negam Kon: The browser check was not finished in time
+23:33:04 qobuz transient error, retrying: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:33:07 qobuz transient error, retrying: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:33:10 qobuz failed for Macan Band - Ye Lahze Negam Kon: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:33:10 deezer transient error, retrying: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:33:13 deezer transient error, retrying: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:33:16 deezer failed for Macan Band - Ye Lahze Negam Kon: Network error: HTTPSConnectionPool(host='api.zarz.moe', port=443): Max retries exceeded with ur
+23:33:17 saved: 0/1
