@@ -1,0 +1,15 @@
+Mornye log 2026-10-27 15:58:22 | track 1FCPJXBkuGqzGQp7p70cu2 | providers qobuz,tidal,deezer | target github | OK
+15:53:09 providers: qobuz,tidal,deezer
+15:53:10 spotify track: 1 track(s)
+15:53:13 found on a provider: 1/1
+15:53:13 bootstrap http 200
+15:53:45 exchange http 200
+15:53:47 POST /tickets -> http 403 {"error":"Forbidden"}
+15:53:47 qobuz failed for Haamim - Khorshid o Maah: Ticket refused: Forbidden
+15:53:47 POST /tickets -> http 200
+15:53:52 POST /dl/tid -> http 200
+15:53:52 tidal: DASH, 66 media segments, host sp-ad-fa.audio.tidal.com
+15:53:52 queued Haamim - Khorshid o Maah (tidal, dash)
+15:53:52 saved: 1/1
+15:53:56 dispatched mornye-from-links.yml: 1 track(s), run 40503429030
+15:58:22 run 40503429030: success
