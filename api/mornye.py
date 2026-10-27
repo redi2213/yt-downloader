@@ -373,7 +373,7 @@ def list_tracks(kind: str, sid: str) -> dict:
 
 
 def resolve_ids(spotify_track_id: str) -> dict:
-    """Spotify track id -> {'tidal': id, 'qobuz': id} (only the ones that exist)."""
+    """Spotify track id -> {'tidal': id, 'qobuz': id, 'deezer': id} (only the ones that exist)."""
     payload = {"url": "https://open.spotify.com/track/" + spotify_track_id}
     last = ""
     for attempt in range(3):
@@ -396,7 +396,7 @@ def resolve_ids(spotify_track_id: str) -> dict:
             return {}
         urls = env.get("songUrls") or {}
         ids = {}
-        for key, name in (("Tidal", "tidal"), ("Qobuz", "qobuz")):
+        for key, name in (("Tidal", "tidal"), ("Qobuz", "qobuz"), ("Deezer", "deezer")):
             link = urls.get(key)
             if isinstance(link, dict):
                 link = link.get("url") or link.get("link")
@@ -415,9 +415,9 @@ def _expand(template: str, number: int) -> str:
     return re.sub(r"\$Number(?:%0(\d+)d)?\$", fill, template)
 
 
-def parse_dash(text: str) -> list:
-    """A DASH manifest -> [init url, media url 1, media url 2, ...] (as the Mornye
-    extension does: templates + the number of <S> segments)."""
+def parse_dash_template(text: str) -> dict:
+    """A DASH manifest -> {'init', 'media' (still with $Number$), 'count', 'start'},
+    as the Mornye extension reads it: the templates + the number of <S> segments."""
     init = re.search(r'initialization="([^"]+)"', text, re.I)
     media = re.search(r'media="([^"]+)"', text, re.I)
     if not init or not media:
@@ -429,11 +429,15 @@ def parse_dash(text: str) -> list:
     if count <= 0:
         raise MornyeError("The manifest lists no media segments")
     start = re.search(r'startNumber="(\d+)"', text, re.I)
-    first = int(start.group(1)) if start else 1
-    template = media.group(1).replace("&amp;", "&")
-    urls = [init.group(1).replace("&amp;", "&")]
-    urls += [_expand(template, first + i) for i in range(count)]
-    return urls
+    return {"init": init.group(1).replace("&amp;", "&"),
+            "media": media.group(1).replace("&amp;", "&"),
+            "count": count, "start": int(start.group(1)) if start else 1}
+
+
+def parse_dash(text: str) -> list:
+    """A DASH manifest -> [init url, media url 1, media url 2, ...]."""
+    t = parse_dash_template(text)
+    return [t["init"]] + [_expand(t["media"], t["start"] + i) for i in range(t["count"])]
 
 
 def _ticket(provider: str, resource: str) -> str:
@@ -484,10 +488,12 @@ def get_tidal_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
         _log("tidal: direct link, host " + (urlparse(url).netloc or "?"))
         return {"kind": "direct", "url": url, "ext": _EXT_BY_MIME.get(mime, ".flac"),
                 "info": info}
-    segments = parse_dash(text)
+    template = parse_dash_template(text)
+    segments = [template["init"]] + [
+        _expand(template["media"], template["start"] + i) for i in range(template["count"])]
     _log("tidal: DASH, %d media segments, host %s"
          % (len(segments) - 1, urlparse(segments[0]).netloc or "?"))
-    return {"kind": "dash", "segments": segments, "info": info}
+    return {"kind": "dash", "segments": segments, "template": template, "info": info}
 
 
 def get_qobuz_download(qobuz_id: str, quality: str = "LOSSLESS") -> dict:
@@ -523,7 +529,53 @@ def get_qobuz_download(qobuz_id: str, quality: str = "LOSSLESS") -> dict:
     return {"kind": "direct", "url": url, "ext": ".flac", "info": info}
 
 
-PROVIDERS = {"tidal": get_tidal_download, "qobuz": get_qobuz_download}
+def _flag(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes"):
+            return True
+        if text in ("false", "0", "no"):
+            return False
+    return None
+
+
+def get_deezer_download(deezer_id: str, quality: str = "LOSSLESS") -> dict:
+    """A direct FLAC link from Deezer. Streams that need client-side decryption
+    (Blowfish) are not supported yet and raise MornyeError."""
+    track_url = "https://www.deezer.com/track/" + quote(str(deezer_id), safe="")
+    ticket = _ticket("dzr", track_url)
+    resp = _signed_post("/dl/dzr", {"id": str(deezer_id), "type": "track",
+                                    "platform": "deezer", "url": track_url},
+                        {"X-Zarz-Ticket": ticket})
+    if resp.status_code != 200:
+        raise MornyeError(f"Deezer: {_error_text(resp)}")
+    d = _envelope(resp)
+    if d.get("success") is not True:
+        raise MornyeError("Deezer: " + str(d.get("message") or d.get("error")
+                                           or "no link")[:120])
+    direct = _flag(d.get("direct_downloadable"))
+    url = ""
+    if direct is True and d.get("direct_download_url"):
+        url = str(d["direct_download_url"])
+    url = url or str(d.get("download_url") or d.get("direct_download_url") or "")
+    if not url:
+        raise MornyeError("Deezer gave no download link")
+    needs = _flag(d.get("requires_client_decryption"))
+    if needs is None:
+        needs = (not direct) if direct is not None else bool(_flag(d.get("deezer_encrypted")))
+    if needs:
+        raise MornyeError("Deezer: this stream needs decryption (not supported yet)")
+    fmt = str(d.get("deezer_format") or "flac").lower()
+    if fmt != "flac":
+        raise MornyeError("Deezer gave %s, not lossless" % fmt.upper())
+    _log("deezer: direct link, host " + (urlparse(url).netloc or "?"))
+    return {"kind": "direct", "url": url, "ext": ".flac", "info": "Deezer FLAC"}
+
+
+PROVIDERS = {"tidal": get_tidal_download, "qobuz": get_qobuz_download,
+             "deezer": get_deezer_download}
 
 
 def _safe_name(text: str) -> str:

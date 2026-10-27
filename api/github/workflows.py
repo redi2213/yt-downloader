@@ -33,7 +33,7 @@ STORAGE_WORKFLOWS = {
     "download.yml", "upload-file.yml", "Any-Site-Upload.yml",
     "filimo-direct-link.yml", "google-play-download.yml",
     "aparat-download.yml", "telegram-download.yml", "Series-Links.yml",
-    "download-batch.yml",
+    "download-batch.yml", "mornye-from-links.yml",
 }
 STORAGE_INPUT = "storage"
 STORAGE_BUCKET_INPUT = "arvan_bucket"

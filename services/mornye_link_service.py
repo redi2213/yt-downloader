@@ -9,6 +9,7 @@ person pastes the code (submit_grant) or cancels.
 After every run the step log (no secrets) is also saved to the repo's config
 branch under logs/, so a failure can be read without copying anything.
 """
+import json
 import queue
 import shutil
 import tempfile
@@ -21,6 +22,9 @@ from core.async_utils import run_in_background
 
 WAIT_SECONDS = 280          # the gateway's challenge lives 5 minutes
 CATEGORY = "Mornye"
+WORKFLOW = "mornye-from-links.yml"
+BATCH_TRACKS = 8            # tracks per workflow run: the links expire, so send them early
+BATCH_CHARS = 40000         # a dispatch carries at most 65535 characters of inputs
 
 _grants = queue.Queue()
 _cancelled = threading.Event()
@@ -42,10 +46,12 @@ def submit_grant(text: str) -> bool:
 
 
 def start_download(url: str, quality: str, providers: str, progress, show_verify,
-                   on_done) -> None:
+                   on_done, target: str = "phone") -> None:
     """progress(text), show_verify(challenge_url) and on_done(result) are all
-    called from a background thread. on_done gets {'ok': True, 'title', 'saved',
-    'failed', 'folder', 'log', 'log_path'} or {'ok': False, 'error', 'log',
+    called from a background thread. target 'phone' saves the files on the phone;
+    'github' sends the links to the Mornye From Links workflow, which uploads them
+    to a release. on_done gets {'ok': True, 'title', 'saved', 'failed', 'folder',
+    'links' (github), 'log', 'log_path'} or {'ok': False, 'error', 'log',
     'log_path'}."""
     _cancelled.clear()
     while not _grants.empty():
@@ -53,7 +59,7 @@ def start_download(url: str, quality: str, providers: str, progress, show_verify
             _grants.get_nowait()
         except queue.Empty:
             break
-    run_in_background(_thread, url, quality, providers, progress, show_verify, on_done)
+    run_in_background(_thread, url, quality, providers, progress, show_verify, on_done, target)
 
 
 def _upload_log(text: str) -> str:
@@ -67,7 +73,62 @@ def _upload_log(text: str) -> str:
         return ""
 
 
-def _thread(url, quality, providers, progress, show_verify, on_done):
+class _Batcher:
+    """Collects tracks for the workflow and dispatches them in small batches."""
+
+    def __init__(self, progress, title_prefix="Mornye"):
+        self.items = []
+        self.run_ids = []
+        self.progress = progress
+        self.prefix = title_prefix
+
+    def add(self, entry):
+        self.items.append(entry)
+        size = len(json.dumps(self.items, ensure_ascii=False, separators=(",", ":")))
+        if len(self.items) >= BATCH_TRACKS or size > BATCH_CHARS:
+            self.flush()
+
+    def flush(self):
+        if not self.items:
+            return
+        from api.github import workflows
+        batch, self.items = self.items, []
+        self.progress("Sending %d track(s) to GitHub..." % len(batch))
+        inputs = {
+            "tracks_json": json.dumps(batch, ensure_ascii=False, separators=(",", ":")),
+            "run_title": "%s %d track(s)" % (self.prefix, len(batch)),
+        }
+        run_id = workflows.dispatch_and_find_run(WORKFLOW, inputs)
+        mornye._log("dispatched %s: %d track(s), run %s" % (WORKFLOW, len(batch), run_id))
+        self.run_ids.append(run_id)
+
+
+def _wait_for_uploads(batcher, progress):
+    """Waits for the dispatched runs; returns (links, problems)."""
+    from api.github import releases, workflows
+    links, problems = [], []
+    total = len(batcher.run_ids)
+    for n, run_id in enumerate(batcher.run_ids, 1):
+        if run_id is None:
+            problems.append("a GitHub run could not be found")
+            continue
+        conclusion = workflows.wait_for_run(
+            run_id, on_status=lambda s, n=n: progress("GitHub %d/%d: %s" % (n, total, s)),
+            stop_event=_cancelled)
+        mornye._log("run %s: %s" % (run_id, conclusion))
+        if conclusion == "cancelled_locally":
+            raise mornye.Cancelled("Cancelled")
+        if conclusion != "success":
+            problems.append("run %s ended: %s" % (run_id, conclusion))
+            continue
+        try:
+            links += releases.get_release_links(run_id, attempts=4, delay=2)
+        except Exception as e:
+            problems.append("run %s: could not read the release (%s)" % (run_id, str(e)[:60]))
+    return links, problems
+
+
+def _thread(url, quality, providers, progress, show_verify, on_done, target="phone"):
     def ask(challenge_url):
         show_verify(challenge_url)
         try:
@@ -95,19 +156,43 @@ def _thread(url, quality, providers, progress, show_verify, on_done):
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
+    batcher = _Batcher(progress)
+
+    def queue_for_github(pos, total, track, item, numbered):
+        stem = mornye.file_name(pos, total, track, "", numbered)
+        if item.get("kind") == "dash":
+            entry = {"stem": stem, "kind": "dash", **item["template"]}
+        else:
+            entry = {"stem": stem, "kind": "direct", "url": item["url"],
+                     "ext": item.get("ext") or ".flac"}
+        batcher.add(entry)
+        mornye._log("queued %s (%s, %s)" % (stem, item.get("provider"), item.get("kind")))
+        return stem
+
     order = [p.strip() for p in str(providers or "").split(",") if p.strip()]
+    github = target == "github"
     result = {}
     try:
-        res = mornye.run_tracks(url, quality, order, progress, ask, _cancelled.is_set, handle)
-        result = {"ok": True, **res, "folder": android_downloads.folder_label(CATEGORY)}
+        res = mornye.run_tracks(url, quality, order, progress, ask, _cancelled.is_set,
+                                queue_for_github if github else handle)
+        if github:
+            batcher.flush()
+            links, problems = _wait_for_uploads(batcher, progress)
+            res["failed"] = list(res.get("failed") or []) + problems
+            if not links:
+                raise mornye.MornyeError("GitHub made no files. " + "; ".join(problems[:2]))
+            res["links"] = links
+            result = {"ok": True, **res, "folder": "GitHub release"}
+        else:
+            result = {"ok": True, **res, "folder": android_downloads.folder_label(CATEGORY)}
     except mornye.MornyeError as e:
         result = {"ok": False, "error": str(e)}
     except Exception as e:
         mornye._log("unexpected %s: %s" % (type(e).__name__, str(e)[:200]))
         result = {"ok": False, "error": "Error: %s" % str(e)[:80]}
     kind, sid = mornye.parse_spotify(url)
-    header = "Mornye log %s | %s %s | providers %s | %s\n" % (
-        time.strftime("%Y-%m-%d %H:%M:%S"), kind or "?", sid or "?", providers,
+    header = "Mornye log %s | %s %s | providers %s | target %s | %s\n" % (
+        time.strftime("%Y-%m-%d %H:%M:%S"), kind or "?", sid or "?", providers, target,
         "OK" if result.get("ok") else "FAILED: " + str(result.get("error")))
     result["log"] = header + mornye.get_log()
     result["log_path"] = _upload_log(result["log"])

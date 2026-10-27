@@ -30,6 +30,7 @@ _WORKFLOW_CATEGORY = {
     "aparat-download.yml": "Aparat",
     "telegram-download.yml": "Telegram",
     "filimo-direct-link.yml": "Filimo",
+    "mornye-from-links.yml": "Mornye",
     "Any-Site-Upload.yml": "Any-site",
     "Series-Links.yml": "Any-site",
     "drive-to-release.yml": "Drive",

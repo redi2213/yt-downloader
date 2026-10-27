@@ -1279,15 +1279,22 @@ class Navigator:
                     return
                 failed = res.get("failed") or []
                 saved = res.get("saved") or []
-                msg = "%s: %d file(s) saved in %s" % (
-                    res.get("title") or "Done", len(saved), res.get("folder", ""))
+                links = res.get("links") or []
+                verb = "uploaded to" if links else "saved in"
+                count = len(links) if links else len(saved)
+                msg = "%s: %d file(s) %s %s" % (
+                    res.get("title") or "Done", count, verb, res.get("folder", ""))
                 if failed:
                     msg += "\n%d failed:\n%s" % (len(failed), "\n".join(failed[:6]))
                     buttons.insert(0, ("Copy failed tracks",
                                        lambda: Clipboard.copy("\n".join(failed))))
                     buttons.append(("Try again",
                                     lambda: self.start_mornye_phone_links(values)))
-                self.show_result(msg + note, extra_buttons=buttons)
+                if links:
+                    self.show_result(msg + note, links=links, extra_buttons=buttons,
+                                     category="Mornye")
+                else:
+                    self.show_result(msg + note, extra_buttons=buttons)
             self.schedule(_show)
 
         mornye_link_service.start_download(
@@ -1295,7 +1302,7 @@ class Navigator:
             values.get("providers", "tidal,qobuz"),
             self.set_status,
             lambda link: self.schedule(lambda: self.show_mornye_verify(link)),
-            _done)
+            _done, target=values.get("target", "phone"))
 
     def show_mornye_verify(self, link):
         """The one-time browser check: open the page, then wait for the code."""
