@@ -1,0 +1,9 @@
+Mornye log 2026-10-28 02:58:36 | track 0kosUz0jePvjiz4ctmR6wL | providers tidal,qobuz,deezer | target phone | OK
+02:58:06 providers: tidal,qobuz,deezer
+02:58:07 spotify track: 1 track(s)
+02:58:11 found on a provider: 1/1
+02:58:13 POST /tickets (tidal) -> http 200
+02:58:15 POST /dl/tid (tidal) -> http 200
+02:58:15 tidal: DASH, 56 media segments, host sp-ad-fa.audio.tidal.com
+02:58:36 saved Shakira, Burna Boy - Dai Dai.flac (tidal, dash)
+02:58:36 saved: 1/1
