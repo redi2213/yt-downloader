@@ -1,0 +1,13 @@
+Mornye log 2026-10-27 23:41:15 | track 2ac1TL4ZecxprQDidPH6rZ | providers tidal,qobuz,deezer | target github | OK
+23:39:49 providers: tidal,qobuz,deezer
+23:39:51 spotify track: 1 track(s)
+23:39:54 found on a provider: 1/1
+23:39:58 bootstrap tidal http 200
+23:40:24 exchange tidal http 200
+23:40:25 POST /tickets (tidal) -> http 200
+23:40:49 POST /dl/tid (tidal) -> http 200
+23:40:49 tidal: DASH, 61 media segments, host sp-ad-fa.audio.tidal.com
+23:40:49 queued Macan Band - Ye Lahze Negam Kon (tidal, dash)
+23:40:49 saved: 1/1
+23:40:55 dispatched mornye-from-links.yml: 1 track(s), run 40575716501
+23:41:15 run 40575716501: success
