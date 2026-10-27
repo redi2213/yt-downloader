@@ -1,5 +1,5 @@
 {
-  "config_version": 19,
+  "config_version": 20,
   "actions": [
     {
       "id": "tiktok_download",
@@ -660,6 +660,22 @@
             }
           ],
           "default": "LOSSLESS"
+        },
+        {
+          "key": "providers",
+          "type": "choice",
+          "label": "Sources (in order)",
+          "choices": [
+            {
+              "label": "Tidal, then Qobuz",
+              "value": "tidal,qobuz"
+            },
+            {
+              "label": "Qobuz, then Tidal",
+              "value": "qobuz,tidal"
+            }
+          ],
+          "default": "tidal,qobuz"
         }
       ],
       "workflow_inputs": {
