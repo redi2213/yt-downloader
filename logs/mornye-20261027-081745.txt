@@ -1,0 +1,11 @@
+Mornye log 2026-10-27 08:17:45 | track 0kosUz0jePvjiz4ctmR6wL | providers tidal,qobuz | FAILED: Nothing could be downloaded. Dai Dai: tidal: sp-ad-fa.audio.tidal.com: HTTPSConnectionPool(host='sp-ad-fa.audio.tidal.com', port=443): Read timed out. (read timeout=15); qobuz: Ticket refused: Forbidden
+08:16:43 providers: tidal,qobuz
+08:16:44 spotify track: 1 track(s)
+08:16:47 found on a provider: 1/1
+08:16:48 POST /tickets -> http 200
+08:16:49 POST /dl/tid -> http 200
+08:16:49 tidal: DASH, 56 media segments, host sp-ad-fa.audio.tidal.com
+08:17:44 tidal failed for Dai Dai: sp-ad-fa.audio.tidal.com: HTTPSConnectionPool(host='sp-ad-fa.audio.tidal.com', port=443): Read timed out. (read timeout=15)
+08:17:45 POST /tickets -> http 403 {"error":"Forbidden"}
+08:17:45 qobuz failed for Dai Dai: Ticket refused: Forbidden
+08:17:45 saved: 0/1
