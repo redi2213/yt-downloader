@@ -37,6 +37,31 @@ def load_fmp4():
     return module
 
 
+def load_tags():
+    spec = importlib.util.spec_from_file_location(
+        "flac_tags", os.path.join(ROOT, "core", "flac_tags.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def apply_tags(path, track, tags_module, covers):
+    """Tags + cover for a finished .flac; a failure only costs the tags."""
+    tags, cover_url = track.get("tags") or {}, track.get("cover") or ""
+    if not path.endswith(".flac") or not (tags or cover_url):
+        return
+    try:
+        if cover_url and cover_url not in covers:
+            try:
+                resp = requests.get(cover_url, timeout=20, headers={"User-Agent": UA})
+                covers[cover_url] = resp.content if resp.status_code == 200 else b""
+            except requests.RequestException:
+                covers[cover_url] = b""
+        tags_module.tag_file(path, tags, covers.get(cover_url) or None)
+    except Exception as e:
+        print("::warning::tagging %s failed: %s" % (os.path.basename(path), e), flush=True)
+
+
 def safe_stem(text):
     text = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", str(text or "")).strip(" .")
     return text[:120] or "track"
@@ -116,12 +141,15 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(META, exist_ok=True)
     fmp4 = load_fmp4()
+    tags_module = load_tags()
+    covers = {}
     made, failed = [], []
     for i, track in enumerate(tracks, 1):
         name = safe_stem(track.get("stem"))
         print("[%d/%d] %s" % (i, len(tracks), name), flush=True)
         try:
             path = make_track(track, fmp4)
+            apply_tags(path, track, tags_module, covers)
             print("   ok: %s (%d bytes)" % (os.path.basename(path), os.path.getsize(path)),
                   flush=True)
             made.append(path)

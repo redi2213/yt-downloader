@@ -16,8 +16,10 @@ import tempfile
 import threading
 import time
 
+import requests
+
 from api import mornye
-from core import android_downloads, mornye_download
+from core import android_downloads, flac_tags, mornye_download
 from core.async_utils import run_in_background
 
 WAIT_SECONDS = 280          # the gateway's challenge lives 5 minutes
@@ -60,6 +62,29 @@ def start_download(url: str, quality: str, providers: str, progress, show_verify
         except queue.Empty:
             break
     run_in_background(_thread, url, quality, providers, progress, show_verify, on_done, target)
+
+
+def _cover_bytes(url: str, cache: dict) -> bytes:
+    """The cover picture (kept per link: an album has one cover for all tracks)."""
+    if not url:
+        return b""
+    if url not in cache:
+        try:
+            resp = requests.get(url, timeout=20)
+            cache[url] = resp.content if resp.status_code == 200 else b""
+        except requests.RequestException:
+            cache[url] = b""
+    return cache[url]
+
+
+def _unique(stem: str, used: set) -> str:
+    """The same artist - title twice in one run must not overwrite the first file."""
+    name, n = stem, 1
+    while name.lower() in used:
+        n += 1
+        name = "%s (%d)" % (stem, n)
+    used.add(name.lower())
+    return name
 
 
 def _upload_log(text: str) -> str:
@@ -139,6 +164,8 @@ def _thread(url, quality, providers, progress, show_verify, on_done, target="pho
             raise mornye.Cancelled("Cancelled")
         return item
 
+    used_names, covers = set(), {}
+
     def handle(pos, total, track, item, numbered):
         label = " - ".join(p for p in (track["artist"], track["title"]) if p) or "track"
         work = tempfile.mkdtemp(prefix="mornye_")
@@ -149,7 +176,15 @@ def _thread(url, quality, providers, progress, show_verify, on_done, target="pho
                 path, ext = mornye_download.fetch(item, work, status, _cancelled.is_set)
             except mornye_download.DownloadCancelled:
                 raise mornye.Cancelled("Cancelled")
-            name = mornye.file_name(pos, total, track, ext, numbered)
+            if ext == ".flac":
+                meta = item.get("meta") or {}
+                try:
+                    flac_tags.tag_file(path, meta.get("tags"),
+                                       _cover_bytes(meta.get("cover_url"), covers) or None)
+                except Exception as e:      # an untagged file is still a good file
+                    mornye._log("tagging failed: %s" % str(e)[:120])
+            stem = _unique(mornye.file_name(pos, total, track, "", numbered), used_names)
+            name = stem + ext
             android_downloads._save_in_downloads(path, name, CATEGORY)
             mornye._log("saved %s (%s, %s)" % (name, item.get("provider"), item.get("kind")))
             return name
@@ -159,12 +194,17 @@ def _thread(url, quality, providers, progress, show_verify, on_done, target="pho
     batcher = _Batcher(progress)
 
     def queue_for_github(pos, total, track, item, numbered):
-        stem = mornye.file_name(pos, total, track, "", numbered)
+        stem = _unique(mornye.file_name(pos, total, track, "", numbered), used_names)
         if item.get("kind") == "dash":
             entry = {"stem": stem, "kind": "dash", **item["template"]}
         else:
             entry = {"stem": stem, "kind": "direct", "url": item["url"],
                      "ext": item.get("ext") or ".flac"}
+        meta = item.get("meta") or {}
+        if meta.get("tags"):
+            entry["tags"] = meta["tags"]
+        if meta.get("cover_url"):
+            entry["cover"] = meta["cover_url"]
         batcher.add(entry)
         mornye._log("queued %s (%s, %s)" % (stem, item.get("provider"), item.get("kind")))
         return stem

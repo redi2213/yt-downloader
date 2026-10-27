@@ -30,6 +30,8 @@ import requests
 
 from api.github.auth import _settings_store  # one shared JsonStore: see api/filimo.py
 
+TIDAL_API = "https://tidal.com/v1"
+TIDAL_TOKEN = "49YxDN9a2aFV6RTG"        # the public web token the Mornye extension uses
 BASE = "https://api.zarz.moe/v2"
 RESOLVE_URL = "https://api.zarz.moe/v1/resolve"
 APP_VERSION = "tidal-web@1.2.5"
@@ -578,6 +580,69 @@ PROVIDERS = {"tidal": get_tidal_download, "qobuz": get_qobuz_download,
              "deezer": get_deezer_download}
 
 
+def _tidal_get(path: str, params: dict) -> dict:
+    try:
+        resp = _http.get(TIDAL_API + path, params=params, timeout=TIMEOUT,
+                         headers={"X-Tidal-Token": TIDAL_TOKEN, "User-Agent": BROWSER_UA,
+                                  "Accept": "application/json"})
+    except requests.exceptions.RequestException as e:
+        raise MornyeError(f"Network error: {str(e)[:60]}") from e
+    if resp.status_code != 200:
+        raise MornyeError(f"Tidal metadata HTTP {resp.status_code}")
+    data = resp.json()
+    return data if isinstance(data, dict) else {}
+
+
+def tidal_meta(tidal_id: str, cache: dict) -> dict:
+    """{'tags': {...}, 'cover_url': '...'} for a Tidal track ({} if Tidal does not
+    answer). Album details are kept in cache, so an album costs one extra call."""
+    params = {"countryCode": "US"}
+    track = _tidal_get("/tracks/" + str(tidal_id), params)
+    album = track.get("album") or {}
+    album_id = str(album.get("id") or "")
+    details = cache.get("album:" + album_id) if album_id else {}
+    if details is None:
+        try:
+            details = _tidal_get("/albums/" + album_id, params)
+        except MornyeError:
+            details = {}
+        cache["album:" + album_id] = details
+    details = details or {}
+    title = str(track.get("title") or "").strip()
+    if track.get("version"):
+        title += " (%s)" % track["version"]
+    artists = ", ".join(str(a.get("name")) for a in (track.get("artists") or [])
+                        if isinstance(a, dict) and a.get("name"))
+    tags = {
+        "TITLE": title, "ARTIST": artists, "ALBUM": album.get("title"),
+        "ALBUMARTIST": (details.get("artist") or {}).get("name"),
+        "DATE": details.get("releaseDate") or str(track.get("streamStartDate") or "")[:10],
+        "TRACKNUMBER": track.get("trackNumber"), "TRACKTOTAL": details.get("numberOfTracks"),
+        "DISCNUMBER": track.get("volumeNumber"), "DISCTOTAL": details.get("numberOfVolumes"),
+        "ISRC": track.get("isrc"), "COPYRIGHT": track.get("copyright"),
+    }
+    tags = {k: str(v) for k, v in tags.items() if v not in (None, "", 0)}
+    cover = str(album.get("cover") or "")
+    cover_url = ("https://resources.tidal.com/images/%s/1280x1280.jpg"
+                 % cover.replace("-", "/")) if cover else ""
+    return {"tags": tags, "cover_url": cover_url}
+
+
+def track_meta(track: dict, ids: dict, cache: dict) -> dict:
+    """Tags + cover link: Spotify's title/artist, overridden by Tidal's richer data."""
+    meta = {"tags": {k: v for k, v in (("TITLE", track.get("title")),
+                                       ("ARTIST", track.get("artist"))) if v},
+            "cover_url": ""}
+    if ids.get("tidal"):
+        try:
+            found = tidal_meta(ids["tidal"], cache)
+            meta["tags"].update(found.get("tags") or {})
+            meta["cover_url"] = found.get("cover_url") or ""
+        except Exception as e:
+            _log("metadata failed: %s" % str(e)[:100])
+    return meta
+
+
 def _safe_name(text: str) -> str:
     text = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", _tidy(text)).strip(" .")
     return text[:110]
@@ -610,6 +675,10 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
     tracks = listing["tracks"]
     total = len(tracks)
     _log(f"spotify {kind}: {total} track(s)")
+    notes = []
+    if total >= 100 and kind in ("playlist", "artist"):
+        notes.append("note: Spotify shows only the first 100 tracks of this link "
+                     "without a login")
     progress(f"{total} track(s) found - looking them up...")
 
     matched, failed = [], []
@@ -638,9 +707,11 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
 
     numbered = kind == "album"
     saved = []
+    meta_cache = {}
     for pos, track, ids, label in matched:
         if cancel and cancel():
             raise Cancelled("Cancelled")
+        meta = track_meta(track, ids, meta_cache)
         errors, done = [], False
         for provider in order:
             pid = ids.get(provider)
@@ -651,6 +722,7 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
                     progress(f"{pos}/{total} {label[:40]} - {provider}")
                     item = PROVIDERS[provider](pid, quality)
                     item["provider"] = provider
+                    item["meta"] = meta
                     saved.append(handle(pos, total, track, item, numbered))
                     done = True
                     break
@@ -673,4 +745,5 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
     _log(f"saved: {len(saved)}/{len(matched)}")
     if not saved:
         raise MornyeError("Nothing could be downloaded. " + (failed[-1] if failed else ""))
-    return {"title": listing["title"], "kind": kind, "saved": saved, "failed": failed}
+    return {"title": listing["title"], "kind": kind, "saved": saved,
+            "failed": failed + notes}
