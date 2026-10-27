@@ -1,0 +1,18 @@
+Mornye log 2026-10-27 23:26:31 | track 2ac1TL4ZecxprQDidPH6rZ | providers qobuz,tidal,deezer | target phone | FAILED: Nothing could be downloaded. Macan Band - Ye Lahze Negam Kon: qobuz: Qobuz: Provider temporarily unavailable; tidal: Verification was not accepted: Forbidden; deezer: Deezer: this stream needs decryption (not supported yet)
+23:23:15 providers: qobuz,tidal,deezer
+23:23:16 spotify track: 1 track(s)
+23:23:19 found on a provider: 1/1
+23:23:20 bootstrap qobuz http 200
+23:24:01 exchange qobuz http 200
+23:24:02 POST /tickets (qobuz) -> http 200
+23:24:10 POST /dl/qbz (qobuz) -> http 503 {"error":"Provider temporarily unavailable","code":"PROVIDER_UNAVAILABLE","origin":"provider","retryable":true,"retry_mode":"same_operation","retry_after_seconds":8}
+23:24:10 qobuz failed for Macan Band - Ye Lahze Negam Kon: Qobuz: Provider temporarily unavailable
+23:24:11 bootstrap tidal http 200
+23:24:58 exchange tidal http 403 {"error":"Forbidden"}
+23:24:58 tidal failed for Macan Band - Ye Lahze Negam Kon: Verification was not accepted: Forbidden
+23:24:59 bootstrap deezer http 200
+23:25:54 exchange deezer http 200
+23:25:54 POST /tickets (deezer) -> http 200
+23:26:31 POST /dl/dzr (deezer) -> http 200
+23:26:31 deezer failed for Macan Band - Ye Lahze Negam Kon: Deezer: this stream needs decryption (not supported yet)
+23:26:31 saved: 0/1
