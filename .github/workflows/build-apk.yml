@@ -70,10 +70,17 @@ jobs:
           if [[ "$CUR" == *.* ]]; then MAJOR="${CUR%%.*}"; MINOR="${CUR#*.}"; else MAJOR="$CUR"; MINOR=0; fi
           [[ "$MINOR" =~ ^[0-9]+$ ]] || MINOR=0
           NEW="$MAJOR.$((MINOR+1))"
+          if [ "$GITHUB_REF_NAME" != "main" ]; then NEW="${CUR}-dev.${GITHUB_RUN_NUMBER}"; fi
           echo "VERSION=$NEW" >> "$GITHUB_ENV"
           # generated like core/_branch.py: baked into this build only, never committed
           echo "APP_VERSION = \"$NEW\"" > core/_version.py
           echo "Version: $CUR -> $NEW"
+
+      - name: Separate identity for branches other than main (installs next to the main app)
+        if: ${{ github.ref_name != 'main' }}
+        run: |
+          sed -i 's/^package\.name *=.*/package.name = ytbridge_dev/; s/^title *=.*/title = YT Bridge DEV/' buildozer.spec
+          grep -n "^package.name\|^title" buildozer.spec
 
       - name: Prepare buildozer.spec (APK format + rising version code + version)
         run: |
@@ -151,6 +158,7 @@ jobs:
             --notes "Version ${VERSION}. Signed with the fixed key - installs over the previous version."
 
       - name: Save the new version number in the repo
+        if: ${{ github.ref_name == 'main' }}
         run: |
           git checkout -- buildozer.spec
           git config user.name "github-actions[bot]"
