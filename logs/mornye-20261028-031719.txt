@@ -1,0 +1,2 @@
+Mornye log 2026-10-28 03:17:19 | ? ? | providers tidal,qobuz,deezer | target github | FAILED: Paste a Spotify track, album, playlist or artist link
+03:17:19 providers: tidal,qobuz,deezer
