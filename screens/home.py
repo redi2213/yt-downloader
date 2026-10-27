@@ -9,6 +9,11 @@ from kivy.uix.label import Label
 
 def build(nav):
     nav.clear()
+    try:
+        _add_quick_link(nav)
+    except Exception:
+        pass   # a convenience: the menu below must always appear
+
 
     running = nav.job_manager.active_jobs
     if running:
@@ -49,3 +54,29 @@ def build(nav):
     status_label = Label(text="", size_hint_y=None, height=40)
     nav.add(status_label)
     nav.set_status_label(status_label)
+
+
+def _add_quick_link(nav):
+    """One box on top: paste any link and the app opens the right tool for it
+    (the same routing as the Android Share menu: YouTube, a tool whose domains
+    match the link, or a chooser)."""
+    from kivy.uix.button import Button
+    from kivy.uix.textinput import TextInput
+    from screens import common
+
+    box = TextInput(hint_text="Paste any link here", multiline=False,
+                    size_hint_y=None, height=common.BTN_H)
+    nav.add(box)
+    nav.add(common.paste_row(box))
+
+    def go(_instance):
+        link = box.text.strip()
+        if not link:
+            nav.set_status("Paste a link first")
+            return
+        nav.handle_shared_text(link)
+
+    go_btn = Button(text="Go", size_hint_y=None, height=52)
+    go_btn.bind(on_press=go)
+    nav.add(go_btn)
+    box.bind(on_text_validate=go)   # the keyboard's Enter key

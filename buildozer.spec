@@ -4,6 +4,7 @@ package.name = ytbridge_v4
 package.domain = org.redi2213
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
+source.exclude_dirs = tests
 version = 2
 requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.1,python-bidi==0.4.2,six,yt-dlp
 orientation = portrait
