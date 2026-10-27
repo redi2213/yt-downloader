@@ -53,6 +53,7 @@ class YTBridgeApp(App):
 
     def on_resume(self):
         self.nav.app_active = True
+        self.nav.mornye_resumed()
 
     def on_start(self):
         # Links shared into the app from other apps (Android Share menu).

@@ -13,14 +13,15 @@ def build(nav, on_submit, on_open, on_cancel):
     nav.clear()
     nav.add(Label(text="One-time check", size_hint_y=None, height=40))
     nav.add(wrapped_label(
-        "1. In the browser, pass the check.\n"
-        "2. A box with a code appears after a few seconds - tap its Copy button.\n"
+        "1. In the browser, pass the check. The page closes by itself - that is normal.\n"
+        "2. Back in the app, the page opens once more by itself. Tap Copy on the box "
+        "with the code (if it does not open, use the button below).\n"
         "3. Come back here, tap Paste, then Continue."))
     status = Label(text="", size_hint_y=None, height=dp(30))
     nav.add(status)
     nav.set_status_label(status)
 
-    open_btn = Button(text="Open the browser again", size_hint_y=None, height=BTN_H)
+    open_btn = Button(text="Open the page again", size_hint_y=None, height=BTN_H)
     open_btn.bind(on_press=lambda i: on_open())
     nav.add(open_btn)
 

@@ -1267,6 +1267,7 @@ class Navigator:
 
         def _done(res):
             def _show():
+                self._mornye_verify = None
                 buttons = [("Copy log", lambda: Clipboard.copy(res.get("log", "")))]
                 note = ""
                 if res.get("log_path"):
@@ -1312,14 +1313,33 @@ class Navigator:
 
         def _submit(text):
             if mornye_link_service.submit_grant(text):
+                self._mornye_verify = None
                 self.show_working("Starting the session...",
                                   extra_buttons=[("Cancel", mornye_link_service.cancel)])
             else:
                 self.set_status("That is not the verification code")
 
+        def _cancel():
+            self._mornye_verify = None
+            mornye_link_service.cancel()
+
+        # The check page closes itself right after the check is passed. When the
+        # person comes back to the app, mornye_resumed() opens the page once more:
+        # it then shows the code to copy.
+        self._mornye_verify = {"link": link, "auto": True}
         android_actions.open_url(link)
         mornye_verify.build(self, _submit, lambda: android_actions.open_url(link),
-                            mornye_link_service.cancel)
+                            _cancel)
+
+    def mornye_resumed(self):
+        """Called when the app comes back to the front (main.py on_resume)."""
+        state = getattr(self, "_mornye_verify", None)
+        if not state or not state.get("auto"):
+            return
+        state["auto"] = False
+        from kivy.clock import Clock
+        from core import android_actions
+        Clock.schedule_once(lambda dt: android_actions.open_url(state["link"]), 0.8)
 
     # -- Aparat: choose videos, links on the phone -----------------------------
     def start_aparat_pick(self, action, values):

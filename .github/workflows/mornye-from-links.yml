@@ -27,16 +27,6 @@ on:
         required: false
         type: string
         default: ''
-      storage:
-        description: 'Where to keep the files: github, arvan or both (set by the app)'
-        required: false
-        type: string
-        default: 'github'
-      arvan_bucket:
-        description: Preferred Arvan Cloud bucket (set by the app)
-        required: false
-        type: string
-        default: ''
 
 permissions:
   contents: write
@@ -62,19 +52,15 @@ jobs:
           TRACKS_JSON: ${{ inputs.tracks_json }}
         run: python scripts/mornye_fetch.py
 
-      - name: Install boto3 (Arvan Cloud)
-        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
-        run: python3 -m pip install --quiet boto3
-
-      - name: Publish (GitHub Release and/or Arvan Cloud)
+      - name: Publish to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          STORAGE: ${{ inputs.storage || 'github' }}
-          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
-          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
           RELEASE_TITLE: ${{ inputs.run_title || 'Mornye' }}
         run: |
-          python3 scripts/storage_publish.py publish \
+          # GITHUB_ACTIONS is unset on purpose: with it set, the publish script installs
+          # ffmpeg through apt just to measure the quality, which sometimes takes the
+          # whole 240 s timeout (one run was stuck there for 4 minutes).
+          env -u GITHUB_ACTIONS python3 scripts/storage_publish.py publish \
             --dir out \
             --tag "run-${{ github.run_id }}" \
             --title "$RELEASE_TITLE" \
