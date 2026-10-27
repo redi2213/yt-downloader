@@ -1,5 +1,5 @@
 {
-  "config_version": 20,
+  "config_version": 21,
   "actions": [
     {
       "id": "tiktok_download",
@@ -667,15 +667,35 @@
           "label": "Sources (in order)",
           "choices": [
             {
-              "label": "Tidal, then Qobuz",
-              "value": "tidal,qobuz"
+              "label": "Tidal, Qobuz, Deezer",
+              "value": "tidal,qobuz,deezer"
             },
             {
-              "label": "Qobuz, then Tidal",
-              "value": "qobuz,tidal"
+              "label": "Qobuz, Tidal, Deezer",
+              "value": "qobuz,tidal,deezer"
+            },
+            {
+              "label": "Deezer, Tidal, Qobuz",
+              "value": "deezer,tidal,qobuz"
             }
           ],
-          "default": "tidal,qobuz"
+          "default": "tidal,qobuz,deezer"
+        },
+        {
+          "key": "target",
+          "type": "choice",
+          "label": "Where to keep the files",
+          "choices": [
+            {
+              "label": "On this phone",
+              "value": "phone"
+            },
+            {
+              "label": "Upload to GitHub release",
+              "value": "github"
+            }
+          ],
+          "default": "phone"
         }
       ],
       "workflow_inputs": {
