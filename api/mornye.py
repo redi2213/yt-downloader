@@ -369,8 +369,8 @@ def list_tracks(kind: str, sid: str) -> dict:
     return {"title": title, "tracks": tracks}
 
 
-def resolve_tidal_id(spotify_track_id: str) -> str:
-    """Spotify track id -> Tidal track id ('' if the song is not on Tidal)."""
+def resolve_ids(spotify_track_id: str) -> dict:
+    """Spotify track id -> {'tidal': id, 'qobuz': id} (only the ones that exist)."""
     payload = {"url": "https://open.spotify.com/track/" + spotify_track_id}
     last = ""
     for attempt in range(3):
@@ -390,20 +390,53 @@ def resolve_tidal_id(spotify_track_id: str) -> str:
             raise MornyeError(f"Resolver returned HTTP {resp.status_code}")
         env = _envelope(resp)
         if not env.get("success"):
-            return ""
-        tidal = (env.get("songUrls") or {}).get("Tidal")
-        if isinstance(tidal, dict):
-            tidal = tidal.get("url") or tidal.get("link")
-        m = re.search(r"/track/(\d+)", str(tidal or ""))
-        return m.group(1) if m else ""
+            return {}
+        urls = env.get("songUrls") or {}
+        ids = {}
+        for key, name in (("Tidal", "tidal"), ("Qobuz", "qobuz")):
+            link = urls.get(key)
+            if isinstance(link, dict):
+                link = link.get("url") or link.get("link")
+            m = re.search(r"/track/([A-Za-z0-9]+)", str(link or ""))
+            if m:
+                ids[name] = m.group(1)
+        return ids
     raise MornyeError(last or "Resolver did not answer")
 
 
-# -- Tidal link ---------------------------------------------------------------------
-def get_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
-    """Direct CDN link for one Tidal track: {'url', 'ext', 'info'}."""
-    resource_hash = hashlib.sha256(("tid:track:" + tidal_id).lower().encode()).hexdigest()
-    resp = _signed_post("/tickets", {"capability": "download_ticket", "provider": "tid",
+# -- provider links -------------------------------------------------------------
+def _expand(template: str, number: int) -> str:
+    def fill(match):
+        width = match.group(1)
+        return str(number).zfill(int(width)) if width else str(number)
+    return re.sub(r"\$Number(?:%0(\d+)d)?\$", fill, template)
+
+
+def parse_dash(text: str) -> list:
+    """A DASH manifest -> [init url, media url 1, media url 2, ...] (as the Mornye
+    extension does: templates + the number of <S> segments)."""
+    init = re.search(r'initialization="([^"]+)"', text, re.I)
+    media = re.search(r'media="([^"]+)"', text, re.I)
+    if not init or not media:
+        raise MornyeError("The manifest has no segment templates")
+    count = 0
+    for m in re.finditer(r'<S\s+[^>]*?d="(\d+)"(?:\s+r="(-?\d+)")?[^>]*/?>', text, re.I):
+        repeat = int(m.group(2) or 0)
+        count += (repeat if repeat > 0 else 0) + 1
+    if count <= 0:
+        raise MornyeError("The manifest lists no media segments")
+    start = re.search(r'startNumber="(\d+)"', text, re.I)
+    first = int(start.group(1)) if start else 1
+    template = media.group(1).replace("&amp;", "&")
+    urls = [init.group(1).replace("&amp;", "&")]
+    urls += [_expand(template, first + i) for i in range(count)]
+    return urls
+
+
+def _ticket(provider: str, resource: str) -> str:
+    resource_hash = hashlib.sha256(
+        ("%s:track:%s" % (provider, resource)).lower().encode()).hexdigest()
+    resp = _signed_post("/tickets", {"capability": "download_ticket", "provider": provider,
                                      "resource_hash": resource_hash})
     if resp.status_code >= 400:
         raise MornyeError(f"Ticket refused: {_error_text(resp)}")
@@ -411,7 +444,12 @@ def get_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
     ticket = str(env.get("ticket_id") or env.get("ticket") or "").strip()
     if not ticket:
         raise MornyeError("The gateway gave no download ticket")
+    return ticket
 
+
+def get_tidal_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
+    """{'kind': 'direct', 'url', 'ext', 'info'} or {'kind': 'dash', 'segments', 'info'}."""
+    ticket = _ticket("tid", str(tidal_id))
     resp = _signed_post("/dl/tid", {"id": str(tidal_id), "quality": quality},
                         {"X-Zarz-Ticket": ticket})
     if resp.status_code >= 400:
@@ -426,23 +464,63 @@ def get_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
         text = base64.b64decode(manifest_b64).decode("utf-8", "replace")
     except ValueError as e:
         raise MornyeError("Unreadable manifest") from e
-    if not text.lstrip().startswith("{"):
-        raise MornyeError("This quality comes in segments (not supported yet)")
-    try:
-        bts = json.loads(text)
-        url = str((bts.get("urls") or [""])[0])
-    except ValueError as e:
-        raise MornyeError("Unreadable manifest") from e
-    if not url:
-        raise MornyeError("The manifest has no direct link")
-    _log("link host: " + (urlparse(url).netloc or "?"))
-    mime = str(bts.get("mimeType") or data.get("manifestMimeType") or "audio/flac").lower()
-    bits = data.get("bitDepth")
-    rate = data.get("sampleRate")
+    bits, rate = data.get("bitDepth"), data.get("sampleRate")
     info = str(data.get("audioQuality") or quality)
     if bits and rate:
         info += " %s-bit %.1f kHz" % (bits, float(rate) / 1000.0)
-    return {"url": url, "ext": _EXT_BY_MIME.get(mime, ".flac"), "info": info}
+    if text.lstrip().startswith("{"):
+        try:
+            bts = json.loads(text)
+            url = str((bts.get("urls") or [""])[0])
+        except ValueError as e:
+            raise MornyeError("Unreadable manifest") from e
+        if not url:
+            raise MornyeError("The manifest has no direct link")
+        mime = str(bts.get("mimeType") or data.get("manifestMimeType")
+                   or "audio/flac").lower()
+        _log("tidal: direct link, host " + (urlparse(url).netloc or "?"))
+        return {"kind": "direct", "url": url, "ext": _EXT_BY_MIME.get(mime, ".flac"),
+                "info": info}
+    segments = parse_dash(text)
+    _log("tidal: DASH, %d media segments, host %s"
+         % (len(segments) - 1, urlparse(segments[0]).netloc or "?"))
+    return {"kind": "dash", "segments": segments, "info": info}
+
+
+def get_qobuz_download(qobuz_id: str, quality: str = "LOSSLESS") -> dict:
+    """A direct FLAC link from Qobuz: {'kind': 'direct', 'url', 'ext', 'info'}."""
+    track_url = "https://open.qobuz.com/track/" + str(qobuz_id)
+    ticket = _ticket("qbz", track_url)
+    resp = _signed_post("/dl/qbz", {
+        "quality": "hi-res-max" if quality == "HI_RES_LOSSLESS" else "cd",
+        "upload_to_r2": False, "id": str(qobuz_id), "type": "track", "url": track_url,
+    }, {"X-Zarz-Ticket": ticket})
+    if resp.status_code != 200:
+        raise MornyeError(f"Qobuz: {_error_text(resp)}")
+    env = _envelope(resp)
+    if env.get("error") or env.get("detail"):
+        raise MornyeError("Qobuz: " + str(env.get("error") or env.get("detail"))[:120])
+    if env.get("success") is False:
+        raise MornyeError("Qobuz: " + str(env.get("message") or "request failed")[:120])
+    nested = env.get("data") if isinstance(env.get("data"), dict) else {}
+    url = ""
+    for source in (env, nested):
+        for key in ("download_url", "url", "link"):
+            if not url and str(source.get(key) or "").strip():
+                url = str(source[key]).strip()
+    if not url:
+        raise MornyeError("Qobuz gave no download link")
+    bits = env.get("bit_depth") or nested.get("bit_depth")
+    rate = env.get("sampling_rate") or nested.get("sampling_rate")
+    info = "Qobuz FLAC"
+    if bits and rate:
+        rate = float(rate)
+        info += " %s-bit %.1f kHz" % (bits, rate if rate < 1000 else rate / 1000.0)
+    _log("qobuz: direct link, host " + (urlparse(url).netloc or "?"))
+    return {"kind": "direct", "url": url, "ext": ".flac", "info": info}
+
+
+PROVIDERS = {"tidal": get_tidal_download, "qobuz": get_qobuz_download}
 
 
 def _safe_name(text: str) -> str:
@@ -450,7 +528,7 @@ def _safe_name(text: str) -> str:
     return text[:110]
 
 
-def _file_name(index: int, total: int, track: dict, ext: str, numbered: bool) -> str:
+def file_name(index: int, total: int, track: dict, ext: str, numbered: bool) -> str:
     base = " - ".join(p for p in (_safe_name(track["artist"]), _safe_name(track["title"])) if p)
     base = base or "track"
     if numbered:
@@ -459,14 +537,16 @@ def _file_name(index: int, total: int, track: dict, ext: str, numbered: bool) ->
     return base + ext
 
 
-def fetch_links(url: str, quality: str, progress, ask_grant, cancel=None) -> dict:
-    """Runs the whole flow on the phone's network. Returns
-    {'title', 'kind', 'links', 'names', 'named_links', 'info', 'failed'};
-    raises MornyeError. named_links carry the wanted file name in the link's
-    #name=... fragment (never sent to the server)."""
+def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handle) -> dict:
+    """Runs the whole flow on the phone's network. For each track, in order, the
+    providers are tried; handle(pos, total, track, item, numbered) downloads and
+    saves it and returns the saved file name (raise to try the next provider).
+    Returns {'title', 'kind', 'saved', 'failed'}; raises MornyeError."""
     progress = progress or (lambda text: None)
     quality = quality or "LOSSLESS"
+    order = [p for p in (order or ["tidal", "qobuz"]) if p in PROVIDERS] or ["tidal", "qobuz"]
     del _LOG[:]
+    _log("providers: " + ",".join(order))
     kind, sid = parse_spotify(url)
     if not kind:
         raise MornyeError("Paste a Spotify track, album, playlist or artist link")
@@ -475,59 +555,67 @@ def fetch_links(url: str, quality: str, progress, ask_grant, cancel=None) -> dic
     tracks = listing["tracks"]
     total = len(tracks)
     _log(f"spotify {kind}: {total} track(s)")
-    progress(f"{total} track(s) found - matching on Tidal...")
+    progress(f"{total} track(s) found - looking them up...")
 
     matched, failed = [], []
-    for i, track in enumerate(tracks, 1):
+    for pos, track in enumerate(tracks, 1):
         if cancel and cancel():
             raise Cancelled("Cancelled")
-        progress(f"Matching on Tidal {i}/{total}")
+        progress(f"Looking up {pos}/{total}")
         label = " - ".join(p for p in (track["artist"], track["title"]) if p) or track["id"]
         try:
-            tidal_id = resolve_tidal_id(track["id"])
+            ids = resolve_ids(track["id"])
         except MornyeError as e:
             failed.append(f"{label}: {e}")
             continue
-        if not tidal_id:
-            failed.append(f"{label}: not found on Tidal")
+        if not any(ids.get(p) for p in order):
+            failed.append(f"{label}: not found on " + "/".join(order))
             continue
-        matched.append((track, tidal_id, label))
+        matched.append((pos, track, ids, label))
         time.sleep(0.25)
-    _log(f"matched on Tidal: {len(matched)}/{total}")
+    _log(f"found on a provider: {len(matched)}/{total}")
     for line in failed:
-        _log("match failed: " + line)
+        _log("lookup failed: " + line)
     if not matched:
-        raise MornyeError("None of the tracks were found on Tidal")
+        raise MornyeError("None of the tracks were found on " + "/".join(order))
 
     _ensure_session(progress, ask_grant)
 
     numbered = kind == "album"
-    links, names, infos = [], [], []
-    for i, (track, tidal_id, label) in enumerate(matched, 1):
+    saved = []
+    for pos, track, ids, label in matched:
         if cancel and cancel():
             raise Cancelled("Cancelled")
-        progress(f"Getting link {i}/{len(matched)}")
-        result = None
-        for attempt in range(2):
-            try:
-                result = get_download(tidal_id, quality)
+        errors, done = [], False
+        for provider in order:
+            pid = ids.get(provider)
+            if not pid:
+                continue
+            for attempt in range(2):
+                try:
+                    progress(f"{pos}/{total} {label[:40]} - {provider}")
+                    item = PROVIDERS[provider](pid, quality)
+                    item["provider"] = provider
+                    saved.append(handle(pos, total, track, item, numbered))
+                    done = True
+                    break
+                except Cancelled:
+                    raise
+                except NeedsVerify:
+                    if attempt == 1:
+                        errors.append(f"{provider}: session refused twice")
+                        break
+                    _verify(progress, ask_grant)
+                except Exception as e:
+                    errors.append(f"{provider}: {str(e)[:140]}")
+                    _log(f"{provider} failed for {label}: {str(e)[:200]}")
+                    break
+            if done:
                 break
-            except NeedsVerify:
-                if attempt == 1:
-                    raise MornyeError("The session was refused twice - try again")
-                _verify(progress, ask_grant)
-            except MornyeError as e:
-                failed.append(f"{label}: {e}")
-                _log(f"link failed: {label}: {e}")
-                break
-        if result:
-            links.append(result["url"])
-            names.append(_file_name(len(links), len(matched), track, result["ext"], numbered))
-            infos.append(result["info"])
+        if not done:
+            failed.append(f"{label}: " + "; ".join(errors or ["no provider"]))
         time.sleep(0.2)
-    _log(f"links made: {len(links)}/{len(matched)}")
-    if not links:
-        raise MornyeError("No link could be made. " + (failed[0] if failed else ""))
-    named = [u + "#name=" + quote(n, safe="") for u, n in zip(links, names)]
-    return {"title": listing["title"], "kind": kind, "links": links, "names": names,
-            "named_links": named, "info": infos[0] if infos else "", "failed": failed}
+    _log(f"saved: {len(saved)}/{len(matched)}")
+    if not saved:
+        raise MornyeError("Nothing could be downloaded. " + (failed[-1] if failed else ""))
+    return {"title": listing["title"], "kind": kind, "saved": saved, "failed": failed}

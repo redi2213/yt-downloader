@@ -1256,57 +1256,43 @@ class Navigator:
         filimo_link_service.start_fetch_link(
             values.get("url", ""), values.get("quality", "Best available"), _done)
 
-    # -- Mornye: lossless links from the phone's own network ---------------------
-    def start_mornye_phone_links(self, values, message="Getting Mornye links on this phone..."):
-        """Spotify track / album / playlist -> direct Tidal FLAC links, asked from
-        the phone itself (api.zarz.moe blocks GitHub's IPs). The links expire, so
-        Refresh asks again; the session is reused, so no new browser check."""
+    # -- Mornye: lossless music downloaded on the phone's own network ------------
+    def start_mornye_phone_links(self, values, message="Downloading music on this phone..."):
+        """Spotify track / album / playlist -> FLAC files saved in Download/Yt-bridge/
+        Mornye. Everything runs on the phone (api.zarz.moe blocks GitHub's IPs): the
+        links are made, downloaded and saved straight away because they expire."""
         from kivy.core.clipboard import Clipboard
-        from core import android_actions
         from services import mornye_link_service
         self.show_working(message, extra_buttons=[("Cancel", mornye_link_service.cancel)])
 
         def _done(res):
             def _show():
+                buttons = [("Copy log", lambda: Clipboard.copy(res.get("log", "")))]
+                note = ""
+                if res.get("log_path"):
+                    note = "\nLog saved in the repo: " + res["log_path"]
                 if not res.get("ok"):
-                    self.show_result(
-                        res.get("error", "Failed"),
-                        extra_buttons=[
-                            ("Copy log", lambda: Clipboard.copy(
-                                res.get("log") or res.get("error", ""))),
-                            ("Try again",
-                             lambda: self.start_mornye_phone_links(values))],
-                    )
+                    buttons.append(("Try again",
+                                    lambda: self.start_mornye_phone_links(values)))
+                    self.show_result(res.get("error", "Failed") + note,
+                                     extra_buttons=buttons)
                     return
-                links, names, named = res["links"], res["names"], res["named_links"]
                 failed = res.get("failed") or []
-                msg = f"{res.get('title', '')} - {len(links)} link(s) ready".strip(" -")
-                if res.get("info"):
-                    msg += f" ({res['info']})"
+                saved = res.get("saved") or []
+                msg = "%s: %d file(s) saved in %s" % (
+                    res.get("title") or "Done", len(saved), res.get("folder", ""))
                 if failed:
-                    msg += f", {len(failed)} failed"
-                buttons = [
-                    ("Open in downloader",
-                     lambda: android_actions.share_text("\n".join(links))),
-                    ("Copy names list", lambda: Clipboard.copy("\n".join(names))),
-                ]
-                if failed:
-                    buttons.append(("Copy failed tracks",
-                                    lambda: Clipboard.copy("\n".join(failed))))
-                buttons.append(("Copy log", lambda: Clipboard.copy(res.get("log", ""))))
-                buttons.append(("Refresh links",
-                                lambda: self.start_mornye_phone_links(
-                                    values, "Refreshing links...")))
-                if len(named) == 1:
-                    self.show_result(msg, link=named[0], extra_buttons=buttons,
-                                     category="Mornye")
-                else:
-                    self.show_result(msg, links=named, extra_buttons=buttons,
-                                     category="Mornye")
+                    msg += "\n%d failed:\n%s" % (len(failed), "\n".join(failed[:6]))
+                    buttons.insert(0, ("Copy failed tracks",
+                                       lambda: Clipboard.copy("\n".join(failed))))
+                    buttons.append(("Try again",
+                                    lambda: self.start_mornye_phone_links(values)))
+                self.show_result(msg + note, extra_buttons=buttons)
             self.schedule(_show)
 
-        mornye_link_service.start_fetch_links(
+        mornye_link_service.start_download(
             values.get("url", ""), values.get("quality", "LOSSLESS"),
+            values.get("providers", "tidal,qobuz"),
             self.set_status,
             lambda link: self.schedule(lambda: self.show_mornye_verify(link)),
             _done)
