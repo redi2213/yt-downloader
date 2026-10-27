@@ -292,6 +292,17 @@ def build_input(nav, action, prefill=None, share_url=None, initial=None):
     choice_buttons = {}
     prefill_pending = bool(prefill)
 
+    # Mornye: a clear search box + button (a song name -> pick from Spotify results)
+    if action.get("handler") == "mornye_phone":
+        nav.add(Label(text="Search Spotify (song or artist name)", size_hint_y=None, height=28))
+        search_input = TextInput(hint_text="e.g. Shakira Waka Waka", multiline=False,
+                                 size_hint_y=None, height=48)
+        nav.add(search_input)
+        search_btn = Button(text="Search", size_hint_y=None, height=56)
+        search_btn.bind(on_press=lambda i: nav.start_mornye_search(
+            action, dict(values, url=search_input.text.strip())))
+        nav.add(search_btn)
+
     for field in fields:
         key = field["key"]
         ftype = field.get("type", "text")

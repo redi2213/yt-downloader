@@ -1269,7 +1269,8 @@ class Navigator:
         def _done(res):
             def _show():
                 self._mornye_verify = None
-                buttons = [("Copy log", lambda: Clipboard.copy(res.get("log", "")))]
+                buttons = [("Show log", lambda: self.show_mornye_log(res, lambda: _done(res))),
+                           ("Copy log", lambda: Clipboard.copy(res.get("log", "")))]
                 note = ""
                 if res.get("log_path"):
                     note = "\nLog saved in the repo: " + res["log_path"]
@@ -1306,6 +1307,28 @@ class Navigator:
             lambda link, provider="": self.schedule(
                 lambda: self.show_mornye_verify(link, provider)),
             _done, target=values.get("target", "phone"))
+
+    def show_mornye_log(self, res, back):
+        """The step log of the last Mornye run, readable inside the app."""
+        from kivy.clock import Clock
+        from kivy.metrics import dp
+        from kivy.core.clipboard import Clipboard
+        from kivy.uix.label import Label
+        from kivy.uix.scrollview import ScrollView
+        self.clear()
+        text = str(res.get("log") or res.get("error") or "(empty log)")
+        label = Label(text=text, size_hint_y=None, halign="left", valign="top")
+        label.bind(width=lambda w, v: setattr(w, "text_size", (v, None)))
+        label.bind(texture_size=lambda w, s: setattr(w, "height", s[1]))
+        scroll = ScrollView(size_hint=(1, None), height=dp(420))
+        scroll.add_widget(label)
+        self.add(scroll)
+        copy_btn = Button(text="Copy log", size_hint_y=None, height=common.BTN_H)
+        copy_btn.bind(on_press=lambda i: Clipboard.copy(text))
+        self.add(copy_btn)
+        back_btn = Button(text="Back", size_hint_y=None, height=common.BTN_H)
+        back_btn.bind(on_press=lambda i: back())
+        self.add(back_btn)
 
     def show_mornye_settings(self, action, values):
         from screens import mornye_settings
