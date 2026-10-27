@@ -356,6 +356,9 @@ def list_tracks(kind: str, sid: str) -> dict:
     artist = _tidy(entity.get("subtitle"))
     tracks = []
     if kind == "track":
+        names = [str(a.get("name") or "") for a in (entity.get("artists") or [])
+                 if isinstance(a, dict)]
+        artist = _tidy(", ".join(n for n in names if n)) or artist
         tracks.append({"id": sid, "title": title, "artist": artist})
     else:
         for item in entity.get("trackList") or []:
