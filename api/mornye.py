@@ -34,14 +34,20 @@ TIDAL_API = "https://tidal.com/v1"
 TIDAL_TOKEN = "49YxDN9a2aFV6RTG"        # the public web token the Mornye extension uses
 BASE = "https://api.zarz.moe/v2"
 RESOLVE_URL = "https://api.zarz.moe/v1/resolve"
-APP_VERSION = "tidal-web@1.2.5"
+# One signed session per provider: the gateway binds a session to the app version of
+# the Mornye extension that made it (the values are the manifests' signedSession
+# appVersion). A ticket for Qobuz/Deezer asked with the Tidal session is refused (403).
+APP_VERSIONS = {"tidal": "tidal-web@1.2.5", "qobuz": "qobuz-web@1.2.21",
+                "deezer": "deezer@1.3.5"}
+PROVIDER_NAMES = {"tidal": "Tidal", "qobuz": "Qobuz", "deezer": "Deezer"}
 PLATFORM = "extension"
 SCHEME = "ZARZ-HMAC-V1"
 PREFIX = "X-Zarz-"
 WINDOW_SECONDS = 300
 TIMEOUT = 25
-SESSION_KEY = "mornye_session"
-GATEWAY_UA = "SpotiFLAC-Mobile/" + APP_VERSION
+SESSION_KEYS = {"tidal": "mornye_session", "qobuz": "mornye_session_qobuz",
+                "deezer": "mornye_session_deezer"}
+GATEWAY_UA = "SpotiFLAC-Mobile/%s"
 BROWSER_UA = ("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
 
@@ -64,8 +70,7 @@ def get_log() -> str:
 
 
 _http = requests.Session()
-_http.headers.update({"Accept": "application/json", "Accept-Encoding": "gzip",
-                      "User-Agent": GATEWAY_UA})
+_http.headers.update({"Accept": "application/json", "Accept-Encoding": "gzip"})
 
 
 class MornyeError(Exception):
@@ -80,26 +85,28 @@ class Cancelled(MornyeError):
     pass
 
 
-# -- session record -------------------------------------------------------------
-def _load() -> dict:
+# -- session record (one per provider) --------------------------------------------
+def _load(provider: str = "tidal") -> dict:
+    key = SESSION_KEYS[provider]
     rec = {}
-    if _settings_store.exists(SESSION_KEY):
-        rec = dict(_settings_store.get(SESSION_KEY))
+    if _settings_store.exists(key):
+        rec = dict(_settings_store.get(key))
     if not rec.get("install_id"):
         rec["install_id"] = secrets.token_hex(16)
-        _save(rec)
+        _save(provider, rec)
     return rec
 
 
-def _save(rec: dict) -> None:
-    _settings_store.put(SESSION_KEY, **rec)
+def _save(provider: str, rec: dict) -> None:
+    _settings_store.put(SESSION_KEYS[provider], **rec)
 
 
-def clear_session() -> None:
-    rec = _load()
-    for key in ("session_id", "session_secret", "expires_at", "refresh_after"):
-        rec.pop(key, None)
-    _save(rec)
+def clear_session(provider: str = None) -> None:
+    for name in ([provider] if provider else list(SESSION_KEYS)):
+        rec = _load(name)
+        for key in ("session_id", "session_secret", "expires_at", "refresh_after"):
+            rec.pop(key, None)
+        _save(name, rec)
 
 
 def _parse_time(value):
@@ -116,8 +123,7 @@ def _parse_time(value):
     return moment
 
 
-def session_valid(rec: dict = None) -> bool:
-    rec = rec or _load()
+def session_valid(rec: dict) -> bool:
     if not rec.get("session_id") or not rec.get("session_secret"):
         return False
     expires = _parse_time(rec.get("expires_at"))
@@ -126,12 +132,16 @@ def session_valid(rec: dict = None) -> bool:
     return True
 
 
-def _store_session(rec: dict, data: dict) -> None:
+def _store_session(provider: str, rec: dict, data: dict) -> None:
     rec["session_id"] = data["session_id"]
     rec["session_secret"] = data["session_secret"]
     rec["expires_at"] = data.get("expires_at", "")
     rec["refresh_after"] = data.get("refresh_after", "") or ""
-    _save(rec)
+    _save(provider, rec)
+
+
+def _ua(provider: str) -> dict:
+    return {"User-Agent": GATEWAY_UA % APP_VERSIONS[provider]}
 
 
 # -- gateway calls --------------------------------------------------------------
@@ -151,7 +161,7 @@ def _envelope(resp) -> dict:
 
 
 def _gateway_says_verify(resp) -> bool:
-    """True when a 401/428 is the gateway's own (not Tidal's)."""
+    """True when a 401/428 is the gateway's own (not the provider's)."""
     if resp.status_code not in (401, 428):
         return False
     env = _envelope(resp)
@@ -170,13 +180,14 @@ def _error_text(resp) -> str:
     return text or f"HTTP {resp.status_code}"
 
 
-def _bootstrap(rec: dict) -> dict:
+def _bootstrap(provider: str, rec: dict) -> dict:
     try:
-        resp = _http.get(BASE + "/bootstrap", timeout=30,
-                         params={"install_id": rec["install_id"], "app_version": APP_VERSION})
+        resp = _http.get(BASE + "/bootstrap", timeout=30, headers=_ua(provider),
+                         params={"install_id": rec["install_id"],
+                                 "app_version": APP_VERSIONS[provider]})
     except requests.exceptions.RequestException as e:
         raise MornyeError(f"Network error: {str(e)[:80]}") from e
-    _log(f"bootstrap http {resp.status_code}")
+    _log(f"bootstrap {provider} http {resp.status_code}")
     _check_blocked(resp)
     if resp.status_code != 200:
         raise MornyeError(f"Mornye gateway: {_error_text(resp)}")
@@ -190,8 +201,8 @@ def _challenge_url(data: dict) -> str:
     """The page where the person passes the check. No callback is passed on
     purpose: the page only accepts the app's own deep link as a callback, and a
     deep link nothing handles would replace the page and hide the code box.
-    Without a callback the page stays open and, a few seconds after the check,
-    shows the code with a Copy button."""
+    Without a callback the page stays open and shows the code with a Copy button
+    (after it closed itself once, opening it again shows the code at once)."""
     base = data.get("auth_url") or data.get("challenge_url")
     if base:
         parts = list(urlparse(base))
@@ -215,42 +226,44 @@ def parse_grant(text: str) -> str:
     return ""
 
 
-def _exchange(rec: dict, grant: str) -> None:
+def _exchange(provider: str, rec: dict, grant: str) -> None:
     try:
-        resp = _http.post(BASE + "/session/exchange", timeout=TIMEOUT, json={
-            "grant": grant, "install_id": rec["install_id"],
-            "app_version": APP_VERSION, "platform": PLATFORM})
+        resp = _http.post(BASE + "/session/exchange", timeout=TIMEOUT, headers=_ua(provider),
+                          json={"grant": grant, "install_id": rec["install_id"],
+                                "app_version": APP_VERSIONS[provider],
+                                "platform": PLATFORM})
     except requests.exceptions.RequestException as e:
         raise MornyeError(f"Network error: {str(e)[:80]}") from e
-    _log(f"exchange http {resp.status_code}"
+    _log(f"exchange {provider} http {resp.status_code}"
          + ("" if resp.status_code == 200 else " " + resp.text[:160]))
     _check_blocked(resp)
     if resp.status_code != 200:
         raise MornyeError(f"Verification was not accepted: {_error_text(resp)}")
     try:
-        _store_session(rec, resp.json())
+        _store_session(provider, rec, resp.json())
     except (ValueError, KeyError) as e:
         raise MornyeError("Unexpected reply to the verification") from e
 
 
-def _verify(progress, ask_grant) -> None:
-    """Bootstrap; if the gateway wants a human check, ask_grant(url) opens it for
-    the person and blocks until they paste the code (returns the pasted text)."""
-    rec = _load()
-    data = _bootstrap(rec)
+def _verify(provider: str, progress, ask_grant) -> None:
+    """Bootstrap; if the gateway wants a human check, ask_grant(url, provider_name)
+    opens it for the person and blocks until they paste the code (returns the text)."""
+    rec = _load(provider)
+    data = _bootstrap(provider, rec)
     if data.get("session_id") and data.get("session_secret"):
-        _store_session(rec, data)
+        _store_session(provider, rec, data)
         return
     url = _challenge_url(data)
-    progress("One-time check: finish it in the browser, then paste the code...")
-    grant = parse_grant(ask_grant(url))
+    name = PROVIDER_NAMES[provider]
+    progress(f"One-time check for {name}: finish it in the browser, then paste the code...")
+    grant = parse_grant(ask_grant(url, name))
     if not grant:
         raise MornyeError("That is not a verification code")
     progress("Check done, starting the session...")
-    _exchange(rec, grant)
+    _exchange(provider, rec, grant)
 
 
-def _sign_headers(rec: dict, method: str, path: str, body: bytes) -> dict:
+def _sign_headers(rec: dict, app_version: str, method: str, path: str, body: bytes) -> dict:
     now = datetime.now(timezone.utc)
     stamp = now.strftime("%Y-%m-%dT%H:%M:%S.") + "%03dZ" % (now.microsecond // 1000)
     nonce = secrets.token_hex(12)
@@ -261,25 +274,26 @@ def _sign_headers(rec: dict, method: str, path: str, body: bytes) -> dict:
     key_text = base64.urlsafe_b64encode(key).rstrip(b"=").decode()
     signed_path = urlparse(BASE + path).path
     signing_input = "\n".join([SCHEME, method, signed_path, "", body_hash, stamp, nonce,
-                               rec["session_id"], APP_VERSION, PLATFORM])
+                               rec["session_id"], app_version, PLATFORM])
     sig = base64.urlsafe_b64encode(
         hmac.new(key_text.encode(), signing_input.encode(), hashlib.sha256).digest()
     ).rstrip(b"=").decode()
     return {PREFIX + "Session": rec["session_id"], PREFIX + "Timestamp": stamp,
             PREFIX + "Nonce": nonce, PREFIX + "Body-Sha256": body_hash,
-            PREFIX + "Signature": sig, PREFIX + "App-Version": APP_VERSION,
+            PREFIX + "Signature": sig, PREFIX + "App-Version": app_version,
             PREFIX + "Platform": PLATFORM}
 
 
-def _maybe_refresh(rec: dict) -> None:
+def _maybe_refresh(provider: str, rec: dict) -> None:
     """Extends the session when the gateway's refresh_after has passed. A failed
     refresh is ignored - the session stays valid until it expires."""
     refresh_at = _parse_time(rec.get("refresh_after"))
     if not refresh_at or datetime.now(timezone.utc) < refresh_at:
         return
     body = json.dumps({"install_id": rec["install_id"]}, separators=(",", ":")).encode()
-    headers = _sign_headers(rec, "POST", "/session/refresh", body)
+    headers = _sign_headers(rec, APP_VERSIONS[provider], "POST", "/session/refresh", body)
     headers["Content-Type"] = "application/json"
+    headers.update(_ua(provider))
     try:
         resp = _http.post(BASE + "/session/refresh", data=body, headers=headers, timeout=15)
         if resp.status_code == 200:
@@ -289,41 +303,56 @@ def _maybe_refresh(rec: dict) -> None:
                 rec["session_secret"] = data.get("session_secret", rec["session_secret"])
                 rec["expires_at"] = data.get("expires_at", rec.get("expires_at", ""))
                 rec["refresh_after"] = data.get("refresh_after", "") or ""
-                _save(rec)
+                _save(provider, rec)
     except (requests.exceptions.RequestException, ValueError):
         pass
 
 
-def _ensure_session(progress, ask_grant) -> None:
-    if session_valid():
-        _maybe_refresh(_load())
-        if session_valid():
+def _ensure_session(provider: str, progress, ask_grant) -> None:
+    rec = _load(provider)
+    if session_valid(rec):
+        _maybe_refresh(provider, rec)
+        if session_valid(_load(provider)):
             return
-    _verify(progress, ask_grant)
+    _verify(provider, progress, ask_grant)
 
 
-def _signed_post(path: str, obj: dict, extra: dict = None):
-    rec = _load()
+def _signed_post(provider: str, path: str, obj: dict, extra: dict = None):
+    rec = _load(provider)
     if not session_valid(rec):
         raise NeedsVerify("session expired")
     body = json.dumps(obj, separators=(",", ":")).encode()
-    headers = _sign_headers(rec, "POST", path, body)
-    headers["Content-Type"] = "application/json"
-    if extra:
-        headers.update(extra)
-    try:
-        resp = _http.post(BASE + path, data=body, headers=headers, timeout=TIMEOUT)
-    except requests.exceptions.RequestException as e:
-        raise MornyeError(f"Network error: {str(e)[:80]}") from e
-    _log(f"POST {path} -> http {resp.status_code}"
-         + ("" if resp.status_code < 400 else " " + resp.text[:200]))
-    _check_blocked(resp)
-    if _gateway_says_verify(resp):
-        clear_session()
-        raise NeedsVerify(_error_text(resp))
-    if resp.status_code == 429:
-        raise MornyeError("Too many requests - wait a minute and refresh")
-    return resp
+    timeout = 60 if path.startswith("/dl/") else TIMEOUT
+    for attempt in range(4):
+        headers = _sign_headers(rec, APP_VERSIONS[provider], "POST", path, body)
+        headers["Content-Type"] = "application/json"
+        headers.update(_ua(provider))
+        if extra:
+            headers.update(extra)
+        try:
+            resp = _http.post(BASE + path, data=body, headers=headers, timeout=timeout)
+        except requests.exceptions.Timeout as e:
+            raise MornyeError("Network error: the gateway did not answer in time") from e
+        except requests.exceptions.RequestException as e:
+            raise MornyeError(f"Network error: {str(e)[:80]}") from e
+        _log(f"POST {path} ({provider}) -> http {resp.status_code}"
+             + ("" if resp.status_code < 400 else " " + resp.text[:200]))
+        _check_blocked(resp)
+        if _gateway_says_verify(resp):
+            clear_session(provider)
+            raise NeedsVerify(_error_text(resp))
+        if resp.status_code == 429:
+            env = _envelope(resp)
+            try:
+                wait = int(env.get("retry_after_seconds") or resp.headers.get("Retry-After") or 2)
+            except (TypeError, ValueError):
+                wait = 2
+            if attempt < 3:
+                time.sleep(min(max(wait, 1), 10))
+                continue
+            raise MornyeError("The server is busy - try again in a minute")
+        return resp
+    raise MornyeError("The server is busy - try again in a minute")
 
 
 # -- Spotify side -----------------------------------------------------------------
@@ -442,11 +471,11 @@ def parse_dash(text: str) -> list:
     return [t["init"]] + [_expand(t["media"], t["start"] + i) for i in range(t["count"])]
 
 
-def _ticket(provider: str, resource: str) -> str:
+def _ticket(app: str, code: str, resource: str) -> str:
     resource_hash = hashlib.sha256(
-        ("%s:track:%s" % (provider, resource)).lower().encode()).hexdigest()
-    resp = _signed_post("/tickets", {"capability": "download_ticket", "provider": provider,
-                                     "resource_hash": resource_hash})
+        ("%s:track:%s" % (code, resource)).lower().encode()).hexdigest()
+    resp = _signed_post(app, "/tickets", {"capability": "download_ticket", "provider": code,
+                                          "resource_hash": resource_hash})
     if resp.status_code >= 400:
         raise MornyeError(f"Ticket refused: {_error_text(resp)}")
     env = _envelope(resp)
@@ -458,8 +487,8 @@ def _ticket(provider: str, resource: str) -> str:
 
 def get_tidal_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
     """{'kind': 'direct', 'url', 'ext', 'info'} or {'kind': 'dash', 'segments', 'info'}."""
-    ticket = _ticket("tid", str(tidal_id))
-    resp = _signed_post("/dl/tid", {"id": str(tidal_id), "quality": quality},
+    ticket = _ticket("tidal", "tid", str(tidal_id))
+    resp = _signed_post("tidal", "/dl/tid", {"id": str(tidal_id), "quality": quality},
                         {"X-Zarz-Ticket": ticket})
     if resp.status_code >= 400:
         raise MornyeError(f"Tidal: {_error_text(resp)}")
@@ -501,8 +530,8 @@ def get_tidal_download(tidal_id: str, quality: str = "LOSSLESS") -> dict:
 def get_qobuz_download(qobuz_id: str, quality: str = "LOSSLESS") -> dict:
     """A direct FLAC link from Qobuz: {'kind': 'direct', 'url', 'ext', 'info'}."""
     track_url = "https://open.qobuz.com/track/" + str(qobuz_id)
-    ticket = _ticket("qbz", track_url)
-    resp = _signed_post("/dl/qbz", {
+    ticket = _ticket("qobuz", "qbz", track_url)
+    resp = _signed_post("qobuz", "/dl/qbz", {
         "quality": "hi-res-max" if quality == "HI_RES_LOSSLESS" else "cd",
         "upload_to_r2": False, "id": str(qobuz_id), "type": "track", "url": track_url,
     }, {"X-Zarz-Ticket": ticket})
@@ -547,8 +576,8 @@ def get_deezer_download(deezer_id: str, quality: str = "LOSSLESS") -> dict:
     """A direct FLAC link from Deezer. Streams that need client-side decryption
     (Blowfish) are not supported yet and raise MornyeError."""
     track_url = "https://www.deezer.com/track/" + quote(str(deezer_id), safe="")
-    ticket = _ticket("dzr", track_url)
-    resp = _signed_post("/dl/dzr", {"id": str(deezer_id), "type": "track",
+    ticket = _ticket("deezer", "dzr", track_url)
+    resp = _signed_post("deezer", "/dl/dzr", {"id": str(deezer_id), "type": "track",
                                     "platform": "deezer", "url": track_url},
                         {"X-Zarz-Ticket": ticket})
     if resp.status_code != 200:
@@ -703,8 +732,6 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
     if not matched:
         raise MornyeError("None of the tracks were found on " + "/".join(order))
 
-    _ensure_session(progress, ask_grant)
-
     numbered = kind == "album"
     saved = []
     meta_cache = {}
@@ -717,8 +744,9 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
             pid = ids.get(provider)
             if not pid:
                 continue
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
+                    _ensure_session(provider, progress, ask_grant)
                     progress(f"{pos}/{total} {label[:40]} - {provider}")
                     item = PROVIDERS[provider](pid, quality)
                     item["provider"] = provider
@@ -729,13 +757,19 @@ def run_tracks(url: str, quality: str, order, progress, ask_grant, cancel, handl
                 except Cancelled:
                     raise
                 except NeedsVerify:
-                    if attempt == 1:
-                        errors.append(f"{provider}: session refused twice")
+                    # the session was cleared: the next attempt asks for the check again
+                    if attempt == 2:
+                        errors.append(f"{provider}: session refused repeatedly")
                         break
-                    _verify(progress, ask_grant)
                 except Exception as e:
-                    errors.append(f"{provider}: {str(e)[:140]}")
-                    _log(f"{provider} failed for {label}: {str(e)[:200]}")
+                    text = str(e)
+                    transient = text.startswith("Network error") or "busy" in text.lower()
+                    if transient and attempt < 2:
+                        _log(f"{provider} transient error, retrying: {text[:120]}")
+                        time.sleep(3)
+                        continue
+                    errors.append(f"{provider}: {text[:140]}")
+                    _log(f"{provider} failed for {label}: {text[:200]}")
                     break
             if done:
                 break

@@ -49,7 +49,7 @@ def submit_grant(text: str) -> bool:
 
 def start_download(url: str, quality: str, providers: str, progress, show_verify,
                    on_done, target: str = "phone") -> None:
-    """progress(text), show_verify(challenge_url) and on_done(result) are all
+    """progress(text), show_verify(challenge_url, provider) and on_done(result) are all
     called from a background thread. target 'phone' saves the files on the phone;
     'github' sends the links to the Mornye From Links workflow, which uploads them
     to a release. on_done gets {'ok': True, 'title', 'saved', 'failed', 'folder',
@@ -154,8 +154,8 @@ def _wait_for_uploads(batcher, progress):
 
 
 def _thread(url, quality, providers, progress, show_verify, on_done, target="phone"):
-    def ask(challenge_url):
-        show_verify(challenge_url)
+    def ask(challenge_url, provider=""):
+        show_verify(challenge_url, provider)
         try:
             item = _grants.get(timeout=WAIT_SECONDS)
         except queue.Empty:

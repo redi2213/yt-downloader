@@ -7,11 +7,11 @@ from screens import common
 from screens.common import BTN_H, wrapped_label
 
 
-def build(nav, on_submit, on_open, on_cancel):
+def build(nav, on_submit, on_open, on_cancel, title="One-time check"):
     """The one-time Mornye check: the browser shows a code, the person pastes it
     here. on_submit(text) -> bool; on_open() opens the browser page again."""
     nav.clear()
-    nav.add(Label(text="One-time check", size_hint_y=None, height=40))
+    nav.add(Label(text=title, size_hint_y=None, height=40))
     nav.add(wrapped_label(
         "1. In the browser, pass the check. The page closes by itself - that is normal.\n"
         "2. Back in the app, the page opens once more by itself. Tap Copy on the box "

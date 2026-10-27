@@ -1302,10 +1302,11 @@ class Navigator:
             values.get("url", ""), values.get("quality", "LOSSLESS"),
             values.get("providers", "tidal,qobuz"),
             self.set_status,
-            lambda link: self.schedule(lambda: self.show_mornye_verify(link)),
+            lambda link, provider="": self.schedule(
+                lambda: self.show_mornye_verify(link, provider)),
             _done, target=values.get("target", "phone"))
 
-    def show_mornye_verify(self, link):
+    def show_mornye_verify(self, link, provider=""):
         """The one-time browser check: open the page, then wait for the code."""
         from core import android_actions
         from screens import mornye_verify
@@ -1329,7 +1330,7 @@ class Navigator:
         self._mornye_verify = {"link": link, "auto": True}
         android_actions.open_url(link)
         mornye_verify.build(self, _submit, lambda: android_actions.open_url(link),
-                            _cancel)
+                            _cancel, title="One-time check" + (" - " + provider if provider else ""))
 
     def mornye_resumed(self):
         """Called when the app comes back to the front (main.py on_resume)."""
