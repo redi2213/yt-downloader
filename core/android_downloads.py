@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlsplit
 import requests
 
 ROOT_FOLDER = "Yt-bridge"
-CATEGORIES = ("APK", "Backup", "YouTube", "Aparat", "Telegram", "Filimo", "Any-site", "Drive", "Auto", "Logs", "Other")
+CATEGORIES = ("APK", "Backup", "YouTube", "Aparat", "Telegram", "Filimo", "Mornye", "Any-site", "Drive", "Auto", "Logs", "Other")
 
 # workflow file -> subfolder of Download/Yt-bridge
 _WORKFLOW_CATEGORY = {
@@ -59,7 +59,16 @@ _MIME = {
 
 
 def file_name_from_url(url, default="download.bin"):
-    name = unquote(urlsplit(url).path.rsplit("/", 1)[-1])
+    parts = urlsplit(url)
+    # A link may carry the file name it should be saved as in its fragment
+    # (#name=...). The fragment is never sent to the server, so the link
+    # still works everywhere else.
+    for pair in parts.fragment.split("&"):
+        if pair.startswith("name="):
+            wanted = unquote(pair[5:]).strip()
+            if wanted:
+                return wanted
+    name = unquote(parts.path.rsplit("/", 1)[-1])
     return name or default
 
 

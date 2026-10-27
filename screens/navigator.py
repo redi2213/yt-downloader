@@ -1256,6 +1256,64 @@ class Navigator:
         filimo_link_service.start_fetch_link(
             values.get("url", ""), values.get("quality", "Best available"), _done)
 
+    # -- Mornye: lossless music downloaded on the phone's own network ------------
+    def start_mornye_phone_links(self, values, message="Downloading music on this phone..."):
+        """Spotify track / album / playlist -> FLAC files saved in Download/Yt-bridge/
+        Mornye. Everything runs on the phone (api.zarz.moe blocks GitHub's IPs): the
+        links are made, downloaded and saved straight away because they expire."""
+        from kivy.core.clipboard import Clipboard
+        from services import mornye_link_service
+        self.show_working(message, extra_buttons=[("Cancel", mornye_link_service.cancel)])
+
+        def _done(res):
+            def _show():
+                buttons = [("Copy log", lambda: Clipboard.copy(res.get("log", "")))]
+                note = ""
+                if res.get("log_path"):
+                    note = "\nLog saved in the repo: " + res["log_path"]
+                if not res.get("ok"):
+                    buttons.append(("Try again",
+                                    lambda: self.start_mornye_phone_links(values)))
+                    self.show_result(res.get("error", "Failed") + note,
+                                     extra_buttons=buttons)
+                    return
+                failed = res.get("failed") or []
+                saved = res.get("saved") or []
+                msg = "%s: %d file(s) saved in %s" % (
+                    res.get("title") or "Done", len(saved), res.get("folder", ""))
+                if failed:
+                    msg += "\n%d failed:\n%s" % (len(failed), "\n".join(failed[:6]))
+                    buttons.insert(0, ("Copy failed tracks",
+                                       lambda: Clipboard.copy("\n".join(failed))))
+                    buttons.append(("Try again",
+                                    lambda: self.start_mornye_phone_links(values)))
+                self.show_result(msg + note, extra_buttons=buttons)
+            self.schedule(_show)
+
+        mornye_link_service.start_download(
+            values.get("url", ""), values.get("quality", "LOSSLESS"),
+            values.get("providers", "tidal,qobuz"),
+            self.set_status,
+            lambda link: self.schedule(lambda: self.show_mornye_verify(link)),
+            _done)
+
+    def show_mornye_verify(self, link):
+        """The one-time browser check: open the page, then wait for the code."""
+        from core import android_actions
+        from screens import mornye_verify
+        from services import mornye_link_service
+
+        def _submit(text):
+            if mornye_link_service.submit_grant(text):
+                self.show_working("Starting the session...",
+                                  extra_buttons=[("Cancel", mornye_link_service.cancel)])
+            else:
+                self.set_status("That is not the verification code")
+
+        android_actions.open_url(link)
+        mornye_verify.build(self, _submit, lambda: android_actions.open_url(link),
+                            mornye_link_service.cancel)
+
     # -- Aparat: choose videos, links on the phone -----------------------------
     def start_aparat_pick(self, action, values):
         """\"Choose videos\": read the playlist / channel on the phone, then
@@ -1450,6 +1508,10 @@ class Navigator:
         # phone's network; anything else goes through the GitHub workflow.
         if action.get("handler") == "filimo_phone" and cleaned.get("mode") == "phone":
             return self.start_filimo_phone_link(cleaned)
+
+        # Mornye: the links come from this phone's network, never from GitHub.
+        if action.get("handler") == "mornye_phone":
+            return self.start_mornye_phone_links(cleaned)
 
         # Aparat: "Links on phone" never goes to GitHub; otherwise the chosen
         # video ids (empty = everything the link gives) travel with the run.

@@ -1,0 +1,54 @@
+name: Test gpt
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-gpt:
+    name: Test GPT API connectivity
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Probe Zarz API health
+        shell: bash
+        continue-on-error: true
+        run: |
+          headers="$(mktemp)"; body="$(mktemp)"
+          status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' 'https://api.zarz.moe/v1/health' 2>&1)"; rc=$?
+          echo "===== zarz health ====="; echo "curl_exit=$rc status=$status"
+          grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+          head -c 600 "$body" 2>/dev/null || true; echo; rm -f "$headers" "$body"
+      - name: Probe Spotify resolve endpoint
+        shell: bash
+        continue-on-error: true
+        run: |
+          headers="$(mktemp)"; body="$(mktemp)"
+          status="$(curl -sS --max-time 25 -D "$headers" -o "$body" -w '%{http_code}' -H 'Content-Type: application/json' -d '{"url":"https://open.spotify.com/track/03IUfVosqAULvUhkQMFrZm"}' 'https://api.zarz.moe/v1/resolve' 2>&1)"; rc=$?
+          echo "===== zarz resolve ====="; echo "curl_exit=$rc status=$status"
+          grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+          head -c 600 "$body" 2>/dev/null || true; echo; rm -f "$headers" "$body"
+      - name: Probe Zarz bootstrap endpoint
+        shell: bash
+        continue-on-error: true
+        run: |
+          headers="$(mktemp)"; body="$(mktemp)"
+          status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' -A 'SpotiFLAC-Mobile/tidal-web@1.2.5' 'https://api.zarz.moe/v2/bootstrap?install_id=bffe98223336b6a7ee7e4bf3b31a7fec&app_version=tidal-web%401.2.5' 2>&1)"; rc=$?
+          echo "===== zarz bootstrap ====="; echo "curl_exit=$rc status=$status"
+          grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 8 || true
+          head -c 600 "$body" 2>/dev/null || true; echo; rm -f "$headers" "$body"
+      - name: Test public metadata fallbacks
+        shell: bash
+        continue-on-error: true
+        run: |
+          probe() {
+            name="$1"; url="$2"; headers="$(mktemp)"; body="$(mktemp)"
+            status="$(curl -sS -L --max-time 20 -D "$headers" -o "$body" -w '%{http_code}' "$url" 2>&1)"; rc=$?
+            echo "===== $name ====="; echo "curl_exit=$rc status=$status"
+            grep -iE '^(HTTP/|cf-mitigated:|cf-ray:|server:|content-type:)' "$headers" | tail -n 6 || true
+            head -c 900 "$body" 2>/dev/null || true; echo; rm -f "$headers" "$body"
+          }
+          probe "Songlink links API" 'https://api.song.link/v1-alpha.1/links?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F03IUfVosqAULvUhkQMFrZm'
+          probe "Spotify oEmbed" 'https://open.spotify.com/oembed?url=https%3A%2F%2Fopen.spotify.com%2Ftrack%2F03IUfVosqAULvUhkQMFrZm'
+          probe "Deezer public track metadata" 'https://api.deezer.com/track/3894575041'
