@@ -760,7 +760,7 @@ class Navigator:
             # the quality list is for one video: the first link
             self.start_fetch_formats(urls[0], where=where)
 
-    def start_upload(self, file_url, zip_it, custom_name):
+    def start_upload(self, file_url, zip_it, custom_name, referer=""):
         job = upload_service.create_upload_job(
             self.job_manager,
             file_url
@@ -779,7 +779,8 @@ class Navigator:
             zip_it,
             custom_name,
             on_status=on_status,
-            on_complete=on_complete
+            on_complete=on_complete,
+            referer=referer
         )
 
     def handle_start_upload(self, file_url, zip_it, custom_name):
@@ -1587,6 +1588,87 @@ class Navigator:
             values.get("url", ""), values.get("quality", "best"),
             values.get("channel_limit", "count:5"), ids or [], _done)
 
+    # -- Proxy / v2ray config: a GitHub secret that Any site uses --------------------
+    def show_proxy_settings(self):
+        from screens import proxy_settings
+        from services import proxy_secret_service
+        self.remember(self.show_proxy_settings)
+        proxy_settings.build(self, None)
+        proxy_secret_service.start_status(
+            on_complete=lambda res: self.schedule(lambda: proxy_settings.build(self, res)))
+
+    def start_save_proxy_config(self, text):
+        from services import proxy_secret_service
+        value, error = proxy_secret_service.normalize(text)
+        if error:
+            self.set_status(error)
+            return
+        self.show_working("Saving the config...", job=None)
+        proxy_secret_service.start_save(
+            value, on_complete=lambda res: self.schedule(lambda: self._after_proxy_change(res, "Config saved")))
+
+    def start_delete_proxy_config(self):
+        from services import proxy_secret_service
+        self.show_working("Deleting the config...", job=None)
+        proxy_secret_service.start_delete(
+            on_complete=lambda res: self.schedule(lambda: self._after_proxy_change(res, "Config deleted")))
+
+    def _after_proxy_change(self, res, ok_text):
+        if res.get("ok"):
+            self.show_proxy_settings()
+            self.set_status(ok_text)
+        else:
+            self.show_result(res.get("error", "Failed"))
+
+    # -- Any site (phone): the phone reads the page, GitHub downloads the link -------
+    def start_anysite_phone(self, action, form):
+        from services import anysite_phone_service
+        urls = link_tools.split_links(form.get("urls", ""))
+        if not urls:
+            self.set_status("Enter a link")
+            return
+        self.show_working("Reading the links on this phone...", job=None)
+        anysite_phone_service.start_read(
+            urls, self.set_status,
+            lambda results: self.schedule(lambda: self._after_anysite_phone_read(action, form, results)))
+
+    def _after_anysite_phone_read(self, action, form, results):
+        from services import anysite_phone_service
+        quality = form.get("quality", "720")
+        if quality == "check":
+            self.show_anysite_phone_formats(action, form, results)
+            return
+        picked, problems = anysite_phone_service.pick_all(results, quality)
+        self._send_anysite_phone(action, form, picked, problems)
+
+    def show_anysite_phone_formats(self, action, form, results):
+        from screens import anysite_formats
+        from services import anysite_phone_service
+        self.remember(lambda: self.show_anysite_phone_formats(action, form, results))
+
+        def _pick(url, format_id):
+            found = anysite_phone_service.pick_by_id(results, url, format_id)
+            self._send_anysite_phone(action, form, [found] if found else [], [] if found else [url])
+
+        anysite_formats.build(
+            self, results, on_pick=_pick,
+            on_back=lambda: self.show_action_input(action, initial=form))
+
+    def _send_anysite_phone(self, action, form, picked, problems):
+        from services import anysite_phone_service
+        if not picked:
+            text = "\n".join(problems) or "No link was found on this phone."
+            text += ("\n\nIf the site gives video and audio separately, or blocks this phone, "
+                     "use the Any site button (GitHub) instead.")
+            self.show_result(text, extra_buttons=[
+                ("Back to form", lambda: self.show_action_input(action, initial=form))])
+            return
+        lines = [anysite_phone_service.upload_line(link, row) for link, row in picked]
+        referer = picked[0][0]["url"] if len(picked) == 1 else ""
+        self.start_upload("\n".join(lines), False, "", referer=referer)
+        if problems:
+            self.set_status(f"{len(problems)} link(s) gave nothing and were skipped")
+
     # -- Any site: check formats, then download one ----------------------------
     def start_anysite_check(self, action, form):
         """Runs the workflow in "check" mode (nothing is downloaded), then shows
@@ -1606,7 +1688,9 @@ class Navigator:
                     )
             self.schedule(_show)
 
-        anysite_service.start_check(action, form.get("urls", ""), self.set_status, _done)
+        anysite_service.start_check(
+            action, form.get("urls", ""), self.set_status, _done,
+            extra={"proxy": form.get("proxy", ""), "v2ray_config": form.get("v2ray_config", "")})
 
     def show_anysite_formats(self, action, form, links):
         from screens import anysite_formats
@@ -1660,7 +1744,7 @@ class Navigator:
             value = field_values.get(key)
             if field.get("type", "text") == "text":
                 value = (value or "").strip()
-                if not value:
+                if not value and not field.get("optional"):
                     label = field.get("label") or "this field"
                     self.set_status(f"Enter {label.lower()}" if field.get("label") else "Enter a link")
                     return
@@ -1671,6 +1755,10 @@ class Navigator:
                     self.set_status(error)
                     return
             cleaned[key] = value
+
+        # Any site (phone): the phone reads the page, GitHub downloads the link.
+        if action.get("handler") == "anysite_phone":
+            return self.start_anysite_phone(action, cleaned)
 
         # Any site: quality "Check formats" lists what the site offers; the
         # chosen format is then downloaded by a normal run (format_id set).
