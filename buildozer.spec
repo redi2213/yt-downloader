@@ -5,6 +5,9 @@ package.domain = org.redi2213
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 source.exclude_dirs = tests
+icon.filename = assets/icon.png
+presplash.filename = assets/icon.png
+android.presplash_color = #12203A
 version = 2
 requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.1,python-bidi==0.4.2,six,yt-dlp
 orientation = portrait
