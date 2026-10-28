@@ -1690,7 +1690,8 @@ class Navigator:
 
         anysite_service.start_check(
             action, form.get("urls", ""), self.set_status, _done,
-            extra={"proxy": form.get("proxy", ""), "v2ray_config": form.get("v2ray_config", "")})
+            extra={"proxy_mode": form.get("proxy_mode", ""), "proxy": form.get("proxy", ""),
+                   "v2ray_config": form.get("v2ray_config", "")})
 
     def show_anysite_formats(self, action, form, links):
         from screens import anysite_formats
