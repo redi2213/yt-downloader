@@ -1,0 +1,815 @@
+name: Any Site Extract and Upload (test)
+run-name: Media ${{ inputs.mode }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "direct = لینک مستقیم | release = آپلود به ریلیز"
+        required: true
+        default: "release"
+        type: choice
+        options: ["direct", "release"]
+      urls:
+        description: "لینک‌ها (هر خط یکی). اگر خالی باشد، urls.txt مخزن خوانده می‌شود"
+        required: false
+        type: string
+      quality:
+        description: "کیفیت هدف | check = فقط لیست کیفیت‌های موجود (بدون دانلود)"
+        required: true
+        default: "720"
+        type: choice
+        options: ["144", "240", "360", "480", "720", "1080", "highest", "check"]
+      format_id:
+        description: "اختیاری: format_id دقیق (از خروجی check). اگر پر باشد، کیفیت نادیده گرفته می‌شود و همین فرمت دانلود می‌شود"
+        required: false
+        default: ""
+        type: string
+      job_id:
+        description: "Set by the app so it can find this exact run (leave empty when running by hand)"
+        required: false
+        default: ""
+        type: string
+      rerun:
+        description: 'Set by the app: the other inputs packed into the run name so "Run again" can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+      force:
+        description: 'yes = ignore the "this site failed before" warning and run anyway (set by the app after you confirm)'
+        required: false
+        default: 'no'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.collect.outputs.matrix }}
+      tag: ${{ steps.collect.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect links
+        id: collect
+        env:
+          URLS: ${{ inputs.urls }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          raw = os.environ.get("URLS", "").strip()
+          if not raw and Path("urls.txt").is_file():
+              raw = Path("urls.txt").read_text(encoding="utf-8-sig")
+
+          lines = [l for l in raw.splitlines() if not l.lstrip().startswith("#")]
+          urls = [u for u in " ".join(lines).split()
+                  if u.lower().startswith(("http://", "https://"))]
+          urls = list(dict.fromkeys(urls))
+          if not urls:
+              print("::error::No valid links found (must start with http:// or https://)")
+              sys.exit(1)
+
+          print(f"Found {len(urls)} link(s)")
+          matrix = [{"idx": i, "url": u} for i, u in enumerate(urls, 1)]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps(matrix, separators=(",", ":")) + "\n")
+              f.write("tag=run-" + os.environ["GITHUB_RUN_ID"] + "\n")
+          PY
+
+      # اگر سایت قبلاً فقط خطا داده، قبل از شروع متوقف می‌شود (مگر force=yes)
+      - name: Check the site history
+        if: ${{ !(inputs.quality == 'check' && inputs.format_id == '') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MATRIX: ${{ steps.collect.outputs.matrix }}
+          FORCE: ${{ inputs.force }}
+        run: python3 scripts/site_log.py check
+
+      # در حالت check ریلیز ساخته نمی‌شود
+      - name: Create the release
+        if: ${{ inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.collect.outputs.tag }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "Media $GITHUB_RUN_ID" \
+            --notes "Auto upload"
+
+  process:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    name: link ${{ matrix.idx }}
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Get the scripts
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Detect xHamster
+        id: xh
+        env:
+          URL: ${{ matrix.url }}
+        run: |
+          python3 - <<'PY'
+          import os, urllib.parse
+          host = (urllib.parse.urlsplit(os.environ["URL"]).hostname or "").lower()
+          is_xh = "xhamster" in host and "xhamsterlive" not in host
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("is_xh=" + ("true" if is_xh else "false") + "\n")
+          print("xHamster link: proxies + HLS path" if is_xh else "other site: generic yt-dlp path")
+          PY
+
+      - name: Install tools
+        run: |
+          pip install -U "yt-dlp[default,curl-cffi]" || pip install -U yt-dlp
+          sudo apt-get update -qq && sudo apt-get install -y -qq aria2 ffmpeg
+          if [ "${{ steps.xh.outputs.is_xh }}" = "true" ]; then
+            pip install -U requests PySocks curl_cffi
+            pip install -U unofficial-api-for-xhamster || true
+          fi
+
+      # اختیاری: اگر Secret به اسم COOKIES_TXT (فرمت Netscape) بسازی استفاده می‌شود
+      - name: Prepare cookies (optional)
+        env:
+          COOKIES: ${{ secrets.COOKIES_TXT }}
+        run: |
+          if [ -n "$COOKIES" ]; then
+            printf '%s\n' "$COOKIES" > cookies.txt
+            echo "Cookies loaded"
+          fi
+
+      - name: xHamster - extract links (proxies, like xh_download)
+        id: pickxh
+        if: ${{ steps.xh.outputs.is_xh == 'true' }}
+        env:
+          URL: ${{ matrix.url }}
+          QUALITY: ${{ inputs.quality }}
+          IDX: ${{ matrix.idx }}
+          FORMAT_ID: ${{ inputs.format_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # the proxy list is kept on the config branch by the Find Free Proxies workflow
+          curl -fsS -m 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/working_proxies.txt?ref=config" -o working_proxies.txt \
+            || { echo "No working_proxies.txt on the config branch yet (run Find Free Proxies): trying without a proxy"; rm -f working_proxies.txt; }
+          python3 _repo/scripts/xh_links.py || true
+          python3 _repo/scripts/xh_pick.py
+
+      - name: Extract direct link
+        id: pick
+        if: ${{ steps.xh.outputs.is_xh != 'true' }}
+        env:
+          URL: ${{ matrix.url }}
+          QUALITY: ${{ inputs.quality }}
+          IDX: ${{ matrix.idx }}
+          FORMAT_ID: ${{ inputs.format_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess, sys, time, urllib.request
+          from concurrent.futures import ThreadPoolExecutor
+
+          url = os.environ["URL"]
+          idx = os.environ["IDX"]
+          q = os.environ["QUALITY"]
+          fid_in = os.environ.get("FORMAT_ID", "").strip()
+          check = (q == "check" and not fid_in)
+          target = 0 if q in ("highest", "check") else int(q)
+          cookie = ["--cookies", "cookies.txt"] if os.path.isfile("cookies.txt") else []
+
+          def ytdlp(args, extra=()):
+              return subprocess.run(
+                  ["yt-dlp", "--no-warnings", "--no-playlist"] + cookie + list(extra) + args,
+                  capture_output=True, text=True, timeout=180)
+
+          def short(msg):
+              return (msg or "unknown error")[-300:].replace("\n", " ")
+
+          def fail(msg):
+              try:
+                  with open("reason.txt", "w", encoding="utf-8") as fh:
+                      fh.write(short(msg))
+              except Exception:
+                  pass
+              print(f"::error::{short(msg)}")
+              sys.exit(1)
+
+          # ---- 1) گرفتن اطلاعات: ۳ بار تلاش معمولی، ۳ بار با شبیه‌سازی مرورگر ----
+          STRATEGIES = [("plain", []),
+                        ("impersonate chrome", ["--impersonate", "chrome"])]
+
+          def fetch_info():
+              last = ""
+              for name, extra in STRATEGIES:
+                  for attempt in range(1, 4):
+                      try:
+                          r = ytdlp(["-J", url], extra)
+                          if r.returncode == 0:
+                              return json.loads(r.stdout), extra, ""
+                          last = r.stderr or r.stdout
+                      except subprocess.TimeoutExpired:
+                          last = "timeout"
+                      except ValueError:
+                          last = "invalid JSON from yt-dlp"
+                      print(f"[{name}] attempt {attempt}/3 failed: {short(last)}", flush=True)
+                      if attempt < 3:
+                          time.sleep(5 * attempt)
+              return None, [], last
+
+          data, extra, last = fetch_info()
+
+          # ---- 2) آخرین شانس: نسخه nightly از yt-dlp ----
+          if data is None:
+              print("All attempts failed. Trying the yt-dlp nightly build...", flush=True)
+              subprocess.run([sys.executable, "-m", "pip", "install", "-U", "--pre", "--quiet",
+                              "yt-dlp[default,curl-cffi]"])
+              data, extra, last = fetch_info()
+
+          # ---- 3) اگر باز هم نشد: لاگ verbose برای عیب‌یابی ----
+          if data is None:
+              print("::group::yt-dlp verbose output (for debugging)")
+              try:
+                  v = ytdlp(["-v", "-J", url])
+                  print((v.stderr or "")[-4000:])
+              except Exception as e:
+                  print(f"verbose run failed: {e}")
+              print("::endgroup::")
+              fail(last)
+
+          if extra:
+              print("Working strategy: " + " ".join(extra))
+
+          META = {"extractor": data.get("extractor_key") or data.get("extractor") or ""}
+
+          def save_meta():
+              try:
+                  with open("pickmeta.json", "w", encoding="utf-8") as fh:
+                      json.dump(META, fh)
+              except Exception:
+                  pass
+
+          save_meta()
+
+          # ---- 4) جمع‌آوری فرمت‌ها ----
+          raw = {}
+          rows = []
+          for f in data.get("formats") or []:
+              if f.get("vcodec") == "none":
+                  continue
+              fid = str(f.get("format_id", ""))
+              h = f.get("height")
+              if not h:
+                  m = re.search(r"(\d+)p", fid)
+                  h = int(m.group(1)) if m else None
+              raw[fid] = f
+              rows.append({
+                  "id": fid,
+                  "h": int(h) if h else None,
+                  "ext": f.get("ext", ""),
+                  "fps": f.get("fps"),
+                  "vcodec": (f.get("vcodec") or "?").split(".")[0],
+                  "acodec": f.get("acodec"),
+                  "size": f.get("filesize") or f.get("filesize_approx"),
+                  "tbr": f.get("tbr"),
+                  "proto": f.get("protocol", ""),
+              })
+
+          def mb(n):
+              return f"{n / 1048576:.0f} MB" if n else "-"
+
+          def probe_size(r):
+              # سایت‌هایی مثل Eporner حجم را نمی‌دهند: با یک درخواست Range کوچک از هدر می‌خوانیم
+              f = raw.get(r["id"]) or {}
+              u = f.get("url")
+              if not u or f.get("protocol") not in ("http", "https"):
+                  return None
+              hdrs = dict(f.get("http_headers") or {})
+              hdrs.setdefault("User-Agent", "Mozilla/5.0")
+              hdrs.setdefault("Referer", url)
+              hdrs["Range"] = "bytes=0-0"
+              try:
+                  req = urllib.request.Request(u, headers=hdrs)
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      m = re.search(r"/(\d+)$", resp.headers.get("Content-Range", ""))
+                      if m:
+                          return int(m.group(1))
+                      if resp.status == 200 and resp.headers.get("Content-Length"):
+                          return int(resp.headers["Content-Length"])
+              except Exception:
+                  return None
+              return None
+
+          def fill_sizes(rs):
+              todo = [r for r in rs if not r["size"]]
+              if not todo:
+                  return
+              with ThreadPoolExecutor(max_workers=8) as ex:
+                  for r, sz in zip(todo, ex.map(probe_size, todo)):
+                      if sz:
+                          r["size"] = sz
+
+          # ---- حالت check: فقط لیست کیفیت‌ها ----
+          if check:
+              fill_sizes(rows)
+              rows.sort(key=lambda r: (r["h"] or 0, r["size"] or 0))
+              heights = sorted({r["h"] for r in rows if r["h"]})
+              title = data.get("title") or "video"
+              print(f"Title: {title}")
+              print("AVAILABLE_HEIGHTS: " + (",".join(map(str, heights)) or "none"))
+              print(f"{'format_id':<18}{'height':<8}{'ext':<6}{'fps':<5}{'size':<9}{'audio':<7}vcodec")
+              for r in rows:
+                  has_a = "no" if r["acodec"] == "none" else "yes"
+                  print(f"{r['id']:<18}{str(r['h'] or '?'):<8}{r['ext']:<6}"
+                        f"{str(r['fps'] or '-'):<5}{mb(r['size']):<9}{has_a:<7}{r['vcodec']}")
+              if not rows:
+                  print("No video formats listed by the site.")
+
+              payload = {"url": url, "title": title, "heights": heights, "formats": rows}
+              with open(f"formats_{idx}.json", "w", encoding="utf-8") as fh:
+                  json.dump(payload, fh, ensure_ascii=False, indent=1)
+              # یک خط فشرده در لاگ، برای اپ (اگر آپلود artifact به خاطر سهمیه جواب نداد)
+              print("FORMATS_JSON=" + json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+              # GitHub hides every character that equals a secret value (a secret whose value is "5"
+              # turns each 5 into ***, which breaks the numbers). This copy carries 5 as the sign U+00A4;
+              # the app turns it back before reading the JSON.
+              safe = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).replace("5", "\u00a4")
+              print("FORMATS_SAFE=" + safe)
+
+              summ = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summ:
+                  with open(summ, "a", encoding="utf-8") as fh:
+                      fh.write(f"### link {idx}: {title}\n\n")
+                      fh.write("**Heights:** " + (", ".join(f"{h}p" for h in heights) or "none") + "\n\n")
+                      fh.write("| format_id | height | ext | fps | size | audio | vcodec |\n")
+                      fh.write("|---|---|---|---|---|---|---|\n")
+                      for r in rows:
+                          has_a = "no" if r["acodec"] == "none" else "yes"
+                          fh.write(f"| {r['id']} | {r['h'] or '?'} | {r['ext']} | {r['fps'] or '-'} "
+                                   f"| {mb(r['size'])} | {has_a} | {r['vcodec']} |\n")
+                      fh.write("\n")
+              sys.exit(0)
+
+          # ---- 5) انتخاب فرمت ----
+          ext = ""
+          chosen = None
+          if fid_in:
+              chosen = next((r for r in rows if r["id"] == fid_in), None)
+              if not chosen:
+                  fail(f"format_id '{fid_in}' not found. Available: " + ", ".join(r["id"] for r in rows))
+              print(f"Using the requested format_id: {fid_in}")
+          else:
+              fmts = [r for r in rows if r["h"] and r["id"]]
+              if fmts:
+                  t = target or max(r["h"] for r in fmts)
+                  best_h = min({r["h"] for r in fmts}, key=lambda hh: (abs(hh - t), -hh))
+                  if target and best_h != target:
+                      print(f"Requested {target}p not available, closest is {best_h}p")
+                  cands = [r for r in fmts if r["h"] == best_h]
+                  fill_sizes(cands)
+                  # بین فرمت‌های هم‌رزولوشن: کم‌حجم‌ترین؛ اگر حجم نامعلوم بود، mp4 ترجیح دارد
+                  cands.sort(key=lambda r: (r["size"] is None, r["size"] or 0,
+                                            0 if r["ext"] == "mp4" else 1))
+                  print(f"Candidates at {best_h}p: " +
+                        ", ".join(f"{r['id']} ({mb(r['size'])})" for r in cands))
+                  chosen = cands[0]
+
+          if chosen:
+              ext = chosen["ext"]
+              META["height"] = chosen["h"]
+              save_meta()
+              fsel = f"{chosen['id']}+ba/{chosen['id']}" if chosen["acodec"] == "none" else chosen["id"]
+              print(f"Chosen: {chosen['id']} ({chosen['h'] or '?'}p, {mb(chosen['size'])}) -> {fsel}")
+          else:
+              # سایت‌هایی که ارتفاع نمی‌دهند: بهترین کیفیت
+              fsel = "bv*+ba/b"
+              print("No height info, using best available")
+
+          r = ytdlp(["-g", "-f", fsel, url], extra)
+          if r.returncode:
+              fail(r.stderr or r.stdout)
+          links = [l.strip() for l in r.stdout.splitlines()
+                   if l.strip().startswith(("http://", "https://"))]
+          if not links:
+              fail("No media URL returned.")
+          open("link.txt", "w").write("\n".join(links) + "\n")
+
+          title = re.sub(r"[^A-Za-z0-9._-]+", "_", data.get("title") or "video")
+          title = title.strip("._-")[:120] or "video"
+          if len(links) > 1 or any(".m3u8" in l for l in links) or ext not in ("mp4", "webm", "mkv", "mov", "m4v"):
+              ext = "mp4"
+          name = f"{title}.{ext}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"fsel={fsel}\nname={name}\nextra={' '.join(extra)}\n")
+          PY
+
+      # ---------- حالت check: لیست کیفیت‌ها به صورت artifact ----------
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && inputs.quality == 'check' && inputs.format_id == '' }}
+        continue-on-error: true
+        with:
+          name: formats-${{ matrix.idx }}
+          path: formats_${{ matrix.idx }}.json
+          retention-days: 1
+          if-no-files-found: ignore
+
+      # ---------- حالت direct ----------
+      - name: Save direct link
+        if: ${{ inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        run: |
+          N=$(printf '%04d' "${{ matrix.idx }}")
+          mv link.txt "link_$N.txt"
+          echo "LINKFILE=link_$N.txt" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        with:
+          name: link-${{ matrix.idx }}
+          path: ${{ env.LINKFILE }}
+          retention-days: 1
+
+      # ---------- حالت release ----------
+      - name: Download xHamster (HLS, no proxy)
+        id: dlxh
+        if: ${{ steps.xh.outputs.is_xh == 'true' && inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        env:
+          URL: ${{ matrix.url }}
+          NAME: ${{ steps.pickxh.outputs.name }}
+        run: python3 _repo/scripts/xh_hls.py
+
+      - name: Download (aria2, fallback yt-dlp)
+        id: dl
+        if: ${{ steps.xh.outputs.is_xh != 'true' && inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        env:
+          URL: ${{ matrix.url }}
+          FSEL: ${{ steps.pick.outputs.fsel }}
+          NAME: ${{ steps.pick.outputs.name }}
+          EXTRA: ${{ steps.pick.outputs.extra }}
+        run: |
+          set -euo pipefail
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          mapfile -t LINKS < link.txt
+          mkdir -p work
+
+          COOKIE_ARGS=()
+          if [ -s cookies.txt ]; then COOKIE_ARGS=(--cookies cookies.txt); fi
+          EXTRA_ARGS=()
+          read -r -a EXTRA_ARGS <<< "${EXTRA:-}"
+
+          USE_YTDLP=0
+          if printf '%s\n' "${LINKS[@]}" | grep -qi '\.m3u8'; then
+            echo "HLS stream detected, using yt-dlp"
+            USE_YTDLP=1
+          else
+            PARTS=()
+            i=0
+            for L in "${LINKS[@]}"; do
+              i=$((i+1))
+              if aria2c -x 16 -s 16 -k 1M \
+                  --file-allocation=none \
+                  --connect-timeout=20 \
+                  --max-tries=5 --retry-wait=5 \
+                  --user-agent="$UA" \
+                  --referer="$URL" \
+                  -d work -o "part$i" "$L"; then
+                PARTS+=("work/part$i")
+              else
+                echo "aria2 failed, falling back to yt-dlp"
+                USE_YTDLP=1
+                break
+              fi
+            done
+          fi
+
+          if [ "$USE_YTDLP" = "1" ]; then
+            rm -rf work && mkdir -p work
+            yt-dlp --no-warnings --no-playlist "${COOKIE_ARGS[@]}" "${EXTRA_ARGS[@]}" \
+              -f "$FSEL" \
+              --merge-output-format mp4 \
+              --concurrent-fragments 16 \
+              --retries 5 --fragment-retries 5 \
+              -o "work/$NAME" "$URL"
+          elif [ "${#PARTS[@]}" -eq 1 ]; then
+            mv "${PARTS[0]}" "work/$NAME"
+          else
+            ffmpeg -y -loglevel error -i "${PARTS[0]}" -i "${PARTS[1]}" -c copy "work/$NAME"
+            rm -f "${PARTS[@]}"
+          fi
+
+          if [ ! -s "work/$NAME" ]; then
+            echo "::error::Download failed or file is empty"
+            exit 1
+          fi
+          ls -lh work
+          stat -c %s "work/$NAME" > size.txt
+
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') && (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Upload (GitHub Release and/or Arvan Cloud)
+        if: ${{ inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IDX: ${{ matrix.idx }}
+          NAME: ${{ steps.pick.outputs.name || steps.pickxh.outputs.name }}
+        run: |
+          python3 _repo/scripts/storage_publish.py upload --file "work/$NAME" --tag "$TAG" --idx "$IDX" --meta-out "meta/meta-$IDX.json"
+
+      - name: Keep the result (Arvan links and quality) for the final step
+        if: ${{ !cancelled() && inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IDX: ${{ matrix.idx }}
+        run: |
+          # kept as a tiny asset of the release (no Actions Artifact, so no Artifact storage quota)
+          if [ -f "meta/meta-$IDX.json" ]; then
+            cp "meta/meta-$IDX.json" "meta/_ytb-meta-$IDX.json"
+            gh release upload "$TAG" "meta/_ytb-meta-$IDX.json" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+      # ---------- site log: one small record per link, written straight to the config branch ----------
+      # (no artifact: the artifact storage quota can be full, and the log must not depend on it)
+      - name: Get the site-log script
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          path: _sl
+          sparse-checkout: scripts
+
+      - name: Write the site-log record
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          URL: ${{ matrix.url }}
+          IDX: ${{ matrix.idx }}
+          MODE: ${{ inputs.mode }}
+          QUALITY: ${{ inputs.quality }}
+          FORMAT_ID: ${{ inputs.format_id }}
+          PICK: ${{ steps.pick.outcome == 'skipped' && steps.pickxh.outcome || steps.pick.outcome }}
+          DL: ${{ steps.dl.outcome == 'skipped' && steps.dlxh.outcome || steps.dl.outcome }}
+          LINKFILE: ${{ env.LINKFILE }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.parse, urllib.request
+          from datetime import datetime, timezone
+
+          e = os.environ.get
+          url = e("URL", "")
+          mode = e("MODE", "")
+          q = e("QUALITY", "")
+          fid = (e("FORMAT_ID") or "").strip()
+          check = (q == "check" and not fid)
+          MIN = 10 * 1048576
+
+
+          def read(p, default=""):
+              try:
+                  with open(p, encoding="utf-8") as fh:
+                      return fh.read().strip()
+              except Exception:
+                  return default
+
+
+          def probe(u):
+              h = {"User-Agent": "Mozilla/5.0", "Referer": url, "Range": "bytes=0-0"}
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(u, headers=h), timeout=15) as r:
+                      m = re.search(r"/(\d+)$", r.headers.get("Content-Range", ""))
+                      if m:
+                          return int(m.group(1))
+                      if r.status == 200 and r.headers.get("Content-Length"):
+                          return int(r.headers["Content-Length"])
+              except Exception:
+                  return None
+              return None
+
+
+          pick = e("PICK")
+          if pick in ("skipped", "cancelled", ""):
+              print("The link was not processed (setup problem): no record.")
+              raise SystemExit(0)
+
+          try:
+              meta = json.loads(read("pickmeta.json", "{}"))
+          except ValueError:
+              meta = {}
+
+          size = None
+          status = None
+          reason = ""
+          if pick != "success":
+              status = "fail"
+              reason = read("reason.txt") or "extraction failed"
+          elif check:
+              pass
+          elif mode == "release":
+              if e("DL") != "success":
+                  status = "fail"
+                  reason = "download failed"
+              else:
+                  try:
+                      size = int(read("size.txt"))
+                  except ValueError:
+                      size = None
+          elif mode == "direct":
+              links = [l.strip() for l in read(e("LINKFILE") or "link.txt").splitlines() if l.strip()]
+              if links and not any(".m3u8" in l for l in links):
+                  sizes = [probe(l) for l in links]
+                  if all(sizes):
+                      size = sum(sizes)
+
+          if status is None and size is not None:
+              status = "success" if size >= MIN else "small"
+              if status == "small":
+                  reason = "file is under 10 MB"
+          if status is None:
+              if check:
+                  print("Successful check: nothing to record.")
+                  raise SystemExit(0)
+              status = "unknown"
+              reason = "size could not be measured"
+
+          host = (urllib.parse.urlsplit(url).hostname or "").lower()
+          if host.startswith("www."):
+              host = host[4:]
+          rec = {
+              "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "domain": host,
+              "url": url,
+              "extractor": meta.get("extractor", ""),
+              "quality": fid or q,
+              "height": meta.get("height"),
+              "size_mb": round(size / 1048576, 1) if size is not None else None,
+              "status": status,
+              "reason": reason[:200],
+              "mode": ("check" if check else mode),
+              "run": e("RUN_ID", ""),
+          }
+          with open(f"sitelog_{e('IDX', '0')}.json", "w", encoding="utf-8") as fh:
+              json.dump(rec, fh, ensure_ascii=False)
+          print("Site log record:", json.dumps(rec, ensure_ascii=False))
+          PY
+          if [ -f "sitelog_${IDX}.json" ]; then
+            python3 _sl/scripts/site_log.py append "sitelog_${IDX}.json"
+          fi
+
+  finalize:
+    needs: [prepare, process]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && inputs.mode == 'release' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: arvan links and quality
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Get the results of the link jobs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          mkdir -p metas
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '_ytb-meta-*.json' --dir metas || true
+          for n in $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep '^_ytb-meta-' || true); do
+            gh release delete-asset "$TAG" "$n" --repo "$GITHUB_REPOSITORY" -y || true
+          done
+
+      - name: Write the Arvan links and the quality into the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage }}
+        run: |
+          mkdir -p metas
+          python3 scripts/storage_publish.py finalize --tag "${{ needs.prepare.outputs.tag }}" --meta-dir metas --notes "Auto upload"
+
+  collect:
+    needs: process
+    if: ${{ !cancelled() && needs.process.result != 'skipped' && inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: link-*
+          merge-multiple: true
+
+      - name: Merge links
+        run: |
+          ls link_*.txt 2>/dev/null | sort | xargs cat > links.txt || true
+          {
+            echo "**Links:** $(wc -l < links.txt)"
+            echo '```'
+            cat links.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: links
+          path: links.txt
+          retention-days: 1
+
+  notify:
+    name: notify
+    needs: [prepare, process, finalize, collect]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Notify (ntfy)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
+          TOOL_NAME: Any site test
+          ONLY_FAILURE: 'false'
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          if [ "$JOB_STATUS" = "success" ] && [ "$ONLY_FAILURE" = "true" ]; then
+            echo "Success and this tool only reports failures: no notification."
+            exit 0
+          fi
+          # The topic is set once in the app (Settings) and kept in ntfy.json on the config branch.
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then
+            echo "No ntfy.json on the config branch: no notification."
+            exit 0
+          fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then
+            echo "ntfy topic is not set: no notification."
+            exit 0
+          fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" \
+              -H "Title: YT Bridge - $TOOL_NAME - $WORD" -H "Tags: $TAGS" -H "Priority: $PRIO" \
+              -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi
