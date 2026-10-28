@@ -1,0 +1,14 @@
+Mornye log 2026-10-28 03:48:20 | track 0kosUz0jePvjiz4ctmR6wL | providers qobuz,tidal,deezer | target github | OK
+03:47:48 providers: qobuz,tidal,deezer
+03:47:48 spotify track: 1 track(s)
+03:47:51 found on a provider: 1/1
+03:47:52 POST /tickets (qobuz) -> http 200
+03:47:54 POST /dl/qbz (qobuz) -> http 503 {"error":"Provider temporarily unavailable","code":"PROVIDER_UNAVAILABLE","origin":"provider","retryable":true,"retry_mode":"same_operation","retry_after_seconds":1}
+03:47:54 qobuz failed for Shakira, Burna Boy - Dai Dai: Qobuz: Provider temporarily unavailable
+03:47:54 POST /tickets (tidal) -> http 200
+03:47:56 POST /dl/tid (tidal) -> http 200
+03:47:56 tidal: DASH, 56 media segments, host sp-ad-fa.audio.tidal.com
+03:47:56 queued Shakira, Burna Boy - Dai Dai (tidal, dash)
+03:47:57 saved: 1/1
+03:48:01 dispatched mornye-from-links.yml: 1 track(s), run 40607865590
+03:48:19 run 40607865590: success
