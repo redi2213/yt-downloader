@@ -1,5 +1,5 @@
 {
-  "config_version": 23,
+  "config_version": 24,
   "actions": [
     {
       "id": "tiktok_download",
@@ -655,8 +655,12 @@
           "label": "Quality",
           "choices": [
             {
-              "label": "Lossless (FLAC)",
+              "label": "Lossless (FLAC 16-bit)",
               "value": "LOSSLESS"
+            },
+            {
+              "label": "Hi-Res (best available)",
+              "value": "HI_RES_LOSSLESS"
             }
           ],
           "default": "LOSSLESS"
