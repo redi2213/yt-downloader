@@ -1,5 +1,5 @@
 {
-  "config_version": 22,
+  "config_version": 23,
   "actions": [
     {
       "id": "tiktok_download",
@@ -660,22 +660,6 @@
             }
           ],
           "default": "LOSSLESS"
-        },
-        {
-          "key": "target",
-          "type": "choice",
-          "label": "Where to keep the files",
-          "choices": [
-            {
-              "label": "On this phone",
-              "value": "phone"
-            },
-            {
-              "label": "Upload to GitHub release",
-              "value": "github"
-            }
-          ],
-          "default": "phone"
         }
       ],
       "workflow_inputs": {
