@@ -1,0 +1,8 @@
+Mornye log 2026-10-28 03:43:11 | track 4iz2c6pBFvgI8OD5KD8UNX | providers tidal,qobuz,deezer | target phone | FAILED: Nothing could be downloaded. Kiyarash - Oftadi Mese Ashk: deezer: Deezer: this stream needs decryption (not supported yet)
+03:43:03 providers: tidal,qobuz,deezer
+03:43:03 spotify track: 1 track(s)
+03:43:06 found on a provider: 1/1
+03:43:07 POST /tickets (deezer) -> http 200
+03:43:10 POST /dl/dzr (deezer) -> http 200
+03:43:10 deezer failed for Kiyarash - Oftadi Mese Ashk: Deezer: this stream needs decryption (not supported yet)
+03:43:11 saved: 0/1
