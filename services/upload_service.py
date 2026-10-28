@@ -19,8 +19,8 @@ def create_upload_job(job_manager: JobManager, file_url: str) -> Job:
 
 
 def run_upload_job(job_manager: JobManager, job: Job, zip_it: bool, custom_name: str,
-                    on_status=None, on_complete=None) -> None:
-    run_in_background(_upload_thread, job_manager, job, zip_it, custom_name, on_status, on_complete)
+                    on_status=None, on_complete=None, referer: str = "") -> None:
+    run_in_background(_upload_thread, job_manager, job, zip_it, custom_name, on_status, on_complete, referer)
 
 
 def start_upload(job_manager: JobManager, file_url: str, zip_it: bool, custom_name: str,
@@ -33,17 +33,20 @@ def start_upload(job_manager: JobManager, file_url: str, zip_it: bool, custom_na
     return job
 
 
-def _upload_thread(job_manager, job, zip_it, custom_name, on_status, on_complete):
+def _upload_thread(job_manager, job, zip_it, custom_name, on_status, on_complete, referer=""):
     try:
         _emit(on_status, "Starting workflow...")
         # job_id is the lookup token (the workflow puts it in its run-name).
         # The release tag is run-<run_id>, like every other workflow.
-        run_id = workflows.dispatch_and_find_run("upload-file.yml", {
+        inputs = {
             "file_url": job.input,
             "zip_it": "true" if zip_it else "false",
             "custom_name": custom_name,
             "job_id": job.job_id,
-        }, attempts=40, delay=3)
+        }
+        if referer:
+            inputs["referer"] = referer  # for sites that check the Referer (Any site on the phone)
+        run_id = workflows.dispatch_and_find_run("upload-file.yml", inputs, attempts=40, delay=3)
         _after_run_lookup(job_manager, job, run_id, on_status, on_complete)
     except AuthenticationError:
         job_manager.complete(job, ok=False, error="GitHub token invalid or expired. Update it and retry.")
