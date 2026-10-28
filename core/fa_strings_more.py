@@ -507,3 +507,39 @@ MORE_EXACT.update({
 MORE_EXACT.update({
     "APK builds and backups": "ساخت‌های APK و بکاپ‌ها",
 })
+
+
+MORE_EXACT.update({
+    # --- Proxy / v2ray config (Settings) and Any site (phone)
+    "Proxy / v2ray config (for Any site)": "پروکسی / کانفیگ v2ray (برای Any site)",
+    "Proxy / v2ray config": "پروکسی / کانفیگ v2ray",
+    "Many sites block GitHub's IP. With a config saved here, Any site reads the page through it (only the page; the video itself is downloaded directly). Supported: vless / vmess / trojan / ss links (one per line), a subscription link, or a full Xray JSON. When a config is set, the free proxy list is not used. The config is saved as a GitHub secret and cannot be read back.":
+        "خیلی از سایت‌ها آی‌پی گیت‌هاب را مسدود می‌کنند. با کانفیگی که اینجا ذخیره کنی، Any site صفحه را از طریق آن می‌خواند (فقط خود صفحه؛ خود ویدیو مستقیم دانلود می‌شود). پشتیبانی: لینک‌های vless / vmess / trojan / ss (هر خط یکی)، لینک اشتراک، یا JSON کامل Xray. وقتی کانفیگ پر باشد، لیست پروکسی رایگان استفاده نمی‌شود. کانفیگ به صورت Secret گیت‌هاب ذخیره می‌شود و دوباره قابل خواندن نیست.",
+    "Checking what is saved...": "در حال بررسی چیزی که ذخیره شده...",
+    "Could not read what is saved.": "خواندن چیزی که ذخیره شده ممکن نشد.",
+    "A v2ray config is saved.": "یک کانفیگ v2ray ذخیره شده است.",
+    "No v2ray config is saved.": "هیچ کانفیگ v2ray ذخیره نشده است.",
+    "Paste vless:// vmess:// trojan:// ss:// links, a subscription link or Xray JSON": "لینک‌های vless:// vmess:// trojan:// ss://، لینک اشتراک یا JSON ی Xray را بچسبان",
+    "Save config": "ذخیره کانفیگ",
+    "Replace the saved config": "جایگزین کردن کانفیگ ذخیره‌شده",
+    "Delete the saved config": "حذف کانفیگ ذخیره‌شده",
+    "Saving the config...": "در حال ذخیره‌ی کانفیگ...",
+    "Deleting the config...": "در حال حذف کانفیگ...",
+    "Config saved": "کانفیگ ذخیره شد",
+    "Config deleted": "کانفیگ حذف شد",
+    "Paste a config first.": "اول یک کانفیگ بچسبان.",
+    "This JSON is not valid.": "این JSON معتبر نیست.",
+    "No vless:// vmess:// trojan:// ss:// link or subscription link was found.": "هیچ لینک vless:// vmess:// trojan:// ss:// یا لینک اشتراکی پیدا نشد.",
+    "This config is too long for a GitHub secret.": "این کانفیگ برای Secret گیت‌هاب خیلی طولانی است.",
+    "Reading the links on this phone...": "در حال خواندن لینک‌ها با گوشی...",
+    "No link was found on this phone.": "هیچ لینکی روی این گوشی پیدا نشد.",
+    "\n\nIf the site gives video and audio separately, or blocks this phone, use the Any site button (GitHub) instead.":
+        "\n\nاگر سایت تصویر و صدا را جدا می‌دهد یا این گوشی را مسدود کرده، از دکمه‌ی Any site (گیت‌هاب) استفاده کن.",
+    "Any site (phone)": "Any site (با گوشی)",
+    "Proxy (optional)": "پروکسی (اختیاری)",
+    "socks5://ip:port - only for reading the page": "socks5://ip:port - فقط برای خواندن صفحه",
+    "v2ray config (optional)": "کانفیگ v2ray (اختیاری)",
+    "Empty = the config saved in Settings": "خالی = کانفیگ ذخیره‌شده در تنظیمات",
+    "Find free proxies": "پیدا کردن پروکسی رایگان",
+    "How many working proxies to find": "چند پروکسی سالم پیدا شود",
+})
