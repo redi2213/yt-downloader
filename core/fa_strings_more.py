@@ -514,3 +514,17 @@ MORE_EXACT.update({
     "Go": "برو",
     "Paste a link first": "اول یک لینک بچسبان",
 })
+
+
+MORE_EXACT.update({
+    "Check for update": "بررسی نسخه‌ی جدید",
+    "Checking...": "در حال بررسی...",
+    "Could not check for updates.": "بررسی نسخه ممکن نشد.",
+})
+MORE_PATTERNS.extend([
+    (r"Version (.+) is on GitHub \(you have (.+)\)\. Build the new APK from Settings > App tools\.",
+     "نسخه {0} در GitHub هست (نسخه‌ی شما {1}). APK جدید را از تنظیمات > ابزارهای برنامه بساز."),
+    (r"You have the latest version \((.+)\)\.", "شما آخرین نسخه ({0}) را دارید."),
+    (r"This build \((.+)\) is newer than main \((.+)\)\.", "این بیلد ({0}) از main ({1}) جلوتر است."),
+    (r"Could not compare versions \((.+) / (.+)\)\.", "مقایسه‌ی نسخه‌ها ممکن نشد ({0} / {1})."),
+])
