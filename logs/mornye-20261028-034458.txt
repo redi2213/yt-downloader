@@ -1,0 +1,14 @@
+Mornye log 2026-10-28 03:44:58 | track 1dHbcmMm9bov1q4lG7Q4nQ | providers qobuz,tidal,deezer | target github | FAILED: Nothing could be downloaded. Shakira, Beéle - ALGO TÚ: qobuz: Qobuz: Provider temporarily unavailable; tidal: Tidal: Provider temporarily unavailable; deezer: Deezer: this stream needs decryption (not supported yet)
+03:44:12 providers: qobuz,tidal,deezer
+03:44:13 spotify track: 1 track(s)
+03:44:15 found on a provider: 1/1
+03:44:17 POST /tickets (qobuz) -> http 200
+03:44:18 POST /dl/qbz (qobuz) -> http 503 {"error":"Provider temporarily unavailable","code":"PROVIDER_UNAVAILABLE","origin":"provider","retryable":true,"retry_mode":"same_operation","retry_after_seconds":1}
+03:44:18 qobuz failed for Shakira, Beéle - ALGO TÚ: Qobuz: Provider temporarily unavailable
+03:44:18 POST /tickets (tidal) -> http 200
+03:44:55 POST /dl/tid (tidal) -> http 503 {"error":"Provider temporarily unavailable","code":"PROVIDER_UNAVAILABLE","origin":"provider","retryable":true,"retry_mode":"same_operation","retry_after_seconds":10}
+03:44:55 tidal failed for Shakira, Beéle - ALGO TÚ: Tidal: Provider temporarily unavailable
+03:44:55 POST /tickets (deezer) -> http 200
+03:44:58 POST /dl/dzr (deezer) -> http 200
+03:44:58 deezer failed for Shakira, Beéle - ALGO TÚ: Deezer: this stream needs decryption (not supported yet)
+03:44:58 saved: 0/1
