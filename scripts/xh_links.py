@@ -25,12 +25,21 @@ _compat_base_api()
 
 
 def load_proxies() -> list[str]:
+    """If Xray started from v2ray_config, ONLY local SOCKS (ignore free list)."""
+    if os.path.isfile("/tmp/xray_from_config") or (
+        os.path.isfile("/tmp/xray.pid") and os.environ.get("V2RAY_CONFIG", "").strip()
+    ):
+        print("Using ONLY local Xray SOCKS (v2ray_config set — free proxies skipped)")
+        return ["socks5://127.0.0.1:10808"]
+
     proxies: list[str] = []
     if os.path.isfile("/tmp/xray.pid"):
         proxies.append("socks5://127.0.0.1:10808")
+
     one = (os.environ.get("PROXY") or "").strip()
     if one:
         proxies.append(one)
+
     for path in ("working_proxies.txt", "proxies.txt"):
         if not os.path.isfile(path):
             continue
@@ -39,6 +48,7 @@ def load_proxies() -> list[str]:
                 line = line.strip()
                 if line and not line.startswith("#"):
                     proxies.append(line)
+
     seen: set[str] = set()
     out: list[str] = []
     for p in proxies:
