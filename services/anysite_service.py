@@ -47,11 +47,11 @@ def parse_formats_log(text):
     return _collect(text, _SAFE_RE, True) or _collect(text, _FORMATS_RE, False)
 
 
-def start_check(action, urls, on_status, on_done):
+def start_check(action, urls, on_status, on_done, extra=None):
     """on_done(res) from a background thread:
     {'ok': True, 'run_id': id, 'links': [{url, title, heights, formats}]}
     or {'ok': False, 'error': str}. ``urls`` is the multi-line text of the form."""
-    run_in_background(_check_thread, action, urls, on_status, on_done)
+    run_in_background(_check_thread, action, urls, on_status, on_done, extra)
 
 
 def _say(on_status, text):
@@ -59,10 +59,14 @@ def _say(on_status, text):
         on_status(text)
 
 
-def _check_thread(action, urls, on_status, on_done):
+def _check_thread(action, urls, on_status, on_done, extra=None):
     try:
         _say(on_status, "Starting the check...")
         inputs = {"mode": "release", "urls": urls, "quality": "check"}
+        # proxy / v2ray_config boxes: sent only when filled (an older workflow rejects unknown inputs)
+        for key, value in (extra or {}).items():
+            if value:
+                inputs[key] = value
         run_id = workflows.dispatch_and_find_run(action["workflow"], inputs)
         if run_id is None:
             on_done({"ok": False, "error": "Could not detect the workflow run. It may still be running on GitHub Actions."})
