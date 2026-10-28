@@ -1,0 +1,5 @@
+Mornye log 2026-10-29 00:17:57 | track 4eycii1TTBvyoZ09ERFVNL | providers tidal | target links | FAILED: None of the tracks were found on tidal
+00:17:55 providers: tidal
+00:17:56 spotify track: 1 track(s)
+00:17:57 found on a provider: 0/1
+00:17:57 lookup failed: Mohsen Yeganeh - Daryabam: not found on tidal
