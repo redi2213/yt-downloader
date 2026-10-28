@@ -91,6 +91,10 @@ def _downloads(nav):
     run_mode_btn.bind(on_press=lambda i: nav.cycle_run_mode())
     nav.add(run_mode_btn)
 
+    proxy_btn = Button(text="Proxy / v2ray config (for Any site)", size_hint_y=None, height=48)
+    proxy_btn.bind(on_press=lambda i: nav.show_proxy_settings())
+    nav.add(proxy_btn)
+
     nav.add(info)
     nav.set_status_label(info)
 
