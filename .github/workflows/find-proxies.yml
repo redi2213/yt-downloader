@@ -1,0 +1,81 @@
+name: Find Free Proxies
+run-name: Find Free Proxies
+
+# Finds working free proxies (used by the "Any site" workflow to read xHamster pages) and keeps
+# the list in working_proxies.txt on the config branch. Copied from link_downloader.
+
+on:
+  workflow_dispatch:
+    inputs:
+      needed:
+        description: "Stop after this many working proxies"
+        required: false
+        default: "8"
+        type: string
+      max_candidates:
+        description: "Max proxies to test from free lists"
+        required: false
+        default: "100"
+        type: string
+      xh_check:
+        description: "Also test opening xhamster.com (1=yes, 0=no)"
+        required: false
+        default: "0"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          pip install -U pip
+          pip install requests PySocks
+
+      - name: Find working free proxies
+        env:
+          NEEDED: ${{ inputs.needed }}
+          MAX_CANDIDATES: ${{ inputs.max_candidates }}
+          XH_CHECK: ${{ inputs.xh_check }}
+          PROXY_TIMEOUT: "8"
+          MAX_WORKERS: "20"
+        run: python scripts/find_proxies.py
+
+      - name: Save the list on the config branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -s working_proxies.txt ]; then
+            echo "No working proxies found - the list on the config branch is left as it is"
+            exit 0
+          fi
+          {
+            echo "# Auto-updated by the Find Free Proxies workflow"
+            echo "# Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "# Format: socks5://ip:port  or  http://ip:port"
+            grep -v '^#' working_proxies.txt | sed '/^$/d'
+          } > working_proxies.out
+          B64=$(base64 -w0 working_proxies.out)
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/contents/working_proxies.txt?ref=config" -q .sha 2>/dev/null || true)
+          COUNT=$(grep -vc '^#' working_proxies.out || true)
+          if [ -n "$SHA" ]; then
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/working_proxies.txt" \
+              -f message="chore: update working free proxies ($COUNT)" -f content="$B64" -f branch=config -f sha="$SHA" > /dev/null
+          else
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/working_proxies.txt" \
+              -f message="chore: add working free proxies ($COUNT)" -f content="$B64" -f branch=config > /dev/null
+          fi
+          echo "Saved $COUNT proxies to working_proxies.txt on the config branch"
+          cat working_proxies.out
