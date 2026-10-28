@@ -1,5 +1,5 @@
 {
-  "config_version": 24,
+  "config_version": 25,
   "actions": [
     {
       "id": "tiktok_download",
@@ -669,6 +669,40 @@
       "workflow_inputs": {
         "spotify_url": "{url}",
         "quality": "{quality}"
+      }
+    },
+    {
+      "id": "find_proxies",
+      "title": "Find free proxies",
+      "icon": "download",
+      "enabled": true,
+      "fields": [
+        {
+          "key": "needed",
+          "type": "choice",
+          "label": "How many working proxies to find",
+          "choices": [
+            {
+              "label": "5",
+              "value": "5"
+            },
+            {
+              "label": "8",
+              "value": "8"
+            },
+            {
+              "label": "15",
+              "value": "15"
+            }
+          ],
+          "default": "8"
+        }
+      ],
+      "workflow": "find-proxies.yml",
+      "workflow_inputs": {
+        "needed": "{needed}",
+        "max_candidates": "150",
+        "xh_check": "0"
       }
     }
   ],
