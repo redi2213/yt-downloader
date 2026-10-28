@@ -1,5 +1,5 @@
 {
-  "config_version": 25,
+  "config_version": 26,
   "actions": [
     {
       "id": "tiktok_download",
@@ -70,15 +70,116 @@
             }
           ],
           "default": "720"
+        },
+        {
+          "key": "proxy_mode",
+          "type": "choice",
+          "label": "How to read the page",
+          "choices": [
+            {
+              "label": "Auto",
+              "value": "auto"
+            },
+            {
+              "label": "GitHub IP",
+              "value": "github"
+            },
+            {
+              "label": "v2ray",
+              "value": "v2ray"
+            },
+            {
+              "label": "Proxy",
+              "value": "proxy"
+            }
+          ],
+          "default": "auto"
+        },
+        {
+          "key": "proxy",
+          "type": "text",
+          "label": "Proxy (optional)",
+          "hint": "socks5://ip:port - only for reading the page",
+          "optional": true
+        },
+        {
+          "key": "v2ray_config",
+          "type": "text",
+          "label": "v2ray config (optional)",
+          "hint": "Empty = the config saved in Settings",
+          "multiline": true,
+          "optional": true
         }
       ],
       "workflow": "Any-Site-Upload.yml",
       "workflow_inputs": {
         "mode": "release",
         "urls": "{urls}",
-        "quality": "{quality}"
+        "quality": "{quality}",
+        "proxy_mode": "{proxy_mode}",
+        "proxy": "{proxy}",
+        "v2ray_config": "{v2ray_config}"
       },
       "handler": "anysite",
+      "group": "upload"
+    },
+    {
+      "id": "any_site_phone",
+      "title": "Any site (phone)",
+      "icon": "download",
+      "enabled": true,
+      "fields": [
+        {
+          "key": "urls",
+          "type": "text",
+          "label": "Video links (one per line)",
+          "hint": "Paste one or more page links",
+          "multiline": true
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Check formats",
+              "value": "check"
+            },
+            {
+              "label": "Highest",
+              "value": "highest"
+            },
+            {
+              "label": "1080p",
+              "value": "1080"
+            },
+            {
+              "label": "720p",
+              "value": "720"
+            },
+            {
+              "label": "480p",
+              "value": "480"
+            },
+            {
+              "label": "360p",
+              "value": "360"
+            },
+            {
+              "label": "240p",
+              "value": "240"
+            },
+            {
+              "label": "144p",
+              "value": "144"
+            }
+          ],
+          "default": "720"
+        }
+      ],
+      "workflow": "upload-file.yml",
+      "workflow_inputs": {},
+      "handler": "anysite_phone",
       "group": "upload"
     },
     {
