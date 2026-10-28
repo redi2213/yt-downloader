@@ -543,3 +543,12 @@ MORE_EXACT.update({
     "Find free proxies": "پیدا کردن پروکسی رایگان",
     "How many working proxies to find": "چند پروکسی سالم پیدا شود",
 })
+
+
+MORE_EXACT.update({
+    "How to read the page": "صفحه چطور خوانده شود",
+    "Auto": "خودکار",
+    "GitHub IP": "آی‌پی گیت‌هاب",
+    "Proxy": "پروکسی",
+    "v2ray": "v2ray",
+})
