@@ -1019,6 +1019,9 @@ class Navigator:
         actions_dynamic.build_group(self, name, actions)
 
     def show_action_input(self, action, prefill=None, share_url=None, initial=None):
+        if action.get("plugin"):    # a button backed by a plugin file (see LAB.md)
+            from screens import plugin_runner
+            return plugin_runner.open_from_action(self, action, prefill=prefill, share_url=share_url)
         from screens import actions_dynamic
         self.remember(lambda: self.show_action_input(action, prefill, share_url, initial))
         actions_dynamic.build_input(
