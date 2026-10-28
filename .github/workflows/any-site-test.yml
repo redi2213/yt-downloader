@@ -45,6 +45,16 @@ on:
         required: false
         default: ''
         type: string
+      proxy:
+        description: 'Optional proxy for reading the page, e.g. socks5://ip:port or http://ip:port (the video itself is downloaded directly)'
+        required: false
+        default: ''
+        type: string
+      v2ray_config:
+        description: 'Optional v2ray for reading the page: vless/vmess/trojan/ss links, a subscription link or Xray JSON (empty = the one saved in the app)'
+        required: false
+        default: ''
+        type: string
       force:
         description: 'yes = ignore the "this site failed before" warning and run anyway (set by the app after you confirm)'
         required: false
@@ -159,6 +169,26 @@ jobs:
           fi
 
       # اختیاری: اگر Secret به اسم COOKIES_TXT (فرمت Netscape) بسازی استفاده می‌شود
+      - name: Setup proxy (optional v2ray config / proxy)
+        id: px
+        env:
+          V2RAY_CONFIG: ${{ inputs.v2ray_config || secrets.V2RAY_CONFIG }}
+          PROXY: ${{ inputs.proxy }}
+        run: |
+          python3 _repo/scripts/xray_setup.py || true
+          URL_OUT=""
+          if [ -f /tmp/xray_from_config ]; then
+            URL_OUT="socks5h://127.0.0.1:10808"
+          elif [ -n "$PROXY" ]; then
+            case "$PROXY" in
+              socks5://*) URL_OUT="socks5h://${PROXY#socks5://}" ;;
+              *://*) URL_OUT="$PROXY" ;;
+              *) URL_OUT="http://$PROXY" ;;
+            esac
+          fi
+          echo "proxy_url=$URL_OUT" >> "$GITHUB_OUTPUT"
+          if [ -n "$URL_OUT" ]; then echo "Pages will be read through a proxy"; else echo "No proxy for this link"; fi
+
       - name: Prepare cookies (optional)
         env:
           COOKIES: ${{ secrets.COOKIES_TXT }}
@@ -177,6 +207,8 @@ jobs:
           IDX: ${{ matrix.idx }}
           FORMAT_ID: ${{ inputs.format_id }}
           GH_TOKEN: ${{ github.token }}
+          PROXY: ${{ inputs.proxy }}
+          V2RAY_CONFIG: ${{ inputs.v2ray_config || secrets.V2RAY_CONFIG }}
         run: |
           # the proxy list is kept on the config branch by the Find Free Proxies workflow
           curl -fsS -m 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" \
@@ -193,6 +225,7 @@ jobs:
           QUALITY: ${{ inputs.quality }}
           IDX: ${{ matrix.idx }}
           FORMAT_ID: ${{ inputs.format_id }}
+          PROXY_URL: ${{ steps.px.outputs.proxy_url }}
         run: |
           python3 - <<'PY'
           import json, os, re, subprocess, sys, time, urllib.request
@@ -205,10 +238,11 @@ jobs:
           check = (q == "check" and not fid_in)
           target = 0 if q in ("highest", "check") else int(q)
           cookie = ["--cookies", "cookies.txt"] if os.path.isfile("cookies.txt") else []
+          proxy = ["--proxy", os.environ["PROXY_URL"]] if os.environ.get("PROXY_URL") else []
 
           def ytdlp(args, extra=()):
               return subprocess.run(
-                  ["yt-dlp", "--no-warnings", "--no-playlist"] + cookie + list(extra) + args,
+                  ["yt-dlp", "--no-warnings", "--no-playlist"] + cookie + proxy + list(extra) + args,
                   capture_output=True, text=True, timeout=180)
 
           def short(msg):
@@ -474,6 +508,7 @@ jobs:
           FSEL: ${{ steps.pick.outputs.fsel }}
           NAME: ${{ steps.pick.outputs.name }}
           EXTRA: ${{ steps.pick.outputs.extra }}
+          PROXY_URL: ${{ steps.px.outputs.proxy_url }}
         run: |
           set -euo pipefail
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -512,12 +547,30 @@ jobs:
 
           if [ "$USE_YTDLP" = "1" ]; then
             rm -rf work && mkdir -p work
-            yt-dlp --no-warnings --no-playlist "${COOKIE_ARGS[@]}" "${EXTRA_ARGS[@]}" \
-              -f "$FSEL" \
-              --merge-output-format mp4 \
-              --concurrent-fragments 16 \
-              --retries 5 --fragment-retries 5 \
-              -o "work/$NAME" "$URL"
+            DONE=0
+            PROXY_ARGS=()
+            if [ -n "${PROXY_URL:-}" ]; then
+              PROXY_ARGS=(--proxy "$PROXY_URL")
+              if [ "${#LINKS[@]}" -eq 1 ]; then
+                echo "Trying the extracted link straight from this runner (no proxy)"
+                if yt-dlp --no-warnings --no-playlist --referer "$URL" --user-agent "$UA" \
+                     --concurrent-fragments 16 --retries 3 --fragment-retries 3 \
+                     --remux-video mp4 -o "work/$NAME" "${LINKS[0]}"; then
+                  DONE=1
+                else
+                  echo "Direct download failed - retrying through the proxy"
+                  rm -rf work && mkdir -p work
+                fi
+              fi
+            fi
+            if [ "$DONE" = "0" ]; then
+              yt-dlp --no-warnings --no-playlist "${COOKIE_ARGS[@]}" "${PROXY_ARGS[@]}" "${EXTRA_ARGS[@]}" \
+                -f "$FSEL" \
+                --merge-output-format mp4 \
+                --concurrent-fragments 16 \
+                --retries 5 --fragment-retries 5 \
+                -o "work/$NAME" "$URL"
+            fi
           elif [ "${#PARTS[@]}" -eq 1 ]; then
             mv "${PARTS[0]}" "work/$NAME"
           else
