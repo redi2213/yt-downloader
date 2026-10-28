@@ -160,6 +160,12 @@ jobs:
         run: |
           set -euo pipefail
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          # a name hint added by the app after the link: <link>#ytb-name=<url-encoded file name>
+          NAME_HINT=""
+          if [[ "$URL" == *"#ytb-name="* ]]; then
+            NAME_HINT=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "${URL##*#ytb-name=}" | tr -d '/\r\n')
+            URL="${URL%%#ytb-name=*}"
+          fi
           REF="${REFERER:-$URL}"
 
           PATH_ONLY="${URL%%\?*}"
@@ -179,6 +185,7 @@ jobs:
             base=$(basename "$PATH_ONLY")
             base=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$base" | tr -d '/')
             name="${base%.*}"
+            if [ -n "$NAME_HINT" ]; then name="$NAME_HINT"; fi
             [ -n "$name" ] || name="video"
             case "${name,,}" in *.mp4) ;; *) name="${name}.mp4" ;; esac
             ORIGINAL_NAME="$name"
@@ -206,6 +213,7 @@ jobs:
               ORIGINAL_NAME=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$ORIGINAL_NAME")
             fi
             ORIGINAL_NAME=$(echo "$ORIGINAL_NAME" | tr -d '/')
+            if [ -n "$NAME_HINT" ]; then ORIGINAL_NAME="$NAME_HINT"; fi
             if [ -z "$ORIGINAL_NAME" ]; then
               ORIGINAL_NAME="downloaded_file"
             fi
