@@ -1,80 +1,51 @@
-# YT Bridge Git — Architecture (v1.4-refactor)
+# YT Bridge - Architecture
 
-## Layers
+The app is a thin Kivy client. GitHub Actions is the backend: the app dispatches a workflow, polls
+the run, and shows the release link. Nothing runs on a server of ours.
 
-```
-screens/          UI (Kivy widgets only: build, show input, bind buttons)
-  navigator.py     Application/Controller: screen flow, job manager, app-level state
-  common.py        shared widget helpers (labels, back button, "working" screen)
-  home.py, download.py, upload.py, playlist.py,
-  result.py, job_history.py, history.py,
-  actions_status.py, about.py
+## Branches
 
-services/         Business logic (no Kivy import except notify_service->plyer)
-  download_service.py    fetch formats, download a single video, pick_format()
-  upload_service.py      upload-from-link flow
-  playlist_service.py    playlist link listing + parallel playlist download
-  history_service.py     live GitHub Releases: list/delete/rename/zip
-  actions_service.py     GitHub Actions run list / run detail
-  job_service.py         generic cancel (shared by every job kind)
-  token_service.py       GitHub token get/save (thin pass-through to api.github.auth)
-  notify_service.py      OS notifications
+| Branch | Holds |
+|---|---|
+| `main` | the app and all workflows (the default branch: scheduled workflows only run from here) |
+| `config` | data shared by every build: `config.json` (Download Anything buttons, error help), `ntfy.json`, `follows.json` + `follow-state.json` (Auto follow), `site-log.jsonl` |
+| `backup` | dated zips of `main` made by the in-app updater (last 5) |
 
-api/github/       All GitHub REST calls, nothing else
-  auth.py          token storage + auth headers (JsonStore)
-  client.py        HTTP session, retries, error mapping (NetworkError/AuthenticationError)
-  workflows.py     dispatch/poll/cancel workflow runs, list recent runs, run steps
-  releases.py      release link polling, live history, delete, rename asset
-  logs.py          run log fetch + yt-dlp "-F" output parsing
+A build made from a branch other than `main` is a DEV build: other package name, version `X.Y-dev.N`,
+`version.txt` untouched, and every workflow it dispatches runs on that same branch.
 
-core/             Kivy-independent, GitHub-independent
-  config.py        constants (repo, timeouts, app version, ...)
-  exceptions.py    AuthenticationError, NetworkError, WorkflowError, DownloadError,
-                   UploadError, FormatError, CancellationError, ConfigurationError
-  models/job.py    Job dataclass (job_id, type, stage, status, run_id, input,
-                   result, error, retry, cancel_requested, extra)
-  jobs/job_manager.py  tracks current_job + a short finished-job history
-  async_utils.py   run_in_background() - one place that starts daemon threads
-
-main.py           Composition root only: builds the Kivy window/scroll/content
-                  container and hands off to Navigator. No business logic.
-```
-
-## Flow
+## Layers (UI -> services -> api; core knows nothing about Kivy or GitHub)
 
 ```
-Kivy screen (button press)
-      -> Navigator (screens/navigator.py)
-            -> services/*_service.py   (spawns a background thread)
-                  -> api/github/*.py   (talks to GitHub)
+main.py            window + scroll view, hands over to the Navigator
+screens/           Kivy widgets only; navigator.py is the controller (screen flow, job manager)
+  style.py         theme, fonts, sizes and Persian text applied to every widget
+services/          business logic, runs in background threads, reports through callbacks
+api/github/        every GitHub REST call (auth, client, workflows, releases, logs, secrets, repo files)
+api/*_prefs.py     small settings kept on the phone
+core/              pure helpers: models, job manager, i18n, zip/file routing, run-again packing,
+                   download manager (segmented downloads), follow rules, version check, sealed box
+scripts/           run on GitHub runners (and some on the phone): publish, quality probe, auto follow,
+                   cleanup, Aparat, site log
+tests/             pytest for core/ and scripts/ (no Kivy needed); CI runs them on pull requests
 ```
 
-Background threads report progress/results through plain callbacks
-(`on_status(text)`, `on_complete(job)`). Screens pass in callbacks that hop
-back onto the main thread via `Clock.schedule_once` (done once, centrally,
-in `Navigator.set_status` / `Navigator.schedule`). Nothing below the
-Navigator ever imports Kivy's Clock.
+## Main flows
 
-## Adding a new client (e.g. a Telegram bot)
+- **Run a tool**: screen -> Navigator -> `services/*` -> `api/github/workflows.dispatch_and_find_run`
+  (adds `job_id` / `run_title` / `rerun` inputs so the exact run is found and can be repeated) ->
+  `wait_for_run` -> release link -> result screen.
+- **Run again**: the inputs are packed into the run name (`core/rerun.py`) and read back later.
+- **Files**: `storage_publish.py` puts them in a GitHub release `run-<id>`; the app downloads them with the
+  download manager into `Download/Yt-bridge/<category>`.
+- **Auto follow**: `Auto-Follow.yml` wakes on a cron the app keeps short, reads `follows.json`, and starts
+  the normal download workflows with `release_tag=auto-<slug>`.
+- **Notifications**: the last step of every workflow posts to the ntfy topic stored in `ntfy.json`.
+- **Cleanup**: `cleanup-releases.yml` deletes `run-*` video releases after 7 days; APK builds and backups stay.
 
-Everything under `services/` and `api/` is plain Python with no Kivy
-dependency. A new client just needs its own thin "screens" layer that
-calls the same `services.download_service.start_download(...)`, etc., and
-supplies its own `on_status`/`on_complete` callbacks (e.g. editing a
-Telegram message instead of a Kivy Label).
+## Rules that keep it working
 
-## Behavior preserved 1:1 from v1.3
-
-All features work exactly as before: single video download (with HDR/size/codec
-shown per quality), audio-only, playlist link listing + bulk playlist download
-with quality presets, upload-from-link with optional zip/rename, cancel and
-"pick a different quality" mid-job, retry-only-the-broken-step after a network
-hiccup, in-memory recent-jobs list (last 5), live GitHub Releases history with
-delete/bulk-delete/rename/zip, GitHub Actions status + run step detail, and
-GitHub token management. One pre-existing quirk was intentionally *not*
-preserved: a successful upload used to jump to the "Ready!" screen even if the
-user had already navigated to a different job in the meantime (every other job
-kind guards against this); it's now consistent with the rest of the app.
-
-`history_patch.py` at the project root was already a standalone Termux CLI
-utility not wired into the Kivy app, so it was left untouched.
+- New workflow inputs need a default, and the app retries without optional inputs on HTTP 422.
+- Texts: English in code; Persian lives in `core/fa_strings*.py` (`tests/test_i18n.py` checks the tables).
+- Anything that writes to `main` or `config` from the app (Update project, Auto follow, ntfy) needs a token
+  with write access; use it carefully from a DEV build.
