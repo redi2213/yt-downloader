@@ -6,6 +6,19 @@
       "file": "hello.py",
       "description": "Example: menus, sub-menus, input, choices, background work, saved values.",
       "min_host": 1
+    },
+    {
+      "id": "mornye_lab",
+      "title": "Mornye (lab copy)",
+      "file": "mornye_lab.py",
+      "modules": [
+        "lib/mornye.py",
+        "lib/mornye_prefs.py",
+        "lib/mornye_download.py",
+        "lib/mornye_link_service.py"
+      ],
+      "description": "Copy of Mornye from link. The app's own Mornye is untouched; sessions are shared, settings are separate.",
+      "min_host": 1
     }
   ]
 }
