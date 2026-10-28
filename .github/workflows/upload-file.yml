@@ -33,6 +33,11 @@ on:
         required: false
         default: 'false'
         type: string
+      referer:
+        description: 'Optional Referer header for sites that check it (empty = the link itself)'
+        required: false
+        default: ''
+        type: string
       custom_name:
         description: 'Ignored (kept only so older app versions do not break)'
         required: false
@@ -137,54 +142,110 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
-      - name: Install aria2
-        run: sudo apt-get update && sudo apt-get install -y aria2
+      - name: Install tools (aria2, ffmpeg, yt-dlp)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 ffmpeg
+          sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+            && sudo chmod a+rx /usr/local/bin/yt-dlp \
+            || python3 -m pip install -q -U --break-system-packages yt-dlp
+          yt-dlp --version
 
       - name: Download the file
         id: dl
         env:
           URL: ${{ matrix.url }}
           ZIP_IT: ${{ inputs.zip_it }}
+          REFERER: ${{ inputs.referer }}
         run: |
           set -euo pipefail
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          REF="${REFERER:-$URL}"
 
-          HEADERS=$(curl -sIL -A "$UA" "$URL" || true)
-          CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r' || true)
+          PATH_ONLY="${URL%%\?*}"
+          HEADERS=$(curl -sIL -A "$UA" -e "$REF" "$URL" || true)
+          CT=$(echo "$HEADERS" | grep -i "^content-type:" | tail -1 | tr -d '\r' || true)
 
-          if [ -n "$CD_NAME" ]; then
-            ORIGINAL_NAME="$CD_NAME"
-          else
-            ORIGINAL_NAME=$(basename "${URL%%\?*}")
-            ORIGINAL_NAME=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$ORIGINAL_NAME")
-          fi
-          ORIGINAL_NAME=$(echo "$ORIGINAL_NAME" | tr -d '/')
-          if [ -z "$ORIGINAL_NAME" ]; then
-            ORIGINAL_NAME="downloaded_file"
-          fi
-
-          echo "Detected original filename: $ORIGINAL_NAME"
+          # An HLS link (.m3u8) is only a text playlist: the video is in the pieces it lists.
+          IS_HLS=false
+          case "${PATH_ONLY,,}" in *.m3u8) IS_HLS=true ;; esac
+          case "${CT,,}" in *mpegurl*) IS_HLS=true ;; esac
 
           mkdir -p work release_asset
           cd work
 
-          set +e
-          aria2c \
-            -x 16 -s 16 -k 1M \
-            --connect-timeout=20 \
-            --max-tries=5 \
-            --retry-wait=5 \
-            --user-agent="$UA" \
-            --referer="$URL" \
-            -o "$ORIGINAL_NAME" \
-            "$URL"
-          ARIA_EXIT=$?
-          set -e
+          hls_download() {
+            local base name
+            base=$(basename "$PATH_ONLY")
+            base=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$base" | tr -d '/')
+            name="${base%.*}"
+            [ -n "$name" ] || name="video"
+            case "${name,,}" in *.mp4) ;; *) name="${name}.mp4" ;; esac
+            ORIGINAL_NAME="$name"
+            echo "HLS playlist: building $ORIGINAL_NAME from the stream pieces"
+            rm -f "$ORIGINAL_NAME"
+            if ! yt-dlp --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 \
+                 --user-agent "$UA" --referer "$REF" --remux-video mp4 \
+                 -o "${ORIGINAL_NAME%.mp4}.%(ext)s" "$URL"; then
+              echo "::warning::yt-dlp failed, trying ffmpeg"
+              rm -f "$ORIGINAL_NAME" ./*.part ./*.ytdl 2>/dev/null || true
+              ffmpeg -hide_banner -loglevel warning -y -user_agent "$UA" \
+                -headers "Referer: $REF"$'\r\n' -i "$URL" -c copy "$ORIGINAL_NAME" \
+                || { echo "::error::Could not build the video from this HLS link (it may have expired or need a Referer)."; exit 1; }
+            fi
+          }
 
-          if [ "$ARIA_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
-            echo "::error::Download failed (aria2c exit code $ARIA_EXIT). The link may require a browser, block direct downloads, or need to be re-checked."
+          if [ "$IS_HLS" = "true" ]; then
+            hls_download
+          else
+            CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r' || true)
+            if [ -n "$CD_NAME" ]; then
+              ORIGINAL_NAME="$CD_NAME"
+            else
+              ORIGINAL_NAME=$(basename "$PATH_ONLY")
+              ORIGINAL_NAME=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$ORIGINAL_NAME")
+            fi
+            ORIGINAL_NAME=$(echo "$ORIGINAL_NAME" | tr -d '/')
+            if [ -z "$ORIGINAL_NAME" ]; then
+              ORIGINAL_NAME="downloaded_file"
+            fi
+            echo "Detected original filename: $ORIGINAL_NAME"
+
+            set +e
+            aria2c \
+              -x 16 -s 16 -k 1M \
+              --connect-timeout=20 \
+              --max-tries=5 \
+              --retry-wait=5 \
+              --user-agent="$UA" \
+              --referer="$REF" \
+              -o "$ORIGINAL_NAME" \
+              "$URL"
+            ARIA_EXIT=$?
+            set -e
+
+            if [ "$ARIA_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
+              echo "::error::Download failed (aria2c exit code $ARIA_EXIT). The link may require a browser, block direct downloads, or need to be re-checked."
+              exit 1
+            fi
+
+            # The link did not end in .m3u8 but gave a playlist anyway
+            if head -c 16 "$ORIGINAL_NAME" | grep -q '^#EXTM3U'; then
+              echo "The download is an HLS playlist, switching to the stream download"
+              rm -f "$ORIGINAL_NAME"
+              hls_download
+            fi
+          fi
+
+          if [ ! -s "$ORIGINAL_NAME" ]; then
+            echo "::error::The downloaded file is empty."
             exit 1
           fi
+          if head -c 16 "$ORIGINAL_NAME" | grep -q '^#EXTM3U'; then
+            echo "::error::The result is still a playlist, not a video."
+            exit 1
+          fi
+          echo "Result: $ORIGINAL_NAME ($(du -h "$ORIGINAL_NAME" | cut -f1))"
 
           FINAL_NAME="$ORIGINAL_NAME"
           if [ "$ZIP_IT" = "true" ]; then
@@ -218,12 +279,17 @@ jobs:
 
       - name: Keep the result (Arvan links and quality) for the final step
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: storage-meta-${{ matrix.idx }}
-          path: meta/meta-${{ matrix.idx }}.json
-          retention-days: 1
-          if-no-files-found: ignore
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IDX: ${{ matrix.idx }}
+        run: |
+          # Kept as a tiny asset of the release (no Actions Artifact, so no Artifact storage quota)
+          if [ -f "meta/meta-$IDX.json" ]; then
+            cp "meta/meta-$IDX.json" "meta/_ytb-meta-$IDX.json"
+            gh release upload "$TAG" "meta/_ytb-meta-$IDX.json" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
 
   finalize:
     needs: [prepare, upload]
@@ -236,12 +302,17 @@ jobs:
         with:
           sparse-checkout: scripts
 
-      - uses: actions/download-artifact@v4
+      - name: Get the results of the file jobs
         continue-on-error: true
-        with:
-          pattern: storage-meta-*
-          merge-multiple: true
-          path: metas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          mkdir -p metas
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '_ytb-meta-*.json' --dir metas || true
+          for n in $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep '^_ytb-meta-' || true); do
+            gh release delete-asset "$TAG" "$n" --repo "$GITHUB_REPOSITORY" -y || true
+          done
 
       - name: Write the Arvan links and the quality into the release
         env:
