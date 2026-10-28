@@ -45,6 +45,16 @@ on:
         required: false
         default: ''
         type: string
+      proxy_mode:
+        description: 'How the page is read: auto (v2ray if set, else the proxy box, else the free list for xHamster), github (GitHub IP only), v2ray, proxy'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - github
+          - v2ray
+          - proxy
       proxy:
         description: 'Optional proxy for reading the page, e.g. socks5://ip:port or http://ip:port (the video itself is downloaded directly)'
         required: false
@@ -174,8 +184,28 @@ jobs:
         env:
           V2RAY_CONFIG: ${{ inputs.v2ray_config || secrets.V2RAY_CONFIG }}
           PROXY: ${{ inputs.proxy }}
+          MODE: ${{ inputs.proxy_mode }}
         run: |
+          # auto = v2ray if set, else the proxy box (xHamster also the free list); github = GitHub IP only
+          case "$MODE" in
+            github) V2RAY_CONFIG=""; PROXY="" ;;
+            v2ray)  PROXY="" ;;
+            proxy)  V2RAY_CONFIG="" ;;
+          esac
+          if [ "$MODE" = "v2ray" ] && [ -z "$V2RAY_CONFIG" ]; then
+            echo "::error::Mode v2ray needs a v2ray config (the box, or the one saved in the app Settings)."
+            exit 1
+          fi
+          if [ "$MODE" = "proxy" ] && [ -z "$PROXY" ]; then
+            echo "::error::Mode proxy needs the Proxy box."
+            exit 1
+          fi
+          export V2RAY_CONFIG
           python3 _repo/scripts/xray_setup.py || true
+          if [ "$MODE" = "v2ray" ] && [ ! -f /tmp/xray_from_config ]; then
+            echo "::error::The v2ray config did not connect (see the warnings above)."
+            exit 1
+          fi
           URL_OUT=""
           if [ -f /tmp/xray_from_config ]; then
             URL_OUT="socks5h://127.0.0.1:10808"
@@ -209,11 +239,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PROXY: ${{ inputs.proxy }}
           V2RAY_CONFIG: ${{ inputs.v2ray_config || secrets.V2RAY_CONFIG }}
+          PROXY_MODE: ${{ inputs.proxy_mode }}
         run: |
-          # the proxy list is kept on the config branch by the Find Free Proxies workflow
-          curl -fsS -m 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/working_proxies.txt?ref=config" -o working_proxies.txt \
-            || { echo "No working_proxies.txt on the config branch yet (run Find Free Proxies): trying without a proxy"; rm -f working_proxies.txt; }
+          if [ "$PROXY_MODE" = "github" ] || [ "$PROXY_MODE" = "v2ray" ]; then PROXY=""; export PROXY; fi
+          if [ "$PROXY_MODE" = "auto" ]; then
+            # the free proxy list is kept on the config branch by the Find Free Proxies workflow
+            curl -fsS -m 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.raw+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/working_proxies.txt?ref=config" -o working_proxies.txt \
+              || { echo "No working_proxies.txt on the config branch yet (run Find Free Proxies): trying without a proxy"; rm -f working_proxies.txt; }
+          else
+            rm -f working_proxies.txt
+          fi
           python3 _repo/scripts/xh_links.py || true
           python3 _repo/scripts/xh_pick.py
 
