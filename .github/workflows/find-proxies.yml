@@ -58,8 +58,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -s working_proxies.txt ]; then
-            echo "No working proxies found - the list on the config branch is left as it is"
-            exit 0
+            echo "::error::No working proxies found - the list on the config branch is left as it is"
+            exit 1
           fi
           {
             echo "# Auto-updated by the Find Free Proxies workflow"
@@ -79,3 +79,7 @@ jobs:
           fi
           echo "Saved $COUNT proxies to working_proxies.txt on the config branch"
           cat working_proxies.out
+          # a release named like every other run (run-<id>) so the app shows the list as the result
+          cp working_proxies.out proxies.txt
+          gh release create "run-$GITHUB_RUN_ID" proxies.txt --repo "$GITHUB_REPOSITORY" \
+            --title "Free proxies ($COUNT)" --notes "$COUNT working proxies, also saved as working_proxies.txt on the config branch"
