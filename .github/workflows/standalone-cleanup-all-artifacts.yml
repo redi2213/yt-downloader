@@ -1,4 +1,4 @@
-name: Delete All Workflow Artifacts
+name: Standalone - Delete All Workflow Artifacts (not connected to app)
 
 on:
   workflow_dispatch:
