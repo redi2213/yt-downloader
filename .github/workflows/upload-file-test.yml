@@ -1,0 +1,390 @@
+name: Upload File (test)
+run-name: ${{ inputs.run_title || 'Upload' }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_url:
+        description: 'Link(s) - one or more, one per line (or separated by spaces)'
+        required: true
+        type: string
+      url_2:
+        description: 'Link 2 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      url_3:
+        description: 'Link 3 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      url_4:
+        description: 'Link 4 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      url_5:
+        description: 'Link 5 (optional, can hold several lines)'
+        required: false
+        default: ''
+        type: string
+      zip_it:
+        description: 'true to zip each file before uploading'
+        required: false
+        default: 'false'
+        type: string
+      referer:
+        description: 'Optional Referer header for sites that check it (empty = the link itself)'
+        required: false
+        default: ''
+        type: string
+      custom_name:
+        description: 'Ignored (kept only so older app versions do not break)'
+        required: false
+        default: ''
+        type: string
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app: the other inputs packed into the run name so "Run again" can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: prepare ${{ inputs.job_id }}
+    outputs:
+      matrix: ${{ steps.collect.outputs.matrix }}
+      count: ${{ steps.collect.outputs.count }}
+      tag: ${{ steps.collect.outputs.tag }}
+    steps:
+      - name: Collect links
+        id: collect
+        env:
+          U1: ${{ inputs.file_url }}
+          U2: ${{ inputs.url_2 }}
+          U3: ${{ inputs.url_3 }}
+          U4: ${{ inputs.url_4 }}
+          U5: ${{ inputs.url_5 }}
+        run: |
+          set -euo pipefail
+
+          ALL=$(printf '%s\n' "$U1" "$U2" "$U3" "$U4" "$U5" \
+            | tr -s '[:space:]' '\n' \
+            | grep -E '^https?://' \
+            | awk '!seen[$0]++' || true)
+
+          if [ -z "$ALL" ]; then
+            echo "::error::No valid link found. Links must start with http:// or https://"
+            exit 1
+          fi
+
+          MATRIX=$(printf '%s\n' "$ALL" | jq -R -s -c \
+            'split("\n") | map(select(length>0)) | to_entries | map({idx: (.key+1), url: .value})')
+          COUNT=$(printf '%s\n' "$ALL" | wc -l)
+
+          echo "Found $COUNT unique link(s):"
+          printf '%s\n' "$ALL"
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+          # The app finds the release by the run id (same rule as every workflow)
+          echo "tag=run-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.collect.outputs.tag }}
+          JOB_ID: ${{ inputs.job_id }}
+          RUN_TITLE: ${{ inputs.run_title }}
+          COUNT: ${{ steps.collect.outputs.count }}
+        run: |
+          set -euo pipefail
+          TITLE="Upload ${RUN_TITLE:-${JOB_ID:-$GITHUB_RUN_ID}}"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "$TITLE" \
+            --notes "$COUNT file(s)"
+
+  upload:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    name: file ${{ matrix.idx }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Install tools (aria2, ffmpeg, yt-dlp)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq aria2 ffmpeg
+          sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+            && sudo chmod a+rx /usr/local/bin/yt-dlp \
+            || python3 -m pip install -q -U --break-system-packages yt-dlp
+          yt-dlp --version
+
+      - name: Download the file
+        id: dl
+        env:
+          URL: ${{ matrix.url }}
+          ZIP_IT: ${{ inputs.zip_it }}
+          REFERER: ${{ inputs.referer }}
+        run: |
+          set -euo pipefail
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          REF="${REFERER:-$URL}"
+
+          PATH_ONLY="${URL%%\?*}"
+          HEADERS=$(curl -sIL -A "$UA" -e "$REF" "$URL" || true)
+          CT=$(echo "$HEADERS" | grep -i "^content-type:" | tail -1 | tr -d '\r' || true)
+
+          # An HLS link (.m3u8) is only a text playlist: the video is in the pieces it lists.
+          IS_HLS=false
+          case "${PATH_ONLY,,}" in *.m3u8) IS_HLS=true ;; esac
+          case "${CT,,}" in *mpegurl*) IS_HLS=true ;; esac
+
+          mkdir -p work release_asset
+          cd work
+
+          hls_download() {
+            local base name
+            base=$(basename "$PATH_ONLY")
+            base=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$base" | tr -d '/')
+            name="${base%.*}"
+            [ -n "$name" ] || name="video"
+            case "${name,,}" in *.mp4) ;; *) name="${name}.mp4" ;; esac
+            ORIGINAL_NAME="$name"
+            echo "HLS playlist: building $ORIGINAL_NAME from the stream pieces"
+            rm -f "$ORIGINAL_NAME"
+            if ! yt-dlp --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 \
+                 --user-agent "$UA" --referer "$REF" --remux-video mp4 \
+                 -o "${ORIGINAL_NAME%.mp4}.%(ext)s" "$URL"; then
+              echo "::warning::yt-dlp failed, trying ffmpeg"
+              rm -f "$ORIGINAL_NAME" ./*.part ./*.ytdl 2>/dev/null || true
+              ffmpeg -hide_banner -loglevel warning -y -user_agent "$UA" \
+                -headers "Referer: $REF"$'\r\n' -i "$URL" -c copy "$ORIGINAL_NAME" \
+                || { echo "::error::Could not build the video from this HLS link (it may have expired or need a Referer)."; exit 1; }
+            fi
+          }
+
+          if [ "$IS_HLS" = "true" ]; then
+            hls_download
+          else
+            CD_NAME=$(echo "$HEADERS" | grep -i "^content-disposition:" | tail -1 | sed -n 's/.*filename="\{0,1\}\([^"'"'"';]*\)"\{0,1\}.*/\1/p' | tr -d '\r' || true)
+            if [ -n "$CD_NAME" ]; then
+              ORIGINAL_NAME="$CD_NAME"
+            else
+              ORIGINAL_NAME=$(basename "$PATH_ONLY")
+              ORIGINAL_NAME=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.unquote(sys.argv[1]))' "$ORIGINAL_NAME")
+            fi
+            ORIGINAL_NAME=$(echo "$ORIGINAL_NAME" | tr -d '/')
+            if [ -z "$ORIGINAL_NAME" ]; then
+              ORIGINAL_NAME="downloaded_file"
+            fi
+            echo "Detected original filename: $ORIGINAL_NAME"
+
+            set +e
+            aria2c \
+              -x 16 -s 16 -k 1M \
+              --connect-timeout=20 \
+              --max-tries=5 \
+              --retry-wait=5 \
+              --user-agent="$UA" \
+              --referer="$REF" \
+              -o "$ORIGINAL_NAME" \
+              "$URL"
+            ARIA_EXIT=$?
+            set -e
+
+            if [ "$ARIA_EXIT" -ne 0 ] || [ ! -s "$ORIGINAL_NAME" ]; then
+              echo "::error::Download failed (aria2c exit code $ARIA_EXIT). The link may require a browser, block direct downloads, or need to be re-checked."
+              exit 1
+            fi
+
+            # The link did not end in .m3u8 but gave a playlist anyway
+            if head -c 16 "$ORIGINAL_NAME" | grep -q '^#EXTM3U'; then
+              echo "The download is an HLS playlist, switching to the stream download"
+              rm -f "$ORIGINAL_NAME"
+              hls_download
+            fi
+          fi
+
+          if [ ! -s "$ORIGINAL_NAME" ]; then
+            echo "::error::The downloaded file is empty."
+            exit 1
+          fi
+          if head -c 16 "$ORIGINAL_NAME" | grep -q '^#EXTM3U'; then
+            echo "::error::The result is still a playlist, not a video."
+            exit 1
+          fi
+          echo "Result: $ORIGINAL_NAME ($(du -h "$ORIGINAL_NAME" | cut -f1))"
+
+          FINAL_NAME="$ORIGINAL_NAME"
+          if [ "$ZIP_IT" = "true" ]; then
+            ZIP_NAME="${FINAL_NAME%.*}.zip"
+            zip -q -r "$ZIP_NAME" "$FINAL_NAME"
+            rm -f "$FINAL_NAME"
+            FINAL_NAME="$ZIP_NAME"
+          fi
+
+          mv "$FINAL_NAME" "../release_asset/$FINAL_NAME"
+          echo "filename=$FINAL_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Upload (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IDX: ${{ matrix.idx }}
+        run: |
+          python3 _repo/scripts/storage_publish.py upload --dir release_asset --tag "$TAG" --idx "$IDX" --meta-out "meta/meta-$IDX.json"
+
+      - name: Keep the result (Arvan links and quality) for the final step
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IDX: ${{ matrix.idx }}
+        run: |
+          # Kept as a tiny asset of the release (no Actions Artifact, so no Artifact storage quota)
+          if [ -f "meta/meta-$IDX.json" ]; then
+            cp "meta/meta-$IDX.json" "meta/_ytb-meta-$IDX.json"
+            gh release upload "$TAG" "meta/_ytb-meta-$IDX.json" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+  finalize:
+    needs: [prepare, upload]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: arvan links and quality
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Get the results of the file jobs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          mkdir -p metas
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '_ytb-meta-*.json' --dir metas || true
+          for n in $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep '^_ytb-meta-' || true); do
+            gh release delete-asset "$TAG" "$n" --repo "$GITHUB_REPOSITORY" -y || true
+          done
+
+      - name: Write the Arvan links and the quality into the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage }}
+          COUNT: ${{ needs.prepare.outputs.count }}
+        run: |
+          mkdir -p metas
+          python3 scripts/storage_publish.py finalize --tag "${{ needs.prepare.outputs.tag }}" --meta-dir metas --notes "$COUNT file(s)"
+
+  notify:
+    name: notify
+    needs: [prepare, upload, finalize]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Notify (ntfy)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
+          TOOL_NAME: Upload test
+          ONLY_FAILURE: 'false'
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -u
+          if [ "$JOB_STATUS" = "success" ] && [ "$ONLY_FAILURE" = "true" ]; then
+            echo "Success and this tool only reports failures: no notification."
+            exit 0
+          fi
+          # The topic is set once in the app (Settings) and kept in ntfy.json on the config branch.
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then
+            echo "No ntfy.json on the config branch: no notification."
+            exit 0
+          fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then
+            echo "ntfy topic is not set: no notification."
+            exit 0
+          fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" \
+              -H "Title: YT Bridge - $TOOL_NAME - $WORD" -H "Tags: $TAGS" -H "Priority: $PRIO" \
+              -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi
