@@ -403,39 +403,53 @@ def list_tracks(kind: str, sid: str) -> dict:
     return {"title": title, "tracks": tracks}
 
 
-_TRACK_LINK_RE = re.compile(r"open\.spotify\.com/(?:intl-[a-z]+/)?track/([A-Za-z0-9]{22})")
+_TRACK_LINK_RES = (
+    re.compile(r"open\.spotify\.com/(?:intl-[a-z]+/)?track/([A-Za-z0-9]{22})"),
+    re.compile(r"open\.spotify\.com\s*(?:\u203a|&rsaquo;|&#8250;|&gt;)\s*track\s*"
+               r"(?:\u203a|&rsaquo;|&#8250;|&gt;)\s*([A-Za-z0-9]{22})"),
+)
+_SEARCH_ENGINES = (
+    ("DuckDuckGo", "https://html.duckduckgo.com/html/", "q"),
+    ("Bing", "https://www.bing.com/search", "q"),
+    ("Brave", "https://search.brave.com/search", "q"),
+    ("Yahoo", "https://search.yahoo.com/search", "p"),
+)
 
 
 def search_spotify(query: str, limit: int = 5) -> list:
     """A song name -> [{'id', 'title', 'artist'}]. No Spotify login: the track
-    links come from a web search, the names from each track's embed page."""
+    links come from a web search (several engines, first one that answers), the
+    names from each track's embed page."""
     query = _tidy(query)
     if not query:
         raise MornyeError("Type a song name or paste a Spotify link")
-    sources = (
-        ("https://html.duckduckgo.com/html/", {"q": "site:open.spotify.com/track " + query}),
-        ("https://www.bing.com/search", {"q": "site:open.spotify.com/track " + query}),
-    )
-    ids = []
-    last = ""
-    for url, params in sources:
+    ids, tried, answered = [], [], False
+    for name, url, param in _SEARCH_ENGINES:
         try:
-            resp = _http.get(url, params=params, timeout=TIMEOUT,
+            resp = _http.get(url, params={param: "site:open.spotify.com/track " + query},
+                             timeout=TIMEOUT,
                              headers={"User-Agent": BROWSER_UA, "Accept": "text/html"})
-        except requests.exceptions.RequestException as e:
-            last = f"Network error: {str(e)[:60]}"
+        except requests.exceptions.RequestException:
+            tried.append(f"{name}: no network")
             continue
         if resp.status_code != 200:
-            last = f"Search returned HTTP {resp.status_code}"
+            tried.append(f"{name}: HTTP {resp.status_code}")
             continue
-        for found in _TRACK_LINK_RE.findall(unquote(resp.text)):
-            if found not in ids:
-                ids.append(found)
+        answered = True
+        text = unquote(resp.text)
+        for rx in _TRACK_LINK_RES:
+            for found in rx.findall(text):
+                if found not in ids:
+                    ids.append(found)
         if ids:
             break
+        tried.append(f"{name}: no links")
+    del _LOG[:]
+    _log("search '%s': %s" % (query[:40], "; ".join(tried) or "ok"))
     if not ids:
-        if last:
-            raise MornyeError(last + " - paste the Spotify link instead")
+        if not answered:
+            raise MornyeError("Search failed (" + "; ".join(tried) +
+                              ") - paste the Spotify link instead")
         return []
     results = []
     for sid in ids[:limit + 2]:

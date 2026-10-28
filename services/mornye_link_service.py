@@ -191,6 +191,17 @@ def _thread(url, quality, providers, progress, show_verify, on_done, target="pho
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
+    direct_links = []
+
+    def collect_link(pos, total, track, item, numbered):
+        """Output links only: nothing is downloaded or uploaded."""
+        if item.get("kind") == "dash":
+            raise mornye.MornyeError("split stream has no single link - use Upload to GitHub")
+        stem = _unique(mornye.file_name(pos, total, track, "", numbered), used_names)
+        direct_links.append(item["url"])
+        mornye._log("link %s (%s)" % (stem, item.get("provider")))
+        return stem
+
     batcher = _Batcher(progress)
 
     def queue_for_github(pos, total, track, item, numbered):
@@ -211,10 +222,11 @@ def _thread(url, quality, providers, progress, show_verify, on_done, target="pho
 
     order = [p.strip() for p in str(providers or "").split(",") if p.strip()]
     github = target == "github"
+    links_only = target == "links"
     result = {}
     try:
         res = mornye.run_tracks(url, quality, order, progress, ask, _cancelled.is_set,
-                                queue_for_github if github else handle)
+                                queue_for_github if github else (collect_link if links_only else handle))
         if github:
             batcher.flush()
             links, problems = _wait_for_uploads(batcher, progress)
@@ -223,6 +235,9 @@ def _thread(url, quality, providers, progress, show_verify, on_done, target="pho
                 raise mornye.MornyeError("GitHub made no files. " + "; ".join(problems[:2]))
             res["links"] = links
             result = {"ok": True, **res, "folder": "GitHub release"}
+        elif links_only:
+            res["links"] = list(direct_links)
+            result = {"ok": True, **res, "folder": "direct links", "mode": "links"}
         else:
             result = {"ok": True, **res, "folder": android_downloads.folder_label(CATEGORY)}
     except mornye.MornyeError as e:

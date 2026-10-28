@@ -1287,6 +1287,9 @@ class Navigator:
                 count = len(links) if links else len(saved)
                 msg = "%s: %d file(s) %s %s" % (
                     res.get("title") or "Done", count, verb, res.get("folder", ""))
+                if res.get("mode") == "links":
+                    msg = "%s: %d direct link(s) - they expire soon, copy or open them now" % (
+                        res.get("title") or "Done", count)
                 if failed:
                     msg += "\n%d failed:\n%s" % (len(failed), "\n".join(failed[:6]))
                     buttons.insert(0, ("Copy failed tracks",
@@ -1307,6 +1310,26 @@ class Navigator:
             lambda link, provider="": self.schedule(
                 lambda: self.show_mornye_verify(link, provider)),
             _done, target=values.get("target", "phone"))
+
+    def ask_mornye_target(self, action, values):
+        """Three ways to get the music: download with the app, direct links,
+        or upload to a GitHub release."""
+        if values.get("target") in ("phone", "links", "github"):
+            return self.start_mornye_phone_links(values)
+        from kivy.metrics import dp
+        from kivy.uix.label import Label
+        self.clear()
+        self.add(Label(text="What should be done with the music?",
+                       size_hint_y=None, height=dp(48)))
+        for label, target in (("Download with the app (save on this phone)", "phone"),
+                              ("Give the direct links", "links"),
+                              ("Upload to a GitHub release", "github")):
+            btn = Button(text=label, size_hint_y=None, height=common.BTN_H)
+            btn.bind(on_press=lambda i, t=target: self.start_mornye_phone_links(
+                dict(values, target=t)))
+            self.add(btn)
+        self.add(common.back_button(
+            self, text="Back", to=lambda: self.show_action_input(action, initial=values)))
 
     def show_mornye_log(self, res, back):
         """The step log of the last Mornye run, readable inside the app."""
@@ -1359,8 +1382,8 @@ class Navigator:
             btn = Button(text="%s - %s" % (item["title"], item["artist"]),
                          size_hint_y=None, height=common.BTN_H)
             link = "https://open.spotify.com/track/" + item["id"]
-            btn.bind(on_press=lambda i, u=link: self.start_mornye_phone_links(
-                dict(cleaned, url=u)))
+            btn.bind(on_press=lambda i, u=link: self.ask_mornye_target(
+                action, dict(cleaned, url=u)))
             self.add(btn)
         self.add(common.back_button(
             self, text="Back", to=lambda: self.show_action_input(action, initial=cleaned)))
@@ -1601,7 +1624,7 @@ class Navigator:
             from api import mornye as _mornye
             if not _mornye.parse_spotify(cleaned.get("url", "")):
                 return self.start_mornye_search(action, cleaned)
-            return self.start_mornye_phone_links(cleaned)
+            return self.ask_mornye_target(action, cleaned)
 
         # Aparat: "Links on phone" never goes to GitHub; otherwise the chosen
         # video ids (empty = everything the link gives) travel with the run.
