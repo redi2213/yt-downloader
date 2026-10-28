@@ -27,6 +27,9 @@ TARGETS = (("Download with the app (save on this phone)", "phone"),
            ("Give the direct links", "links"),
            ("Upload to a GitHub release", "github"))
 NAMES = {"tidal": "Tidal", "qobuz": "Qobuz", "deezer": "Deezer"}
+WAYS = {"github": "Upload to a GitHub release instead",
+        "phone": "Download with the app instead",
+        "links": "Give the direct links instead"}
 
 # what the screens share while the plugin is open
 S = {"url": "", "quality": "LOSSLESS", "registry": None, "verify": None}
@@ -213,7 +216,7 @@ def finish(host, values, res):
     note = ("\nLog saved in the repo: " + res["log_path"]) if res.get("log_path") else ""
     again = lambda: begin_download(host, values)
     if not res.get("ok"):
-        buttons.append(("Try again", again))
+        buttons = _other_ways(host, values) + [("Try again", again)] + buttons
         host.nav.show_result(res.get("error", "Failed") + note, extra_buttons=_safe_buttons(host, buttons))
         return
     failed = res.get("failed") or []
@@ -229,11 +232,26 @@ def finish(host, values, res):
         msg += "\n%d failed:\n%s" % (len(failed), "\n".join(failed[:6]))
         buttons.insert(0, ("Copy failed tracks", lambda: host.copy("\n".join(failed))))
         buttons.append(("Try again", again))
+        if values.get("target") == "links":      # some tracks have no single direct link
+            buttons = _other_ways(host, values) + buttons
     if links:
         host.nav.show_result(msg + note, links=links, extra_buttons=_safe_buttons(host, buttons),
                              category="Mornye")
     else:
         host.nav.show_result(msg + note, extra_buttons=_safe_buttons(host, buttons))
+
+
+def _other_ways(host, values):
+    """The other ways to get the music, shown when a run fails, so a failure does
+    not mean starting from the beginning."""
+    now = values.get("target") or "phone"
+    ways = [(WAYS[t], (lambda t=t: begin_download(host, dict(values, target=t))))
+            for t in ("github", "phone", "links") if t != now]
+    if values.get("providers") and values["providers"] != mornye_prefs.providers_string():
+        # a source was picked on the probe screen: let every ticked source try
+        ways.append(("Try all ticked sources", lambda: begin_download(
+            host, {k: v for k, v in values.items() if k != "providers"})))
+    return ways
 
 
 def log_screen(host, text, back=None):
