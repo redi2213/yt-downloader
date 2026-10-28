@@ -463,6 +463,85 @@ def search_spotify(query: str, limit: int = 5) -> list:
     return results
 
 
+def _remote_size(url: str) -> int:
+    """Size in bytes of a direct link without downloading it (0 if unknown)."""
+    try:
+        r = _http.head(url, timeout=15, allow_redirects=True,
+                       headers={"User-Agent": BROWSER_UA})
+        n = int(r.headers.get("Content-Length") or 0)
+        if n:
+            return n
+    except (requests.exceptions.RequestException, ValueError):
+        pass
+    try:
+        r = _http.get(url, timeout=15, stream=True,
+                      headers={"User-Agent": BROWSER_UA, "Range": "bytes=0-0"})
+        m = re.search(r"/(\d+)$", r.headers.get("Content-Range", ""))
+        r.close()
+        return int(m.group(1)) if m else 0
+    except (requests.exceptions.RequestException, ValueError):
+        return 0
+
+
+def probe_track(url: str, quality: str, order, progress, ask_grant, cancel) -> dict:
+    """What each service offers for ONE track, before anything is downloaded:
+    format, bit depth / sample rate, file size and the average bitrate (size /
+    duration). Returns {'title', 'artist', 'duration', 'providers': [{'provider',
+    'ok', 'info', 'size', 'kbps', 'note'}]}."""
+    progress = progress or (lambda text: None)
+    quality = quality or "LOSSLESS"
+    order = [p for p in (order or list(PROVIDERS)) if p in PROVIDERS] or list(PROVIDERS)
+    del _LOG[:]
+    kind, sid = parse_spotify(url)
+    if kind != "track":
+        raise MornyeError("The quality check works for a single track link")
+    track = list_tracks("track", sid)["tracks"][0]
+    progress("Looking the track up...")
+    ids = resolve_ids(sid)
+    _log("probe ids: " + ",".join(sorted(ids)) if ids else "probe: no ids")
+    meta = track_meta(track, ids, {})
+    try:
+        duration = float(meta.get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    rows = []
+    for provider in order:
+        if cancel and cancel():
+            raise Cancelled("Cancelled")
+        row = {"provider": provider, "ok": False, "info": "", "size": 0, "kbps": 0, "note": ""}
+        pid = ids.get(provider)
+        if not pid:
+            row["note"] = "not found on this service"
+            rows.append(row)
+            continue
+        for attempt in range(2):
+            try:
+                _ensure_session(provider, progress, ask_grant)
+                progress("Checking %s..." % PROVIDER_NAMES[provider])
+                item = PROVIDERS[provider](pid, quality)
+                row["ok"] = True
+                row["info"] = str(item.get("info") or "")
+                if item.get("kind") == "direct":
+                    row["size"] = _remote_size(item["url"])
+                else:
+                    row["note"] = "streamed in parts - size known after download"
+                if row["size"] and duration:
+                    row["kbps"] = int(row["size"] * 8 / duration / 1000)
+                break
+            except Cancelled:
+                raise
+            except NeedsVerify:
+                if attempt == 1:
+                    row["note"] = "needs the browser check again"
+            except Exception as e:
+                row["note"] = str(e)[:120]
+                break
+        _log("probe %s: %s %s" % (provider, "ok" if row["ok"] else "no", row["info"] or row["note"]))
+        rows.append(row)
+    return {"title": track["title"], "artist": track["artist"], "duration": duration,
+            "providers": rows}
+
+
 def resolve_ids(spotify_track_id: str) -> dict:
     """Spotify track id -> {'tidal': id, 'qobuz': id, 'deezer': id} (only the ones that exist)."""
     payload = {"url": "https://open.spotify.com/track/" + spotify_track_id}
@@ -714,7 +793,7 @@ def tidal_meta(tidal_id: str, cache: dict) -> dict:
     cover = str(album.get("cover") or "")
     cover_url = ("https://resources.tidal.com/images/%s/1280x1280.jpg"
                  % cover.replace("-", "/")) if cover else ""
-    return {"tags": tags, "cover_url": cover_url}
+    return {"tags": tags, "cover_url": cover_url, "duration": track.get("duration")}
 
 
 def track_meta(track: dict, ids: dict, cache: dict) -> dict:
@@ -727,6 +806,7 @@ def track_meta(track: dict, ids: dict, cache: dict) -> dict:
             found = tidal_meta(ids["tidal"], cache)
             meta["tags"].update(found.get("tags") or {})
             meta["cover_url"] = found.get("cover_url") or ""
+            meta["duration"] = found.get("duration")
         except Exception as e:
             _log("metadata failed: %s" % str(e)[:100])
     return meta

@@ -1305,11 +1305,80 @@ class Navigator:
 
         mornye_link_service.start_download(
             values.get("url", ""), values.get("quality", "LOSSLESS"),
-            mornye_prefs.providers_string(),
+            values.get("providers") or mornye_prefs.providers_string(),
             self.set_status,
             lambda link, provider="": self.schedule(
                 lambda: self.show_mornye_verify(link, provider)),
             _done, target=values.get("target", "phone"))
+
+    def start_mornye_flow(self, action, values):
+        """One track: first ask every service what it offers (format, bit depth,
+        size, bitrate) and let the person choose; albums / playlists go straight on."""
+        from api import mornye, mornye_prefs
+        from services import mornye_link_service
+        kind, _sid = mornye.parse_spotify(values.get("url", ""))
+        if kind != "track" or values.get("providers"):
+            return self.ask_mornye_target(action, values)
+        self.show_working("Checking what each service offers...",
+                          extra_buttons=[("Cancel", mornye_link_service.cancel)])
+
+        def _done(res):
+            self.schedule(lambda: self.show_mornye_probe(action, values, res))
+
+        mornye_link_service.start_probe(
+            values.get("url", ""), values.get("quality", "LOSSLESS"),
+            mornye_prefs.providers_string(), self.set_status,
+            lambda link, provider="": self.schedule(
+                lambda: self.show_mornye_verify(link, provider)),
+            _done)
+
+    def show_mornye_probe(self, action, values, res):
+        from kivy.core.clipboard import Clipboard
+        from kivy.metrics import dp
+        from kivy.uix.label import Label
+        self._mornye_verify = None
+        self.clear()
+        names = {"tidal": "Tidal", "qobuz": "Qobuz", "deezer": "Deezer"}
+        if not res.get("ok"):
+            self.add(Label(text=res.get("error", "Failed"), size_hint_y=None, height=dp(90)))
+        else:
+            secs = int(res.get("duration") or 0)
+            head = "%s - %s" % (res.get("title", ""), res.get("artist", ""))
+            if secs:
+                head += "  (%d:%02d)" % (secs // 60, secs % 60)
+            self.add(Label(text=head, size_hint_y=None, height=dp(60)))
+            usable = 0
+            for row in res.get("providers") or []:
+                name = names.get(row["provider"], row["provider"])
+                if row["ok"]:
+                    usable += 1
+                    parts = [row["info"] or "FLAC"]
+                    if row["size"]:
+                        parts.append("%.1f MB" % (row["size"] / 1048576.0))
+                    if row["kbps"]:
+                        parts.append("~%d kbps" % row["kbps"])
+                    if row["note"]:
+                        parts.append(row["note"])
+                    btn = Button(text="%s\n%s" % (name, "  |  ".join(parts)),
+                                 size_hint_y=None, height=dp(84), halign="center")
+                    btn.bind(width=lambda w, v: setattr(w, "text_size", (v - dp(16), None)))
+                    btn.bind(on_press=lambda i, p=row["provider"]: self.ask_mornye_target(
+                        action, dict(values, providers=p)))
+                    self.add(btn)
+                else:
+                    lab = Label(text="%s: %s" % (name, row["note"] or "not available"),
+                                size_hint_y=None, height=dp(48), halign="center")
+                    lab.bind(width=lambda w, v: setattr(w, "text_size", (v - dp(16), None)))
+                    self.add(lab)
+            if not usable:
+                self.add(Label(text="Nothing can be downloaded from these services right now",
+                               size_hint_y=None, height=dp(48)))
+        log_btn = Button(text="Show log", size_hint_y=None, height=common.BTN_H)
+        log_btn.bind(on_press=lambda i: self.show_mornye_log(
+            res, lambda: self.show_mornye_probe(action, values, res)))
+        self.add(log_btn)
+        self.add(common.back_button(
+            self, text="Back", to=lambda: self.show_action_input(action, initial=values)))
 
     def ask_mornye_target(self, action, values):
         """Three ways to get the music: download with the app, direct links,
@@ -1382,7 +1451,7 @@ class Navigator:
             btn = Button(text="%s - %s" % (item["title"], item["artist"]),
                          size_hint_y=None, height=common.BTN_H)
             link = "https://open.spotify.com/track/" + item["id"]
-            btn.bind(on_press=lambda i, u=link: self.ask_mornye_target(
+            btn.bind(on_press=lambda i, u=link: self.start_mornye_flow(
                 action, dict(cleaned, url=u)))
             self.add(btn)
         self.add(common.back_button(
@@ -1624,7 +1693,7 @@ class Navigator:
             from api import mornye as _mornye
             if not _mornye.parse_spotify(cleaned.get("url", "")):
                 return self.start_mornye_search(action, cleaned)
-            return self.ask_mornye_target(action, cleaned)
+            return self.start_mornye_flow(action, cleaned)
 
         # Aparat: "Links on phone" never goes to GitHub; otherwise the chosen
         # video ids (empty = everything the link gives) travel with the run.

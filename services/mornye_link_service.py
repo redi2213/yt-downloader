@@ -64,6 +64,44 @@ def start_download(url: str, quality: str, providers: str, progress, show_verify
     run_in_background(_thread, url, quality, providers, progress, show_verify, on_done, target)
 
 
+def start_probe(url: str, quality: str, providers: str, progress, show_verify, on_done) -> None:
+    """Asks every service what it offers for one track (no download). on_done gets
+    {'ok': True, 'title', 'artist', 'duration', 'providers': [...], 'log'} or
+    {'ok': False, 'error', 'log'}."""
+    _cancelled.clear()
+    while not _grants.empty():
+        try:
+            _grants.get_nowait()
+        except queue.Empty:
+            break
+    run_in_background(_probe_thread, url, quality, providers, progress, show_verify, on_done)
+
+
+def _probe_thread(url, quality, providers, progress, show_verify, on_done):
+    def ask(challenge_url, provider=""):
+        show_verify(challenge_url, provider)
+        try:
+            item = _grants.get(timeout=WAIT_SECONDS)
+        except queue.Empty:
+            raise mornye.MornyeError("The browser check was not finished in time")
+        if item is None:
+            raise mornye.Cancelled("Cancelled")
+        return item
+
+    order = [p.strip() for p in str(providers or "").split(",") if p.strip()]
+    try:
+        res = mornye.probe_track(url, quality, order, progress, ask, _cancelled.is_set)
+        result = {"ok": True, **res}
+    except mornye.MornyeError as e:
+        result = {"ok": False, "error": str(e)}
+    except Exception as e:
+        mornye._log("unexpected %s: %s" % (type(e).__name__, str(e)[:200]))
+        result = {"ok": False, "error": "Error: %s" % str(e)[:80]}
+    result["log"] = "Mornye check %s | %s\n%s" % (
+        time.strftime("%Y-%m-%d %H:%M:%S"), url, mornye.get_log())
+    on_done(result)
+
+
 def _cover_bytes(url: str, cache: dict) -> bytes:
     """The cover picture (kept per link: an album has one cover for all tracks)."""
     if not url:
