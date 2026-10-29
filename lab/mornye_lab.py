@@ -57,7 +57,15 @@ def _draw(host, fn, *args):
         host._fail(e)
 
 
+def _to_form(host):
+    """Back to the first screen, forgetting the steps in between."""
+    host._stack = []
+    host.replace(build)
+
+
 def _safe_buttons(host, buttons):
+    """Buttons for a result screen: the given ones, then Back to the form."""
+    buttons = list(buttons) + [("Back to the form", lambda: _to_form(host))]
     return [(text, (lambda f=f: host._safe(f))) for text, f in buttons]
 
 
