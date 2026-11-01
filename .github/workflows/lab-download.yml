@@ -4,9 +4,21 @@ name: Lab Download Release
 # Extracts the links (any site yt-dlp supports), downloads the best match for the
 # chosen quality and uploads it to a release with tag "run-<id>".
 
+run-name: ${{ inputs.run_title || 'Lab download' }} [${{ inputs.job_id }}]
+
 on:
   workflow_dispatch:
     inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
       url:
         description: "Video page URL (several links: one per line)"
         required: true
