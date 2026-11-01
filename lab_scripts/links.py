@@ -348,6 +348,8 @@ def write_summary(results: list[dict]) -> None:
 async def main() -> None:
     raw = os.environ.get("URL") or os.environ.get("LINKS") or ""
     urls = [x.strip() for x in raw.splitlines() if x.strip()]
+    # a link pasted without "https://" is fixed here (xhamster_api needs the full address)
+    urls = [u if re.match(r"^[a-z][a-z0-9+.-]*://", u, re.I) else "https://" + u.lstrip("/") for u in urls]
     if not urls:
         try:
             u = input("\nVideo URL:\n> ").strip()

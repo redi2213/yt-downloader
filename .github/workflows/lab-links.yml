@@ -89,7 +89,7 @@ jobs:
       - name: Setup Xray from config (optional)
         env:
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
-        run: bash lab_scripts/setup_xray.sh
+        run: python3 lab_scripts/xray_setup.py || true
 
       - name: Prepare proxy list
         env:
