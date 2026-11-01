@@ -1,0 +1,201 @@
+name: Instagram Downloader v2
+
+on:
+  workflow_dispatch:
+    inputs:
+      instagram_url:
+        description: "Instagram post, Reel, or Story URL"
+        required: true
+        type: string
+      proxy:
+        description: "Optional proxy override (socks5h:// or http://)"
+        required: false
+        type: string
+      v2ray_config:
+        description: "Optional V2Ray/Xray share link, subscription URL, or JSON config"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-downloader-v2-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout proxy configuration branch
+        uses: actions/checkout@v4
+        with:
+          ref: config
+          path: labcfg
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade "requests[socks]" PySocks
+          python -m pip install --upgrade --force-reinstall "yt-dlp[pin] @ git+https://github.com/0xvd/yt-dlp-exp@fix/instagram-stories"
+          yt-dlp --version
+
+      - name: Start optional Xray proxy
+        env:
+          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
+        run: |
+          set -e
+          python3 lab_scripts/xray_setup.py
+
+      - name: Prepare download and proxy list
+        env:
+          INSTAGRAM_URL: ${{ inputs.instagram_url }}
+          INSTAGRAM_COOKIES: ${{ secrets.INSTAGRAM_COOKIES }}
+          PROXY: ${{ inputs.proxy }}
+        run: |
+          set -euo pipefail
+          mkdir -p downloads
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          url = os.environ["INSTAGRAM_URL"].strip()
+          if not url.startswith(("https://www.instagram.com/", "https://instagram.com/")):
+              raise SystemExit("Please provide an Instagram URL beginning with https://www.instagram.com/")
+
+          cookies = os.environ.get("INSTAGRAM_COOKIES", "")
+          if cookies.strip():
+              Path("instagram-cookies.txt").write_text(cookies, encoding="utf-8")
+              Path("instagram-cookies.txt").chmod(0o600)
+
+          proxies = []
+          if Path("/tmp/xray_from_config").is_file():
+              print("Using the configured Xray tunnel only.")
+              proxies = ["socks5h://127.0.0.1:10808"]
+          else:
+              manual = os.environ.get("PROXY", "").strip()
+              if manual:
+                  proxies.append(manual)
+
+              proxy_file = Path("labcfg/lab/working_proxies.txt")
+              if proxy_file.is_file():
+                  for line in proxy_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                      line = line.strip()
+                      if line and not line.startswith("#"):
+                          proxies.append(line)
+
+          seen = set()
+          unique = []
+          for proxy in proxies:
+              if proxy not in seen:
+                  seen.add(proxy)
+                  unique.append(proxy)
+
+          unique.append("DIRECT")
+          Path("proxy-attempts.txt").write_text("\n".join(unique) + "\n", encoding="utf-8")
+          print(f"Prepared {len(unique) - 1} proxy option(s), plus a direct fallback.")
+          print("Instagram cookies: " + ("configured" if cookies.strip() else "not configured"))
+          PY
+
+      - name: Download Instagram media
+        env:
+          INSTAGRAM_URL: ${{ inputs.instagram_url }}
+        run: |
+          set -uo pipefail
+          success=0
+          attempt=0
+
+          while IFS= read -r proxy; do
+            [ -n "$proxy" ] || continue
+            attempt=$((attempt + 1))
+            rm -f downloads/*
+
+            if [ "$proxy" = "DIRECT" ]; then
+              echo "Attempt $attempt: direct connection"
+              yt-dlp --no-warnings --socket-timeout 20 --retries 2 --fragment-retries 2 \
+                --merge-output-format mp4 -f "bv*+ba/best" \
+                -o "downloads/%(title).150B_%(id)s.%(ext)s" \
+                ${{ secrets.INSTAGRAM_COOKIES != '' && '--cookies instagram-cookies.txt' || '' }} "$INSTAGRAM_URL"
+            else
+              echo "Attempt $attempt: proxy connection"
+              if [ -s instagram-cookies.txt ]; then
+                yt-dlp --no-warnings --proxy "$proxy" --cookies instagram-cookies.txt \
+                  --socket-timeout 20 --retries 2 --fragment-retries 2 \
+                  --merge-output-format mp4 -f "bv*+ba/best" \
+                  -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
+              else
+                yt-dlp --no-warnings --proxy "$proxy" \
+                  --socket-timeout 20 --retries 2 --fragment-retries 2 \
+                  --merge-output-format mp4 -f "bv*+ba/best" \
+                  -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
+              fi
+            fi
+
+            if find downloads -maxdepth 1 -type f ! -name 'download-links.txt' | grep -q .; then
+              success=1
+              echo "Download succeeded on attempt $attempt."
+              break
+            fi
+            echo "Attempt $attempt failed; trying the next route."
+          done < proxy-attempts.txt
+
+          if [ "$success" -ne 1 ]; then
+            echo "All proxy routes and the direct fallback failed."
+            exit 1
+          fi
+
+      - name: Create download links manifest
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(find downloads -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No media files were downloaded."
+            exit 1
+          fi
+
+          TAG="instagram-v2-${RUN_ID}-${RUN_ATTEMPT}"
+          RELEASE_URL="https://github.com/${REPOSITORY}/releases/tag/${TAG}"
+
+          {
+            echo "Instagram Downloader v2"
+            echo
+            echo "Release: ${RELEASE_URL}"
+            echo
+            echo "Direct file links (available after publishing):"
+            for FILE in "${FILES[@]}"; do
+              ENCODED=$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$FILE")
+              echo "https://github.com/${REPOSITORY}/releases/download/${TAG}/${ENCODED}"
+            done
+          } > downloads/download-links.txt
+
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Publish files to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Instagram v2 download #${{ github.run_number }}
+          body: |
+            Downloaded by Instagram Downloader v2.
+            The release includes the media files and download-links.txt.
+          files: downloads/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+
+      - name: Clean temporary files
+        if: always()
+        run: |
+          rm -f instagram-cookies.txt proxy-attempts.txt
+          rm -rf downloads
