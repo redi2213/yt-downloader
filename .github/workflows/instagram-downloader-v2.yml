@@ -112,6 +112,10 @@ jobs:
           set -uo pipefail
           success=0
           attempt=0
+          COOKIE_ARGS=()
+          if [ -s instagram-cookies.txt ]; then
+            COOKIE_ARGS=(--cookies instagram-cookies.txt)
+          fi
 
           while IFS= read -r proxy; do
             [ -n "$proxy" ] || continue
@@ -120,26 +124,18 @@ jobs:
 
             if [ "$proxy" = "DIRECT" ]; then
               echo "Attempt $attempt: direct connection"
-              yt-dlp --no-warnings --socket-timeout 20 --retries 2 --fragment-retries 2 \
+              yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --socket-timeout 20 --retries 2 --fragment-retries 2 \
                 --merge-output-format mp4 -f "bv*+ba/best" \
-                -o "downloads/%(title).150B_%(id)s.%(ext)s" \
-                ${{ secrets.INSTAGRAM_COOKIES != '' && '--cookies instagram-cookies.txt' || '' }} "$INSTAGRAM_URL"
+                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
             else
               echo "Attempt $attempt: proxy connection"
-              if [ -s instagram-cookies.txt ]; then
-                yt-dlp --no-warnings --proxy "$proxy" --cookies instagram-cookies.txt \
-                  --socket-timeout 20 --retries 2 --fragment-retries 2 \
-                  --merge-output-format mp4 -f "bv*+ba/best" \
-                  -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
-              else
-                yt-dlp --no-warnings --proxy "$proxy" \
-                  --socket-timeout 20 --retries 2 --fragment-retries 2 \
-                  --merge-output-format mp4 -f "bv*+ba/best" \
-                  -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
-              fi
+              yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --proxy "$proxy" \
+                --socket-timeout 20 --retries 2 --fragment-retries 2 \
+                --merge-output-format mp4 -f "bv*+ba/best" \
+                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
             fi
 
-            if find downloads -maxdepth 1 -type f ! -name 'download-links.txt' | grep -q .; then
+            if find downloads -maxdepth 1 -type f ! -name '*.part' ! -name '*.ytdl' ! -name '*.tmp' | grep -q .; then
               success=1
               echo "Download succeeded on attempt $attempt."
               break
@@ -159,7 +155,7 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          mapfile -t FILES < <(find downloads -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t FILES < <(find downloads -maxdepth 1 -type f ! -name '*.part' ! -name '*.ytdl' ! -name '*.tmp' -printf '%f\n' | sort)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "No media files were downloaded."
             exit 1
@@ -186,7 +182,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: Instagram v2 download #${{ github.run_number }}
+          name: "Instagram v2 download #${{ github.run_number }}"
           body: |
             Downloaded by Instagram Downloader v2.
             The release includes the media files and download-links.txt.
