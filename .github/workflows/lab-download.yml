@@ -1,0 +1,106 @@
+name: Lab Download Release
+
+# Copy of link_downloader's xh_download.yml for the app's Lab.
+# Extracts the links (any site yt-dlp supports), downloads the best match for the
+# chosen quality and uploads it to a release with tag "run-<id>".
+
+run-name: ${{ inputs.run_title || 'Lab download' }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      url:
+        description: "Video page URL (several links: one per line)"
+        required: true
+        type: string
+      quality:
+        description: "best / 1080 / 720 / 480"
+        required: false
+        default: "720"
+        type: string
+      proxy:
+        description: "Proxy only for extracting the page (not for the CDN download)"
+        required: false
+        type: string
+      v2ray_config:
+        description: "Optional Xray config for the extract step only"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout config branch (proxy list)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: config
+          path: labcfg
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps (yt-dlp + ffmpeg)
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install -U pip setuptools wheel
+          pip install curl_cffi requests PySocks
+          pip uninstall -y xhamster_api unofficial-api-for-xhamster 2>/dev/null || true
+          pip install -U unofficial-api-for-xhamster
+          pip install -U yt-dlp
+          yt-dlp --version
+          ffmpeg -version | head -1
+
+      - name: Setup Xray (optional, extract only)
+        env:
+          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
+        run: bash lab_scripts/setup_xray.sh
+
+      - name: Prepare proxies for extract
+        env:
+          PROXY_IN: ${{ inputs.proxy }}
+        run: |
+          if [ -f labcfg/lab/working_proxies.txt ]; then
+            cp labcfg/lab/working_proxies.txt working_proxies.txt
+          fi
+          if [ -n "$PROXY_IN" ]; then
+            echo "$PROXY_IN" > working_proxies.txt
+          fi
+          cat working_proxies.txt 2>/dev/null || true
+
+      - name: Extract links
+        env:
+          URL: ${{ inputs.url }}
+          PROXY: ${{ inputs.proxy }}
+          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
+        run: python lab_scripts/links.py
+
+      - name: Download HLS + GitHub Release
+        env:
+          UPLOAD: "true"
+          QUALITY: ${{ inputs.quality }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: python lab_scripts/download.py
