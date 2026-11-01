@@ -19,6 +19,13 @@
       ],
       "description": "Copy of Mornye from link. The app's own Mornye is untouched; sessions are shared, settings are separate.",
       "min_host": 1
+    },
+    {
+      "id": "link_lab",
+      "title": "Link Lab (any site, copy of link_downloader)",
+      "file": "link_lab.py",
+      "description": "Get links / download any site through yt-dlp, with free proxies or v2ray. Uses the lab-links, lab-download and lab-find-proxies workflows; the app's own tools are untouched.",
+      "min_host": 1
     }
   ]
 }
