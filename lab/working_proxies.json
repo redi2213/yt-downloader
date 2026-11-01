@@ -1,50 +1,44 @@
 [
   {
-    "proxy": "socks5://103.100.158.115:10809",
-    "latency_ms": 1627,
+    "proxy": "socks5://103.151.74.5:2025",
+    "latency_ms": 3057,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.100.158.115\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"45.117.62.25\"\n}\n"
   },
   {
-    "proxy": "socks5://101.36.104.239:10808",
-    "latency_ms": 1710,
+    "proxy": "socks5://103.13.192.77:1080",
+    "latency_ms": 3971,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"101.36.104.239\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.13.192.32\"\n}\n"
   },
   {
-    "proxy": "socks5://101.36.104.46:10808",
-    "latency_ms": 3189,
+    "proxy": "socks5://103.176.187.228:9090",
+    "latency_ms": 4386,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"101.36.104.46\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.176.187.228\"\n}\n"
   },
   {
-    "proxy": "socks5://103.118.85.75:1080",
-    "latency_ms": 3544,
+    "proxy": "socks5://103.119.60.219:1080",
+    "latency_ms": 4442,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.118.85.147\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.119.60.219\"\n}\n"
   },
   {
-    "proxy": "socks5://103.118.85.144:1080",
-    "latency_ms": 5776,
+    "proxy": "socks5://103.136.106.13:1081",
+    "latency_ms": 5663,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.118.85.147\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.136.106.69\"\n}\n"
   },
   {
-    "proxy": "socks5://102.36.127.231:1080",
-    "latency_ms": 6717,
+    "proxy": "socks5://103.141.174.38:1080",
+    "latency_ms": 6635,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"102.36.127.7\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.141.174.38\"\n}\n"
   },
   {
-    "proxy": "socks5://101.2.166.73:1080",
-    "latency_ms": 7733,
+    "proxy": "socks5://103.151.75.21:2025",
+    "latency_ms": 9437,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"101.2.166.6\"\n}\n"
-  },
-  {
-    "proxy": "socks5://101.53.238.37:1080",
-    "latency_ms": 7850,
-    "ok": true,
-    "body_snip": "{\n  \"origin\": \"149.40.242.118\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"45.117.62.24\"\n}\n"
   }
 ]
