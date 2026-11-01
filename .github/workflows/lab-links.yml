@@ -58,7 +58,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Cache pip downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: lab-pip-${{ runner.os }}-v1
+          restore-keys: lab-pip-${{ runner.os }}-
+
       - name: Install Python deps
+        timeout-minutes: 8
+        env:
+          PIP_TIMEOUT: "30"
+          PIP_RETRIES: "5"
         run: |
           set -e
           pip install -U pip setuptools wheel
