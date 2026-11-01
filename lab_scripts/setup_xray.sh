@@ -30,7 +30,7 @@ def parse_vmess(link):
     peer=d.get("host")or d.get("sni")or host
     ob={"tag":"proxy","protocol":"vmess","settings":{"vnext":[{"address":host,"port":port,"users":[{"id":d.get("id"),"alterId":int(d.get("aid")or 0),"security":d.get("scy")or"auto"}]}]},"streamSettings":{"network":net}}
     if tls in("tls","reality"):
-        ob["streamSettings"]["security"]="tls"; ob["streamSettings"]["tlsSettings"]={"serverName":peer,"allowInsecure":True}
+        ob["streamSettings"]["security"]="tls"; ob["streamSettings"]["tlsSettings"]={"serverName":peer}
     if net=="ws": ob["streamSettings"]["wsSettings"]={"path":path,"headers":{"Host":peer}}
     if net=="grpc": ob["streamSettings"]["grpcSettings"]={"serviceName":path.lstrip("/")}
     return ob
@@ -48,7 +48,7 @@ def parse_vt(link,proto):
     if sec in("tls","xtls","reality"):
         stream["security"]="tls" if sec!="reality" else "reality"
         if stream["security"]=="tls":
-            tls={"serverName":sni,"allowInsecure":True,"fingerprint":q.get("fp")or"chrome"}
+            tls={"serverName":sni,"fingerprint":q.get("fp")or"chrome"}
             if q.get("alpn"): tls["alpn"]=[x.strip() for x in q["alpn"].split(",") if x.strip()]
             stream["tlsSettings"]=tls
         else:
