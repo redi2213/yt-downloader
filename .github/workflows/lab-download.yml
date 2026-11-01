@@ -94,7 +94,7 @@ jobs:
       - name: Setup Xray (optional, extract only)
         env:
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
-        run: bash lab_scripts/setup_xray.sh
+        run: python3 lab_scripts/xray_setup.py || true
 
       - name: Prepare proxies for extract
         env:
