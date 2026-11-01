@@ -77,7 +77,7 @@ MORE_EXACT = {
     "expires at the next cleanup": "در پاکسازی بعدی منقضی می‌شود",
     # --- about
     "Download from YouTube to GitHub": "دانلود از یوتیوب به GitHub",
-    "Note: files are auto-deleted after 2 days": "توجه: فایل‌ها بعد از ۲ روز خودکار حذف می‌شوند",
+    "Note: video files are auto-deleted after 7 days": "توجه: فایل‌های ویدیویی بعد از ۷ روز خودکار حذف می‌شوند",
     # --- Auto follow
     "Series: next episode each time": "سریال: هر بار قسمت بعدی",
     "Latest videos": "آخرین ویدیوها",
@@ -552,3 +552,22 @@ MORE_EXACT.update({
     "Proxy": "پروکسی",
     "v2ray": "v2ray",
 })
+
+MORE_EXACT.update({
+    "Paste any link here": "هر لینکی را اینجا بچسبان",
+    "Go": "برو",
+    "Paste a link first": "اول یک لینک بچسبان",
+})
+
+MORE_EXACT.update({
+    "Check for update": "بررسی نسخه‌ی جدید",
+    "Checking...": "در حال بررسی...",
+    "Could not check for updates.": "بررسی نسخه ممکن نشد.",
+})
+MORE_PATTERNS.extend([
+    (r"Version (.+) is on GitHub \(you have (.+)\)\. Build the new APK from Settings > App tools\.",
+     "نسخه {0} در GitHub هست (نسخه‌ی شما {1}). APK جدید را از تنظیمات > ابزارهای برنامه بساز."),
+    (r"You have the latest version \((.+)\)\.", "شما آخرین نسخه ({0}) را دارید."),
+    (r"This build \((.+)\) is newer than main \((.+)\)\.", "این بیلد ({0}) از main ({1}) جلوتر است."),
+    (r"Could not compare versions \((.+) / (.+)\)\.", "مقایسه‌ی نسخه‌ها ممکن نشد ({0} / {1})."),
+])

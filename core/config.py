@@ -133,7 +133,7 @@ Developer: Mohsen Mah
 
 Telegram: t.me/moh3n2016
 
-Note: files are auto-deleted after 2 days"""
+Note: video files are auto-deleted after 7 days"""
 
 # Videos one GitHub batch run (download-batch.yml) works on at the same time
 BATCH_MAX_PARALLEL = 6
