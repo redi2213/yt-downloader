@@ -1,0 +1,125 @@
+name: Instagram Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      instagram_url:
+        description: "Instagram post, Reel, or Story URL"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-downloader-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip yt-dlp
+
+      - name: Prepare download
+        env:
+          INSTAGRAM_URL: ${{ inputs.instagram_url }}
+          INSTAGRAM_COOKIES: ${{ secrets.INSTAGRAM_COOKIES }}
+        run: |
+          set -euo pipefail
+          mkdir -p downloads
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          url = os.environ["INSTAGRAM_URL"].strip()
+          if not url.startswith(("https://www.instagram.com/", "https://instagram.com/")):
+              raise SystemExit("Please provide an Instagram URL beginning with https://www.instagram.com/")
+          cookies = os.environ.get("INSTAGRAM_COOKIES", "")
+          if cookies.strip():
+              Path("instagram-cookies.txt").write_text(cookies, encoding="utf-8")
+              Path("instagram-cookies.txt").chmod(0o600)
+          PY
+
+      - name: Download Instagram media
+        env:
+          INSTAGRAM_URL: ${{ inputs.instagram_url }}
+        run: |
+          set -euo pipefail
+          COOKIE_ARGS=()
+          if [ -s instagram-cookies.txt ]; then
+            COOKIE_ARGS=(--cookies instagram-cookies.txt)
+            echo "Using configured Instagram session."
+          else
+            echo "No INSTAGRAM_COOKIES secret found; public media only."
+          fi
+          yt-dlp "${COOKIE_ARGS[@]}" \
+            --no-warnings \
+            --retries 3 \
+            --fragment-retries 3 \
+            --merge-output-format mp4 \
+            -f "bv*+ba/best" \
+            -o "downloads/%(title).150B_%(id)s.%(ext)s" \
+            "$INSTAGRAM_URL"
+
+      - name: Create download links manifest
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(find downloads -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No media files were downloaded."
+            exit 1
+          fi
+          TAG="instagram-${RUN_ID}-${RUN_ATTEMPT}"
+          RELEASE_URL="https://github.com/${REPOSITORY}/releases/tag/${TAG}"
+          {
+            echo "Instagram download"
+            echo
+            echo "Release: ${RELEASE_URL}"
+            echo
+            echo "Direct file links (available after the Release is published):"
+            for FILE in "${FILES[@]}"; do
+              ENCODED=$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$FILE")
+              echo "https://github.com/${REPOSITORY}/releases/download/${TAG}/${ENCODED}"
+            done
+          } > downloads/download-links.txt
+          echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "RELEASE_URL=${RELEASE_URL}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Instagram download"
+            echo
+            echo "Release: [Open Release](${RELEASE_URL})"
+            echo
+            echo "Files:"
+            for FILE in "${FILES[@]}"; do
+              echo "- ${FILE}"
+            done
+            echo
+            echo "The Release contains a download-links.txt file with direct asset URLs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish files to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Instagram download #${{ github.run_number }}
+          body: |
+            Downloaded from Instagram by the Instagram Downloader workflow.
+            Each media file is attached separately. See download-links.txt for direct URLs.
+          files: downloads/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+
+      - name: Clean temporary files
+        if: always()
+        run: |
+          rm -f instagram-cookies.txt
+          rm -rf downloads
