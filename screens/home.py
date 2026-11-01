@@ -28,6 +28,16 @@ def build(nav):
     dynamic_actions_btn.bind(on_press=lambda i: nav.show_dynamic_actions())
     nav.add(dynamic_actions_btn)
 
+    # Test area for new tools (see LAB.md). Delete screens/lab.py to remove it.
+    try:
+        from screens import lab
+    except ImportError:
+        lab = None
+    if lab is not None:
+        lab_btn = Button(text="Lab (test tools)", size_hint_y=None, height=52)
+        lab_btn.bind(on_press=lambda i: lab.show(nav))
+        nav.add(lab_btn)
+
     follow_btn = Button(text="Auto follow", size_hint_y=None, height=52)
     follow_btn.bind(on_press=lambda i: nav.show_follow_menu())
     nav.add(follow_btn)
