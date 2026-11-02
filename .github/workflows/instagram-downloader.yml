@@ -200,11 +200,11 @@ jobs:
             exit 1
           fi
 
-          TAG="instagram-v2-${RUN_ID}-${RUN_ATTEMPT}"
+          TAG="instagram-${RUN_ID}-${RUN_ATTEMPT}"
           RELEASE_URL="https://github.com/${REPOSITORY}/releases/tag/${TAG}"
 
           {
-            echo "Instagram Downloader v2"
+            echo "Instagram Downloader"
             echo
             echo "Complete files: ${#FILES[@]} / $EXPECTED"
             echo "Release: ${RELEASE_URL}"
@@ -224,9 +224,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: "Instagram v2 download #${{ github.run_number }}"
+          name: "Instagram download #${{ github.run_number }}"
           body: |
-            Downloaded by Instagram Downloader v2.
+            Downloaded by Instagram Downloader.
             Metadata extraction uses the selected proxy route; media downloads try direct CDN access first and use the extraction proxy only as a fallback.
             The release contains only verified complete media files and download-links.txt.
           files: |
