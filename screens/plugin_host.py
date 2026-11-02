@@ -146,10 +146,18 @@ class _GitHub:
     """This repo through the GitHub API, with the app's token. Every call
     blocks: use them inside ``host.background``."""
 
-    def dispatch(self, workflow, inputs=None):
-        """Starts a workflow file (e.g. "mornye-download.yml") and returns its run id."""
+    def __init__(self, source="config"):
+        self._source = source
+
+    def dispatch(self, workflow, inputs=None, ref=None):
+        """Starts a workflow file (e.g. "mornye-download.yml") and returns its run id.
+        A Lab tool runs the workflow from the ``lab`` branch (the file only has
+        to be registered on main, see LAB.md); other plugins use the app's branch."""
         from api.github import workflows
-        return workflows.dispatch_and_find_run(workflow, dict(inputs or {}))
+        from api.github.remote_config import LAB_BRANCH
+        if ref is None and self._source == "lab":
+            ref = LAB_BRANCH
+        return workflows.dispatch_and_find_run(workflow, dict(inputs or {}), ref=ref)
 
     def wait(self, run_id, on_status=None, stop_event=None):
         from api.github import workflows
@@ -179,9 +187,12 @@ class _GitHub:
             url = API_BASE + (path if path.startswith("/") else "/" + path)
         return client.request(method, url, **kwargs)
 
-    def read_file(self, path, ref="config"):
-        """Text of a file in this repo."""
+    def read_file(self, path, ref=None):
+        """Text of a file in this repo (a Lab tool reads the ``lab`` branch by
+        default, other plugins the ``config`` branch)."""
         from api.github.auth import auth_headers
+        if ref is None:
+            ref = "lab" if self._source == "lab" else "config"
         headers = dict(auth_headers())
         headers["Accept"] = "application/vnd.github.raw+json"
         r = self.request("GET", f"/contents/{path}", params={"ref": ref}, headers=headers)
@@ -246,7 +257,7 @@ class Host:
         self.app_version = APP_VERSION
         self.data_dir = _DATA_DIR
         self.store = Store(self.id)
-        self.gh = _GitHub()
+        self.gh = _GitHub(source)
         self._log = _Log(self.id)
         self._exit_to = exit_to
         self._reload = reload

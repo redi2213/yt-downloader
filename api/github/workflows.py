@@ -127,9 +127,9 @@ def _find_unclaimed_run_after(workflow_file: str, dispatch_time: str, attempts: 
     return None
 
 
-def _dispatch_and_find_legacy(workflow_file: str, inputs: dict, attempts: int, delay: float):
+def _dispatch_and_find_legacy(workflow_file: str, inputs: dict, attempts: int, delay: float, ref: str = None):
     with _legacy_lock:
-        dispatch_time = dispatch_workflow(workflow_file, inputs)
+        dispatch_time = dispatch_workflow(workflow_file, inputs, ref=ref)
         return _find_unclaimed_run_after(workflow_file, dispatch_time, attempts, delay)
 
 
@@ -148,7 +148,7 @@ def _is_422(error) -> bool:
     return getattr(getattr(error, "response", None), "status_code", None) == 422
 
 
-def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, delay: float = 1.5):
+def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, delay: float = 1.5, ref: str = None):
     """Dispatches a workflow with the app's storage choice added, and returns
     the id of exactly that run (or None).
 
@@ -158,14 +158,14 @@ def dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, 
     extra = storage_inputs(workflow_file)
     if extra:
         try:
-            return _dispatch_and_find_run(workflow_file, {**inputs, **extra}, attempts, delay)
+            return _dispatch_and_find_run(workflow_file, {**inputs, **extra}, attempts, delay, ref)
         except requests.exceptions.HTTPError as e:
             if not _is_422(e):
                 raise
-    return _dispatch_and_find_run(workflow_file, inputs, attempts, delay)
+    return _dispatch_and_find_run(workflow_file, inputs, attempts, delay, ref)
 
 
-def _dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, delay: float = 1.5):
+def _dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12, delay: float = 1.5, ref: str = None):
     """Dispatches a workflow and returns the id of exactly that run (or None
     if it can't be found).
 
@@ -194,14 +194,14 @@ def _dispatch_and_find_run(workflow_file: str, inputs: dict, attempts: int = 12,
     payloads.append(tagged)
     for payload in payloads:
         try:
-            client.post(url, json={"ref": GITHUB_BRANCH, "inputs": payload})
+            client.post(url, json={"ref": ref or GITHUB_BRANCH, "inputs": payload})
             break
         except requests.exceptions.HTTPError as e:
             status = getattr(getattr(e, "response", None), "status_code", None)
             if status != 422:
                 raise
     else:
-        return _dispatch_and_find_legacy(workflow_file, inputs, attempts, delay)
+        return _dispatch_and_find_legacy(workflow_file, inputs, attempts, delay, ref)
 
     # The title carries the token almost at once when the workflow has the new
     # run-name, so this search is short; the long search below only matters

@@ -1,6 +1,6 @@
 """Lab: the test area for new tools.
 
-Lists the plugins in ``lab/index.json`` (branch ``config``) and opens them
+Lists the plugins in ``lab/index.json`` (branch ``lab``) and opens them
 through screens/plugin_runner.py. To remove the Lab from the final build just
 delete this file: the button on the home screen disappears with it.
 """
@@ -43,7 +43,7 @@ def _render(nav, marker, res):
     if error:
         nav.add(common.wrapped_label(
             f"Could not load the tool list.\n{error}\n\n"
-            "Put lab/index.json on the config branch (see LAB.md)."))
+            "Put lab/index.json on the lab branch (see LAB.md)."))
     else:
         if res.get("origin") == "cache":
             nav.add(common.wrapped_label("Offline: showing the saved tool list."))

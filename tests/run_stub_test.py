@@ -47,7 +47,7 @@ def fake_request(method, url, **kw):
     return types.SimpleNamespace(content=REMOTE[path].encode())
 mod("api"); mod("api.github"); mod("api.github.client", request=fake_request)
 mod("api.github.auth", auth_headers=lambda: {"Authorization": "token x"})
-mod("api.github.remote_config", CONFIG_BRANCH="config")
+mod("api.github.remote_config", CONFIG_BRANCH="config", LAB_BRANCH="lab")
 mod("core.config", API_BASE="https://api.github.com/repos/o/r", APP_VERSION="t", REQUEST_TIMEOUT=5,
     SETTINGS_STORE_FILE=os.path.join(TMP, "s.json"))
 mod("core.async_utils", run_in_background=lambda f, *a, **k: (lambda t: (t.start(), t)[1])(threading.Thread(target=f, args=a, kwargs=k, daemon=True)))

@@ -3,7 +3,7 @@
 A plugin is a normal Python file with a ``build(host)`` function (see LAB.md).
 Where its code comes from (``source``):
 
-  "lab"      branch ``config``, folder ``lab/``      - tools being tried out
+  "lab"      branch ``lab``,    folder ``lab/``      - tools being tried out
   "config"   branch ``config``, folder ``plugins/``  - finished tools, live in
                                                        Download Anything
   "bundled"  the ``plugins_bundled/`` folder inside the APK - frozen tools of
@@ -30,7 +30,7 @@ import types
 
 from api.github import client
 from api.github.auth import auth_headers
-from api.github.remote_config import CONFIG_BRANCH
+from api.github.remote_config import CONFIG_BRANCH, LAB_BRANCH
 from core.config import API_BASE, SETTINGS_STORE_FILE
 
 # Bump when a Host method is removed or changes meaning. A plugin can say
@@ -39,6 +39,7 @@ HOST_API_VERSION = 1
 
 SOURCES = ("lab", "config", "bundled")
 _REMOTE_FOLDER = {"lab": "lab", "config": "plugins"}
+_REMOTE_BRANCH = {"lab": LAB_BRANCH, "config": CONFIG_BRANCH}
 _FETCH_TIMEOUT = 15
 
 _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -77,10 +78,10 @@ def _check(source, rel):
 
 
 # -- reading files ----------------------------------------------------------
-def _fetch_remote(path: str) -> str:
+def _fetch_remote(path: str, branch: str = CONFIG_BRANCH) -> str:
     headers = dict(auth_headers())
     headers["Accept"] = "application/vnd.github.raw+json"
-    r = client.request("GET", f"{API_BASE}/contents/{path}", params={"ref": CONFIG_BRANCH},
+    r = client.request("GET", f"{API_BASE}/contents/{path}", params={"ref": branch},
                        headers=headers, timeout=_FETCH_TIMEOUT)
     return r.content.decode("utf-8")
 
@@ -122,10 +123,10 @@ def read_text(source, rel):
             raise PluginError(f"Bundled plugin file not found: plugins_bundled/{rel}") from e
     path = f"{_REMOTE_FOLDER[source]}/{rel}"
     try:
-        text = _fetch_remote(path)
+        text = _fetch_remote(path, _REMOTE_BRANCH[source])
     except Exception as e:
         if _is_not_found(e):
-            raise PluginError(f"Not found on GitHub (branch {CONFIG_BRANCH}): {path}") from e
+            raise PluginError(f"Not found on GitHub (branch {_REMOTE_BRANCH[source]}): {path}") from e
         cached = _read_cache(source, rel)
         if cached is None:
             raise PluginError(f"Could not load {path}: {_short(e)}") from e

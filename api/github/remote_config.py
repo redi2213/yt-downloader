@@ -27,6 +27,9 @@ import certifi
 from core.config import API_BASE, REPO_OWNER, REPO_NAME
 
 CONFIG_BRANCH = "config"
+# Everything that belongs to the Lab (tools, their workflows' files, logs) lives on
+# this branch, not on main or config.
+LAB_BRANCH = "lab"
 CONFIG_PATH = "config.json"
 CONFIG_URL = (
     f"https://raw.githubusercontent.com/{REPO_OWNER}/{REPO_NAME}/"
