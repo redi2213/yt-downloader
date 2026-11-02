@@ -6,7 +6,7 @@ run-name: Backup Project [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}
 #
 #   project-backup-<date>.zip
 #   +-- main-branch/     all files of the main branch
-#   +-- config-branch/   all files of the config branch (config.json)
+#   +-- config-branch/   all files of the config branch (config.json), without its backups/ folder
 
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ jobs:
           VER=$(tr -d ' \r\n' < main-branch/version.txt 2>/dev/null || true)
           if [ -n "$VER" ]; then ZIP="project-backup-v${VER}-${STAMP}.zip"; else ZIP="project-backup-${STAMP}.zip"; fi
           # the git history is not part of the backup, only the files
-          zip -r -q "$ZIP" main-branch config-branch -x "*/.git/*"
+          zip -r -q "$ZIP" main-branch config-branch -x "*/.git/*" "config-branch/backups/*"
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           ls -la "$ZIP"

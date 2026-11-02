@@ -1,5 +1,5 @@
 """Changing the repo's files through GitHub's Git Data API (no git needed):
-one commit for many files, plus dated backup zips on a separate branch.
+one commit for many files, plus dated backup zips in backups/ on the config branch.
 
 Pure API layer - no UI and no Kivy.
 """
@@ -8,7 +8,9 @@ import base64
 from api.github import client
 from core.config import API_BASE
 
-BACKUP_BRANCH = "backup"
+# Dated backup zips are kept in backups/ on the config branch (there is no
+# separate backup branch any more).
+BACKUP_BRANCH = "config"
 BACKUP_DIR = "backups"
 
 _BIG_TIMEOUT = 90  # blobs / zipballs are larger than the 15 s default allows
@@ -89,8 +91,8 @@ def download_zipball(branch: str) -> bytes:
 
 
 def add_backup(name: str, zip_bytes: bytes, keep: int = 5) -> None:
-    """Stores ``backups/<name>`` on the backup branch (created on first use,
-    holding only the zips) and deletes the oldest ones beyond ``keep``."""
+    """Stores ``backups/<name>`` on the config branch (next to config.json) and
+    deletes the oldest zips beyond ``keep``."""
     blob = create_blob(zip_bytes)
     entries = [{"path": f"{BACKUP_DIR}/{name}", "mode": "100644", "type": "blob", "sha": blob}]
     ref = client.get_allow_missing(f"{API_BASE}/git/ref/heads/{BACKUP_BRANCH}")

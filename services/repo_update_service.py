@@ -10,7 +10,7 @@ Two ways in (both end in the same upload code):
   the user confirms on a review screen, then ``start_apply`` uploads.
 
 For each branch: read it -> compare -> (back the branch up as a dated zip on
-the ``backup`` branch, last 5 kept; not for ``config``) -> upload only the
+backups/ on the ``config`` branch, last 5 kept; not for ``config``) -> upload only the
 changed files -> ONE commit on that branch. Files that are in the repo but
 not in the update are left alone.
 """
@@ -116,6 +116,9 @@ def _run_update(update, branches, on_status) -> dict:
     for branch, files in update.items():
         if branch == "main":
             files.pop(PROTECTED_FILE, None)
+        if branch == "config":   # the dated backup zips are the app's own, never overwritten by an update
+            for path in [p for p in files if p.startswith(repo_files.BACKUP_DIR + "/")]:
+                files.pop(path)
     update = {b: f for b, f in update.items() if f}
     if not update:
         return {"ok": True, "changed": False, "message": "Nothing to update."}
@@ -123,8 +126,6 @@ def _run_update(update, branches, on_status) -> dict:
         if branch not in branches:
             raise zip_tools.ZipError(
                 f'The repo has no branch named "{branch}". Folder names in the zip must match branch names.')
-        if branch == repo_files.BACKUP_BRANCH:
-            raise zip_tools.ZipError("The backup branch cannot be updated from the app.")
         if branch == "config" and CONFIG_FILE in files:
             validate_config(files[CONFIG_FILE][0])
 
