@@ -1,0 +1,114 @@
+name: Mornye Lossless Test
+run-name: Mornye ${{ inputs.quality }} - ${{ inputs.spotify_url }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      spotify_url:
+        description: Spotify track, album, playlist, or artist URL
+        required: true
+        type: string
+      quality:
+        description: Desired lossless quality
+        required: true
+        type: choice
+        options:
+          - LOSSLESS
+          - HI_RES_LOSSLESS
+        default: LOSSLESS
+      services:
+        description: Provider order; the second provider is the fallback
+        required: true
+        type: choice
+        options:
+          - ext:tidal-web ext:qobuz-web
+          - ext:qobuz-web ext:tidal-web
+        default: ext:tidal-web ext:qobuz-web
+      job_id:
+        description: Optional app job identifier
+        required: false
+        type: string
+        default: ''
+      run_title:
+        description: Optional short title for the release
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  MORNYE_REGISTRIES: https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry.json
+
+jobs:
+  download:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js for JavaScript extensions
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install FFmpeg and Mornye
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install mornye
+
+      - name: Verify Mornye installation
+        run: |
+          python -c "from importlib.metadata import version; print('Mornye', version('mornye'))"
+          mornye --help
+
+      - name: Download with provider fallback
+        env:
+          SPOTIFY_URL: ${{ inputs.spotify_url }}
+          QUALITY: ${{ inputs.quality }}
+          SERVICE_LIST: ${{ inputs.services }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          read -r -a SERVICES <<< "$SERVICE_LIST"
+          printf 'Quality: %s\nProvider order: %s\n' "$QUALITY" "$SERVICE_LIST"
+          mornye "$SPOTIFY_URL" out \
+            --service "${SERVICES[@]}" \
+            --quality "$QUALITY" \
+            --no-lyrics \
+            --no-enrich \
+            --verbose
+          if ! find out -type f -size +0c -print -quit | grep -q .; then
+            echo "::error::Mornye finished without producing any files."
+            exit 1
+          fi
+          echo "Produced files:"
+          find out -type f -printf '%p (%s bytes)\n'
+
+      - name: Get publishing script
+        if: success()
+        uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Publish to GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish \
+            --dir out \
+            --tag "run-${{ github.run_id }}" \
+            --title "${{ inputs.run_title || format('Mornye {0}', inputs.quality) }}"
+
+      - name: Clean temporary output on failure
+        if: failure()
+        run: |
+          echo "Mornye workflow failed. Review the preceding step logs."
