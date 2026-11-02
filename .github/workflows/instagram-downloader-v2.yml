@@ -124,15 +124,23 @@ jobs:
 
             if [ "$proxy" = "DIRECT" ]; then
               echo "Attempt $attempt: direct connection"
-              yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --socket-timeout 20 --retries 2 --fragment-retries 2 \
+              if yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --socket-timeout 20 --retries 2 --fragment-retries 2 \
                 --merge-output-format mp4 -f "bv*+ba/best" \
-                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
+                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"; then
+                echo "yt-dlp command completed on direct connection."
+              else
+                echo "Direct connection failed; continuing to the next route if available."
+              fi
             else
               echo "Attempt $attempt: proxy connection"
-              yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --proxy "$proxy" \
+              if yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --proxy "$proxy" \
                 --socket-timeout 20 --retries 2 --fragment-retries 2 \
                 --merge-output-format mp4 -f "bv*+ba/best" \
-                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"
+                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"; then
+                echo "yt-dlp command completed on proxy route."
+              else
+                echo "Proxy attempt failed; continuing to the next route."
+              fi
             fi
 
             if find downloads -maxdepth 1 -type f ! -name '*.part' ! -name '*.ytdl' ! -name '*.tmp' | grep -q .; then
