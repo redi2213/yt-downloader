@@ -1,5 +1,5 @@
 {
-  "config_version": 26,
+  "config_version": 27,
   "actions": [
     {
       "id": "tiktok_download",
@@ -771,6 +771,19 @@
         "spotify_url": "{url}",
         "quality": "{quality}"
       }
+    },
+    {
+      "id": "instagram_download",
+      "title": "Instagram",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "instagram.com"
+      ],
+      "plugin": "instagram_download",
+      "file": "instagram_download.py",
+      "source": "config",
+      "min_host": 1
     },
     {
       "id": "find_proxies",
