@@ -40,86 +40,11 @@ on:
 permissions:
   contents: write
 
+# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.
+# The real definition lives on the `lab` branch (same path) and is what runs when the app
+# dispatches this file with ref=lab. Do not put steps here.
 jobs:
-  extract:
+  stub:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout config branch (proxy list)
-        uses: actions/checkout@v4
-        continue-on-error: true
-        with:
-          ref: config
-          path: labcfg
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache pip downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: lab-pip-${{ runner.os }}-v1
-          restore-keys: lab-pip-${{ runner.os }}-
-
-      - name: Install Python deps
-        timeout-minutes: 8
-        env:
-          PIP_TIMEOUT: "30"
-          PIP_RETRIES: "5"
-        run: |
-          set -e
-          pip install -U pip setuptools wheel
-          pip install curl_cffi requests PySocks
-          pip uninstall -y xhamster_api unofficial-api-for-xhamster 2>/dev/null || true
-          pip install -U unofficial-api-for-xhamster
-          pip install -U yt-dlp
-          python - <<'PY'
-          import base_api.base as b
-          if not hasattr(b, "setup_logger") and hasattr(b, "get_logger"):
-              b.setup_logger = b.get_logger
-          from xhamster_api import Client
-          print("OK", Client)
-          PY
-          yt-dlp --version
-
-      - name: Setup Xray from config (optional)
-        env:
-          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
-        run: python3 lab_scripts/xray_setup.py || true
-
-      - name: Prepare proxy list
-        env:
-          PROXY_IN: ${{ inputs.proxy }}
-        run: |
-          if [ -f labcfg/lab/working_proxies.txt ]; then
-            cp labcfg/lab/working_proxies.txt working_proxies.txt
-          fi
-          if [ -n "$PROXY_IN" ]; then
-            echo "$PROXY_IN" > working_proxies.txt
-          fi
-          echo "=== working_proxies.txt ==="
-          cat working_proxies.txt 2>/dev/null || echo "(none)"
-
-      - name: Extract quality links
-        env:
-          URL: ${{ inputs.url }}
-          LINKS: ${{ inputs.links }}
-          PROXY: ${{ inputs.proxy }}
-          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
-        run: python lab_scripts/links.py
-
-      - name: Publish the links as release notes (the app reads them)
-        if: always() && hashFiles('xh_links.txt') != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="run-${{ github.run_id }}"
-          { echo "Lab links"; echo; cat xh_links.txt; } > lab_release_notes.md
-          gh release delete "$TAG" --yes --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
-            --title "Lab links #${{ github.run_number }}" \
-            --notes-file lab_release_notes.md
+      - run: echo "Stub on main. The real workflow runs from the lab branch."

@@ -40,87 +40,11 @@ on:
 permissions:
   contents: write
 
+# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.
+# The real definition lives on the `lab` branch (same path) and is what runs when the app
+# dispatches this file with ref=lab. Do not put steps here.
 jobs:
-  download:
+  stub:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout config branch (proxy list)
-        uses: actions/checkout@v4
-        continue-on-error: true
-        with:
-          ref: config
-          path: labcfg
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache pip downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: lab-pip-${{ runner.os }}-v1
-          restore-keys: lab-pip-${{ runner.os }}-
-
-      - name: Install deps (yt-dlp + ffmpeg)
-        timeout-minutes: 8
-        env:
-          PIP_TIMEOUT: "30"
-          PIP_RETRIES: "5"
-        run: |
-          set -e
-          # apt can stall on a bad mirror: every try has a time limit, then it tries again
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            for i in 1 2 3; do
-              echo "ffmpeg: try $i"
-              if timeout 120 sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
-                 && timeout 240 sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=20 ffmpeg; then
-                break
-              fi
-              if [ "$i" = 3 ]; then echo "ffmpeg install failed"; exit 1; fi
-            done
-          fi
-          pip install -U pip setuptools wheel
-          pip install curl_cffi requests PySocks
-          pip uninstall -y xhamster_api unofficial-api-for-xhamster 2>/dev/null || true
-          pip install -U unofficial-api-for-xhamster
-          pip install -U yt-dlp
-          yt-dlp --version
-          ffmpeg -version | head -1
-
-      - name: Setup Xray (optional, extract only)
-        env:
-          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
-        run: python3 lab_scripts/xray_setup.py || true
-
-      - name: Prepare proxies for extract
-        env:
-          PROXY_IN: ${{ inputs.proxy }}
-        run: |
-          if [ -f labcfg/lab/working_proxies.txt ]; then
-            cp labcfg/lab/working_proxies.txt working_proxies.txt
-          fi
-          if [ -n "$PROXY_IN" ]; then
-            echo "$PROXY_IN" > working_proxies.txt
-          fi
-          cat working_proxies.txt 2>/dev/null || true
-
-      - name: Extract links
-        env:
-          URL: ${{ inputs.url }}
-          PROXY: ${{ inputs.proxy }}
-          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
-        run: python lab_scripts/links.py
-
-      - name: Download HLS + GitHub Release
-        env:
-          UPLOAD: "true"
-          QUALITY: ${{ inputs.quality }}
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python lab_scripts/download.py
+      - run: echo "Stub on main. The real workflow runs from the lab branch."

@@ -101,7 +101,8 @@ from core import plugin_loader as L
 from screens import lab, plugin_runner
 
 # ---------- loader ----------
-for f in ("index.json", "hello.py"): REMOTE["lab/" + f] = open(os.path.join(ROOT, "lab_examples", f)).read()
+REMOTE["lab/index.json"] = '{"plugins": [{"id": "hello", "title": "Hello Lab", "file": "hello.py"}]}'
+REMOTE["lab/hello.py"] = "def build(host):\n    host.title('Hello')\n"
 idx = L.load_index("lab")
 ok(idx["origin"] == "remote" and idx["plugins"][0]["id"] == "hello", "index loads from the lab folder")
 bundle = L.fetch_bundle("lab", idx["plugins"][0]); mod_ = L.build_module(bundle)

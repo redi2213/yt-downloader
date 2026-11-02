@@ -43,13 +43,13 @@ def _render(nav, marker, res):
     if error:
         nav.add(common.wrapped_label(
             f"Could not load the tool list.\n{error}\n\n"
-            "Put lab/index.json on the lab branch (see LAB.md)."))
+            "Put lab/index.json on the lab branch (see LAB.md on the lab branch)."))
     else:
         if res.get("origin") == "cache":
             nav.add(common.wrapped_label("Offline: showing the saved tool list."))
         plugins = res["plugins"]
         if not plugins:
-            nav.add(common.wrapped_label("No tools yet. Add one to lab/index.json (see LAB.md)."))
+            nav.add(common.wrapped_label("No tools yet. Add one to lab/index.json (see LAB.md on the lab branch)."))
         for entry in plugins:
             btn = Button(text=entry.get("title") or entry["id"], size_hint_y=None, height=52)
             btn.bind(on_press=lambda i, e=entry: plugin_runner.open_plugin(

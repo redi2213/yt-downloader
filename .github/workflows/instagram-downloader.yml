@@ -53,7 +53,7 @@ jobs:
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
         run: |
           set -e
-          python3 lab_scripts/xray_setup.py
+          python3 scripts/xray_setup.py
 
       - name: Prepare extraction routes and cookies
         env:
