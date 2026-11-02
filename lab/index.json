@@ -26,6 +26,13 @@
       "file": "link_lab.py",
       "description": "Get links / download any site through yt-dlp, with free proxies or v2ray. Uses the lab-links, lab-download and lab-find-proxies workflows; the app's own tools are untouched.",
       "min_host": 1
+    },
+    {
+      "id": "copy_tools",
+      "title": "Copy tools (safe copy to edit)",
+      "file": "copy_tools.py",
+      "description": "Copy a main workflow or a config plugin to the lab branch, edit the copy, run it from lab, or discard it. The originals are never touched.",
+      "min_host": 1
     }
   ]
 }
