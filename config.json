@@ -1,5 +1,5 @@
 {
-  "config_version": 27,
+  "config_version": 28,
   "actions": [
     {
       "id": "tiktok_download",
@@ -818,6 +818,54 @@
         "max_candidates": "150",
         "xh_check": "0"
       }
+    },
+    {
+      "id": "lab_beeg",
+      "title": "Beeg (test)",
+      "icon": "download",
+      "enabled": true,
+      "fields": [
+        {
+          "key": "url",
+          "type": "text",
+          "label": "Beeg video link",
+          "hint": "https://beeg.com/..."
+        },
+        {
+          "key": "quality",
+          "type": "choice",
+          "label": "Quality",
+          "choices": [
+            {
+              "label": "Best",
+              "value": "best"
+            },
+            {
+              "label": "Half",
+              "value": "half"
+            },
+            {
+              "label": "Worst",
+              "value": "worst"
+            }
+          ],
+          "default": "best"
+        },
+        {
+          "key": "proxy",
+          "type": "text",
+          "label": "Proxy (optional)",
+          "hint": "socks5://ip:port - empty = GitHub IP",
+          "optional": true
+        }
+      ],
+      "workflow": "lab-beeg.yml",
+      "workflow_inputs": {
+        "url": "{url}",
+        "quality": "{quality}",
+        "proxy": "{proxy}"
+      },
+      "group": "lab"
     }
   ],
   "error_help": [
