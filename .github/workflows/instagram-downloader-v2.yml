@@ -55,15 +55,15 @@ jobs:
           set -e
           python3 lab_scripts/xray_setup.py
 
-      - name: Prepare download and proxy list
+      - name: Prepare extraction routes and cookies
         env:
           INSTAGRAM_URL: ${{ inputs.instagram_url }}
           INSTAGRAM_COOKIES: ${{ secrets.INSTAGRAM_COOKIES }}
           PROXY: ${{ inputs.proxy }}
         run: |
           set -euo pipefail
-          mkdir -p downloads
-          python - <<'PY'
+          mkdir -p downloads .instagram-work
+          python3 - <<'PY'
           import os
           from pathlib import Path
 
@@ -73,18 +73,18 @@ jobs:
 
           cookies = os.environ.get("INSTAGRAM_COOKIES", "")
           if cookies.strip():
-              Path("instagram-cookies.txt").write_text(cookies, encoding="utf-8")
-              Path("instagram-cookies.txt").chmod(0o600)
+              p = Path("instagram-cookies.txt")
+              p.write_text(cookies, encoding="utf-8")
+              p.chmod(0o600)
 
           proxies = []
           if Path("/tmp/xray_from_config").is_file():
-              print("Using the configured Xray tunnel only.")
+              print("Configured Xray tunnel is available for metadata extraction.")
               proxies = ["socks5h://127.0.0.1:10808"]
           else:
               manual = os.environ.get("PROXY", "").strip()
               if manual:
                   proxies.append(manual)
-
               proxy_file = Path("labcfg/lab/working_proxies.txt")
               if proxy_file.is_file():
                   for line in proxy_file.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -92,80 +92,111 @@ jobs:
                       if line and not line.startswith("#"):
                           proxies.append(line)
 
-          seen = set()
           unique = []
           for proxy in proxies:
-              if proxy not in seen:
-                  seen.add(proxy)
+              if proxy not in unique:
                   unique.append(proxy)
-
           unique.append("DIRECT")
-          Path("proxy-attempts.txt").write_text("\n".join(unique) + "\n", encoding="utf-8")
-          print(f"Prepared {len(unique) - 1} proxy option(s), plus a direct fallback.")
-          print("Instagram cookies: " + ("configured" if cookies.strip() else "not configured"))
+          Path("extraction-attempts.txt").write_text("\n".join(unique) + "\n", encoding="utf-8")
+          print(f"Prepared {len(unique) - 1} proxy route(s) and a direct extraction fallback.")
+          print("Instagram cookies:", "configured" if cookies.strip() else "not configured")
           PY
 
-      - name: Download Instagram media
+      - name: Extract story metadata through proxy, then download media directly
         env:
           INSTAGRAM_URL: ${{ inputs.instagram_url }}
         run: |
-          set -uo pipefail
-          success=0
-          attempt=0
-          COOKIE_ARGS=()
-          if [ -s instagram-cookies.txt ]; then
-            COOKIE_ARGS=(--cookies instagram-cookies.txt)
-          fi
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
 
-          while IFS= read -r proxy; do
-            [ -n "$proxy" ] || continue
-            attempt=$((attempt + 1))
-            rm -f downloads/*
+          url = os.environ["INSTAGRAM_URL"].strip()
+          cookie_file = Path("instagram-cookies.txt")
+          cookie_args = ["--cookies", str(cookie_file)] if cookie_file.is_file() else []
+          routes = [x.strip() for x in Path("extraction-attempts.txt").read_text().splitlines() if x.strip()]
 
-            if [ "$proxy" = "DIRECT" ]; then
-              echo "Attempt $attempt: direct connection"
-              if yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --socket-timeout 20 --retries 2 --fragment-retries 2 \
-                --merge-output-format mp4 -f "bv*+ba/best" \
-                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"; then
-                echo "yt-dlp command completed on direct connection."
-              else
-                echo "Direct connection failed; continuing to the next route if available."
-              fi
-            else
-              echo "Attempt $attempt: proxy connection"
-              if yt-dlp "${COOKIE_ARGS[@]}" --no-warnings --proxy "$proxy" \
-                --socket-timeout 20 --retries 2 --fragment-retries 2 \
-                --merge-output-format mp4 -f "bv*+ba/best" \
-                -o "downloads/%(title).150B_%(id)s.%(ext)s" "$INSTAGRAM_URL"; then
-                echo "yt-dlp command completed on proxy route."
-              else
-                echo "Proxy attempt failed; continuing to the next route."
-              fi
-            fi
+          extracted = None
+          extraction_route = None
+          for number, route in enumerate(routes, 1):
+              cmd = ["yt-dlp", "--no-warnings", "--socket-timeout", "20", "--retries", "2",
+                     "--fragment-retries", "2", "--dump-json", *cookie_args]
+              if route != "DIRECT":
+                  cmd += ["--proxy", route]
+              cmd.append(url)
+              print(f"Metadata extraction attempt {number}/{len(routes)} via {route}")
+              result = subprocess.run(cmd, capture_output=True, text=True)
+              entries = []
+              for line in result.stdout.splitlines():
+                  try:
+                      item = json.loads(line)
+                      if isinstance(item, dict) and item.get("id"):
+                          entries.append(item)
+                  except json.JSONDecodeError:
+                      continue
+              if result.returncode == 0 and entries:
+                  extracted = entries
+                  extraction_route = route
+                  break
+              print((result.stderr or "No metadata returned.")[-3500:])
 
-            if find downloads -maxdepth 1 -type f ! -name '*.part' ! -name '*.ytdl' ! -name '*.tmp' | grep -q .; then
-              success=1
-              echo "Download succeeded on attempt $attempt."
-              break
-            fi
-            echo "Attempt $attempt failed; trying the next route."
-          done < proxy-attempts.txt
+          if not extracted:
+              raise SystemExit("Could not extract any Instagram media metadata using the available routes.")
 
-          if [ "$success" -ne 1 ]; then
-            echo "All proxy routes and the direct fallback failed."
-            exit 1
-          fi
+          print(f"Extracted metadata for {len(extracted)} media item(s) using {extraction_route}.")
+          Path("downloads/.expected-count").write_text(str(len(extracted)), encoding="utf-8")
 
-      - name: Create download links manifest
+          completed = []
+          for index, item in enumerate(extracted, 1):
+              info_path = Path(".instagram-work") / f"info-{index:04d}.json"
+              info_path.write_text(json.dumps(item, ensure_ascii=False), encoding="utf-8")
+              output_dir = Path("downloads") / f"item-{index:04d}"
+
+              def run_download(route):
+                  shutil.rmtree(output_dir, ignore_errors=True)
+                  output_dir.mkdir(parents=True, exist_ok=True)
+                  cmd = ["yt-dlp", "--no-warnings", "--socket-timeout", "20", "--retries", "2",
+                         "--fragment-retries", "2", "--merge-output-format", "mp4",
+                         "-f", "bv*+ba/best", "-o", str(output_dir / "%(title)s.%(id)s.%(ext)s"),
+                         *cookie_args, "--load-info-json", str(info_path)]
+                  if route != "DIRECT":
+                      cmd += ["--proxy", route]
+                  print(f"Media item {index}/{len(extracted)} download via {route}")
+                  result = subprocess.run(cmd, text=True)
+                  files = [p for p in output_dir.rglob("*") if p.is_file()
+                           and not p.name.endswith((".part", ".ytdl", ".tmp"))]
+                  return result.returncode == 0 and len(files) == 1 and files[0].stat().st_size > 0, files
+
+              ok, files = run_download("DIRECT")
+              if not ok and extraction_route != "DIRECT":
+                  print(f"Direct CDN download failed for item {index}; retrying this item through the extraction proxy.")
+                  ok, files = run_download(extraction_route)
+
+              if not ok:
+                  raise SystemExit(f"Media item {index}/{len(extracted)} did not produce exactly one complete output file.")
+              completed.append(str(files[0]))
+              print(f"Completed item {index}/{len(extracted)}: {files[0].name}")
+
+          if len(completed) != len(extracted):
+              raise SystemExit(f"Incomplete download: {len(completed)} of {len(extracted)} items completed.")
+
+          print(f"All {len(completed)} of {len(extracted)} media item(s) downloaded successfully.")
+          PY
+
+      - name: Verify files and create download links manifest
         env:
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          mapfile -t FILES < <(find downloads -maxdepth 1 -type f ! -name '*.part' ! -name '*.ytdl' ! -name '*.tmp' -printf '%f\n' | sort)
-          if [ "${#FILES[@]}" -eq 0 ]; then
-            echo "No media files were downloaded."
+          mapfile -t FILES < <(find downloads -type f ! -name '.*' ! -name '*.part' ! -name '*.ytdl' ! -name '*.tmp' -print | sort)
+          EXPECTED=$(cat downloads/.expected-count)
+          if [ "${#FILES[@]}" -eq 0 ] || [ "${#FILES[@]}" -ne "$EXPECTED" ]; then
+            echo "Expected $EXPECTED complete media file(s), found ${#FILES[@]}."
             exit 1
           fi
 
@@ -175,16 +206,19 @@ jobs:
           {
             echo "Instagram Downloader v2"
             echo
+            echo "Complete files: ${#FILES[@]} / $EXPECTED"
             echo "Release: ${RELEASE_URL}"
             echo
             echo "Direct file links (available after publishing):"
             for FILE in "${FILES[@]}"; do
-              ENCODED=$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$FILE")
+              NAME=$(basename "$FILE")
+              ENCODED=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$NAME")
               echo "https://github.com/${REPOSITORY}/releases/download/${TAG}/${ENCODED}"
             done
           } > downloads/download-links.txt
 
           echo "RELEASE_TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "Verified ${#FILES[@]} complete media file(s); partial files are excluded."
 
       - name: Publish files to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -193,13 +227,15 @@ jobs:
           name: "Instagram v2 download #${{ github.run_number }}"
           body: |
             Downloaded by Instagram Downloader v2.
-            The release includes the media files and download-links.txt.
-          files: downloads/*
+            Metadata extraction uses the selected proxy route; media downloads try direct CDN access first and use the extraction proxy only as a fallback.
+            The release contains only verified complete media files and download-links.txt.
+          files: |
+            downloads/*
           fail_on_unmatched_files: true
           generate_release_notes: false
 
       - name: Clean temporary files
         if: always()
         run: |
-          rm -f instagram-cookies.txt proxy-attempts.txt
-          rm -rf downloads
+          rm -f instagram-cookies.txt extraction-attempts.txt
+          rm -rf .instagram-work downloads
