@@ -36,9 +36,42 @@ MODES = ("github", "arvan", "both")
 GITHUB_ASSET_LIMIT = 2 * 1024 ** 3  # a Release asset must be smaller than 2 GiB
 
 
-def gh(*args, check=True):
-    """Runs the gh CLI (tests replace this function)."""
-    return subprocess.run(["gh", *args], check=check)
+def gh(*args, check=True, retries=4):
+    """Runs the gh CLI (tests replace this function).
+
+    Retries transient GitHub failures (HTTP 5xx) with a growing delay. If a retried
+    `release create` finds the release already exists (a half-finished earlier try),
+    the files are uploaded to it with --clobber instead of failing on "already exists".
+    """
+    done = None
+    for attempt in range(retries):
+        if attempt and args[:2] == ("release", "create"):
+            tag = args[2]
+            repo_args = []
+            if "--repo" in args:
+                repo_args = ["--repo", args[args.index("--repo") + 1]]
+            exists = subprocess.run(["gh", "release", "view", tag, *repo_args],
+                                    capture_output=True).returncode == 0
+            if exists:
+                files = []
+                for a in args[3:]:
+                    if a.startswith("--"):
+                        break
+                    files.append(a)
+                done = subprocess.run(["gh", "release", "upload", tag, *files, *repo_args, "--clobber"])
+                if done.returncode == 0:
+                    return done
+                time.sleep(10 * attempt)
+                continue
+        done = subprocess.run(["gh", *args])
+        if done.returncode == 0:
+            return done
+        if attempt < retries - 1:
+            print(f"::warning::gh {' '.join(args[:2])} failed (exit {done.returncode}), retry {attempt + 1}/{retries - 1}")
+            time.sleep(10 * (attempt + 1))
+    if check:
+        raise subprocess.CalledProcessError(done.returncode, ["gh", *args])
+    return done
 
 
 def get_mode() -> str:
