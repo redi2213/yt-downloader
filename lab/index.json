@@ -1,0 +1,31 @@
+{
+  "plugins": [
+    {
+      "id": "hello",
+      "title": "Hello Lab (example)",
+      "file": "hello.py",
+      "description": "Example: menus, sub-menus, input, choices, background work, saved values.",
+      "min_host": 1
+    },
+    {
+      "id": "mornye_lab",
+      "title": "Mornye (lab copy)",
+      "file": "mornye_lab.py",
+      "modules": [
+        "lib/mornye.py",
+        "lib/mornye_prefs.py",
+        "lib/mornye_download.py",
+        "lib/mornye_link_service.py"
+      ],
+      "description": "Copy of Mornye from link. The app's own Mornye is untouched; sessions are shared, settings are separate.",
+      "min_host": 1
+    },
+    {
+      "id": "link_lab",
+      "title": "Link Lab (any site, copy of link_downloader)",
+      "file": "link_lab.py",
+      "description": "Get links / download any site through yt-dlp, with free proxies or v2ray. Uses the lab-links, lab-download and lab-find-proxies workflows; the app's own tools are untouched.",
+      "min_host": 1
+    }
+  ]
+}

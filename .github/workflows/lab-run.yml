@@ -1,0 +1,20 @@
+name: Lab Run
+run-name: ${{ inputs.run_title || 'Lab' }}
+# Registration stub. The real definition lives on the `lab` branch and is the
+# one that runs when the app dispatches this file with ref=lab.
+on:
+  workflow_dispatch:
+    inputs:
+      tool:
+        description: Lab tool name
+        required: false
+      payload:
+        description: JSON inputs
+        required: false
+      run_title:
+        required: false
+jobs:
+  real:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "REAL from lab branch, ref=$GITHUB_REF"
