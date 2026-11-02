@@ -20,7 +20,7 @@
       "exclude": [],
       "start_from": {
         "type": "episode",
-        "value": "81"
+        "value": "90"
       },
       "stop": {
         "episode": 100,
