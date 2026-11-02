@@ -230,7 +230,8 @@ jobs:
             Metadata extraction uses the selected proxy route; media downloads try direct CDN access first and use the extraction proxy only as a fallback.
             The release contains only verified complete media files and download-links.txt.
           files: |
-            downloads/*
+            downloads/item-*/*
+            downloads/download-links.txt
           fail_on_unmatched_files: true
           generate_release_notes: false
 
