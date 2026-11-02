@@ -1,7 +1,7 @@
 """Instagram Downloader - Download Anything plugin (no APK build needed).
 
 Runs .github/workflows/instagram-downloader.yml, follows the run, then reads the
-files of the release tagged instagram-{run_id}-{run_attempt}.
+files of the release tagged run-{run_id} (so they also show in Release History).
 Proxy / V2Ray boxes are optional; when filled they are sent to the workflow
 (which then prefers them over its own saved proxies).
 """
@@ -87,17 +87,12 @@ def _work(host, url, proxy, v2ray, state):
         stop_event=state["stop"])
     if conclusion == "cancelled_locally":
         return {"cancelled": True}
-    attempt = 1
-    try:
-        attempt = int(host.gh.request("GET", "/actions/runs/%s" % run_id).json().get("run_attempt") or 1)
-    except Exception:
-        pass
     if conclusion != "success":
         return {"error": "Download failed (%s). %s" % (conclusion, _failed_step(host, run_id)),
                 "run_id": run_id}
 
     host.set_status("Checking the files...")
-    return _read_release(host, "instagram-%s-%s" % (run_id, attempt))
+    return _read_release(host, "run-%s" % run_id)
 
 
 def _failed_step(host, run_id):
@@ -133,8 +128,11 @@ def _read_release(host, tag):
         return {"error": "Incomplete files in the release, not shown: %s" % (", ".join(bad) or "none found")}
 
     expected = None
+    m = _COUNT_RE.search(release.get("body") or "")
+    if m:
+        expected = int(m.group(2))
     manifest = next((a for a in assets if a.get("name") == LINKS_ASSET), None)
-    if manifest:
+    if manifest and expected is None:
         try:
             headers = dict(auth_headers())
             headers["Accept"] = "application/octet-stream"
