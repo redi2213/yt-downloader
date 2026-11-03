@@ -7,7 +7,9 @@ import os
 import re
 import json
 import asyncio
+import signal
 import subprocess
+import sys
 from typing import Any
 
 
@@ -141,6 +143,71 @@ async def via_api(url: str, proxy: str | None) -> dict:
     return result
 
 
+def is_xhamster(url: str) -> bool:
+    return bool(re.search(r"xhamster|//(?:[a-z0-9-]+\.)*xh[a-z]{2,10}\d?\.(?:com|desi)/", url or "", re.I))
+
+
+_PROCS: list = []
+
+
+def _kill(p) -> None:
+    """Kill a yt-dlp process and anything it started."""
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except Exception:
+        try:
+            p.kill()
+        except Exception:
+            pass
+
+
+def _run_ytdlp(cmd: list[str], timeout: int):
+    """subprocess.run replacement whose process can be killed from another thread."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         start_new_session=True)
+    _PROCS.append(p)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill(p)
+        p.communicate()
+        raise
+    finally:
+        if p in _PROCS:
+            _PROCS.remove(p)
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+
+
+def _ok(data: dict | None) -> bool:
+    return bool(data) and bool(data.get("qualities") or data.get("m3u8")) and not data.get("error")
+
+
+def race_proxies(url: str, proxies: list[str], workers: int = 4) -> dict | None:
+    """yt-dlp through several proxies at once; the first one that finds links wins."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    ex = ThreadPoolExecutor(max_workers=workers)
+    futs = {ex.submit(via_ytdlp, url, p): p for p in proxies}
+    last = None
+    try:
+        for f in as_completed(futs):
+            try:
+                data = f.result()
+            except Exception as e:
+                print(f"  [race] {futs[f]}: {type(e).__name__}: {e}")
+                continue
+            last = data
+            if _ok(data):
+                print(f"  [race] winner: {futs[f]}")
+                return data
+            print(f"  [race] {futs[f]}: {data.get('error')}")
+    finally:
+        for p in list(_PROCS):
+            _kill(p)
+        ex.shutdown(wait=False, cancel_futures=True)
+    return last
+
+
 def is_beeg(url: str) -> bool:
     return bool(re.search(r"(^|//|\.)beeg\.com(/|$)", url or "", re.I))
 
@@ -196,11 +263,11 @@ def _h(q: dict) -> int:
 
 
 def via_ytdlp(url: str, proxy: str | None) -> dict:
-    cmd = ["yt-dlp", "--no-warnings", "-J", "--no-download", url]
+    cmd = ["yt-dlp", "--no-warnings", "--socket-timeout", "15", "-J", "--no-download", url]
     if proxy:
         cmd[1:1] = ["--proxy", proxy]
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        p = _run_ytdlp(cmd, timeout=90)
     except Exception as e:
         return {
             "url": url,
@@ -295,15 +362,16 @@ def via_ytdlp(url: str, proxy: str | None) -> dict:
 
 async def try_one(url: str, proxy: str | None) -> dict:
     beeg = is_beeg(url)
-    label = "beeg_api" if beeg else "api"
-    print(f"  [{label}] ...")
-    try:
-        data = await (via_beeg(url, proxy) if beeg else via_api(url, proxy))
-        if (data.get("m3u8") or data.get("qualities")) and not data.get("error"):
-            return data
-        print(f"  [{label}] fail: {data.get('error')}")
-    except Exception as e:
-        print(f"  [{label}] exception: {type(e).__name__}: {e}")
+    if beeg or is_xhamster(url):
+        label = "beeg_api" if beeg else "api"
+        print(f"  [{label}] ...")
+        try:
+            data = await (via_beeg(url, proxy) if beeg else via_api(url, proxy))
+            if _ok(data):
+                return data
+            print(f"  [{label}] fail: {data.get('error')}")
+        except Exception as e:
+            print(f"  [{label}] exception: {type(e).__name__}: {e}")
     print("  [yt-dlp] ...")
     data = via_ytdlp(url, proxy)
     if data.get("error"):
@@ -313,19 +381,37 @@ async def try_one(url: str, proxy: str | None) -> dict:
 
 async def try_with_proxies(url: str, proxies: list[str]) -> dict:
     chain: list[str | None] = list(proxies) if proxies else [None]
-    if is_beeg(url) and not xray_only():
-        # Beeg: plain GitHub IP first; only if that fails the proxy override / saved free list
-        override = (os.environ.get("PROXY") or "").strip()
+    xh = is_xhamster(url)
+    only_xray = xray_only()
+    override = (os.environ.get("PROXY") or "").strip()
+
+    if not xh and not only_xray:
+        # Every site except xHamster: the plain GitHub IP first (fast, and the links are not
+        # tied to a proxy IP); only if that fails the proxy override / the saved free list.
         if override:
             chain = [override, None]
         else:
-            chain = [None] + [p for p in proxies if p]
+            print("\n>>> Trying (direct, GitHub IP)")
+            data = await try_one(url, None)
+            if _ok(data):
+                return data
+            cands = [p for p in proxies if p][:8]
+            if not cands:
+                return data
+            if is_beeg(url):
+                chain = cands  # beeg_api uses process-wide proxy settings: one at a time
+            else:
+                print(f"\n>>> Racing {len(cands)} proxies (the first that works wins)")
+                loop = asyncio.get_running_loop()
+                res = await loop.run_in_executor(None, race_proxies, url, cands)
+                return res or data
+
     last: dict | None = None
     for proxy in chain:
         print(f"\n>>> Trying {proxy or '(direct)'}")
         data = await try_one(url, proxy)
         last = data
-        if (data.get("qualities") or data.get("m3u8")) and not data.get("error"):
+        if _ok(data):
             return data
     return last or {
         "url": url,
@@ -406,6 +492,10 @@ def write_summary(results: list[dict]) -> None:
 
 
 async def main() -> None:
+    try:
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+    except Exception:
+        pass
     raw = os.environ.get("URL") or os.environ.get("LINKS") or ""
     urls = [x.strip() for x in raw.splitlines() if x.strip()]
     # a link pasted without "https://" is fixed here (xhamster_api needs the full address)
