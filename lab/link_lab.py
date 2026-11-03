@@ -161,14 +161,63 @@ def links_result(host, run_id, conclusion, body):
 
 # ---------------------------------------------------------------- download
 def _run_download(host, url, quality):
-    action = {
-        "workflow": "lab-download.yml",
-        "workflow_inputs": {"url": "{url}", "quality": "{quality}",
-                            "proxy": "{proxy}", "v2ray_config": "{v2ray_config}"},
-    }
     host.log("download:", quality, url[:200])
-    host.run_action(action, {"url": url, "quality": quality,
-                             "proxy": S["proxy"], "v2ray_config": S["v2ray"]})
+    host.show(download_screen, url, quality)
+
+
+def download_screen(host, url, quality):
+    # NOT host.run_action: that always starts the workflow on main, where lab-download.yml
+    # is only an empty stub. host.gh.dispatch starts it from the lab branch (the real one).
+    label = quality if str(quality) == "best" else "%sp" % quality
+    host.title("Downloading (%s)" % label)
+    host.text("Runs lab-download.yml from the lab branch and saves the video in a GitHub "
+              "release. You can leave this screen; the run keeps going.")
+    host.status()
+    host.set_status("Starting...")
+    inputs = {"url": url, "quality": str(quality), "proxy": S["proxy"], "v2ray_config": S["v2ray"]}
+
+    def work():
+        run_id = host.gh.dispatch("lab-download.yml", inputs)
+        if not run_id:
+            raise RuntimeError("Could not find the workflow run on GitHub")
+        host.log("lab-download run", run_id)
+        host.set_status("Run %s started..." % run_id)
+        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        links = []
+        if conclusion == "success":
+            try:
+                links = host.gh.release_links(run_id, attempts=6, delay=2)
+            except Exception as e:
+                host.log("release links:", e)
+        return run_id, conclusion, links
+
+    def done(res, err):
+        if err is not None:
+            host.set_status("Failed: %s" % err)
+            return
+        host.replace(download_result, *res)
+
+    host.background(work, done=done)
+    host.back_button()
+
+
+def download_result(host, run_id, conclusion, links):
+    if conclusion != "success":
+        host.title("Run finished: %s" % conclusion)
+        host.text("Open GitHub > Actions > Lab Download Release (run %s) to see the log." % run_id)
+    elif not links:
+        host.title("No file saved")
+        host.text("The run succeeded but no release file was found. Open GitHub > Actions > "
+                  "Lab Download Release (run %s) to see the log." % run_id)
+    else:
+        host.title("Downloaded (%d file%s)" % (len(links), "" if len(links) == 1 else "s"))
+        host.text("Saved in release run-%s. Open it from Release History in the app "
+                  "(the app downloads with your GitHub token).\n\n%s" % (run_id, "\n".join(links)))
+    host.status()
+    if links:
+        host.button("Copy link%s" % ("" if len(links) == 1 else "s"),
+                    lambda: (host.copy("\n".join(links)), host.set_status("Copied")))
+    host.back_button()
 
 
 def start_download(host):
