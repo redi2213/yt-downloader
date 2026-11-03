@@ -1,0 +1,85 @@
+name: Lab Refresh Configs
+
+# Tests the default config subscription (lab/default_sources.json) and saves the few best
+# working configs on the lab branch (lab/working_configs.txt). Started every 24 h by
+# lab-schedule.yml (on main), or by hand from the app (Lab > Link lab > Free proxies).
+# This file is the real definition: it runs from the lab branch (main only keeps a stub).
+
+run-name: ${{ inputs.run_title || 'Lab configs' }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      subscription:
+        description: "Subscription link (empty = lab/default_sources.json)"
+        required: false
+        default: ''
+        type: string
+      max_configs:
+        description: "How many working configs to keep (empty = lab/default_sources.json)"
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout lab branch
+        uses: actions/checkout@v4
+        with:
+          ref: lab
+          path: labcfg
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test the subscription nodes
+        env:
+          SUBSCRIPTION: ${{ inputs.subscription }}
+          MAX_CONFIGS: ${{ inputs.max_configs }}
+        run: python lab_scripts/refresh_configs.py
+
+      - name: Save the list on the lab branch
+        run: |
+          if [ ! -s working_configs.txt ]; then
+            echo "No working configs found - the old list stays"
+            exit 0
+          fi
+          mkdir -p labcfg/lab
+          {
+            echo "# Auto-updated by Lab Refresh Configs workflow"
+            echo "# Updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            grep -v '^#' working_configs.txt | sed '/^$/d'
+          } > labcfg/lab/working_configs.txt
+          cd labcfg
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lab/working_configs.txt
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(lab): update working configs ($(grep -vc '^#' lab/working_configs.txt) configs)"
+          for i in 1 2 3; do
+            git pull --rebase origin lab || true
+            if git push origin HEAD:lab; then break; fi
+            sleep 3
+          done
