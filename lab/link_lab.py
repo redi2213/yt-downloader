@@ -145,13 +145,14 @@ def links_result(host, run_id, conclusion, body):
     picks = _parse_qualities(body) if conclusion == "success" else []
     if picks:
         host.text("Download one quality (runs lab-download.yml and makes a GitHub release):")
-        for title, page, height, link in picks[:12]:
-            label = "Download %dp" % height
+        for title, page, height, link, size in picks[:12]:
+            sfx = (" \u2022 " + size) if size else ""
+            label = "Download %dp%s" % (height, sfx)
             if len({p[1] for p in picks}) > 1:
                 label += " - " + (title[:22] or page[:22])
             host.row([
                 (label, lambda p=page, h=height: _run_download(host, p, str(h))),
-                ("Copy %dp link" % height,
+                ("Copy %dp link%s" % (height, sfx),
                  lambda u=link, h=height: (host.copy(u), host.set_status("Copied %dp link" % h))),
             ])
         if len(picks) > 12:
@@ -233,6 +234,7 @@ def _parse_qualities(body):
     out, seen = [], set()
     title = page = ""
     pending = None
+    pending_size = ""
     for raw in (body or "").splitlines():
         ln = raw.strip()
         if not ln:
@@ -245,6 +247,8 @@ def _parse_qualities(body):
         if ln.startswith("# quality:"):
             m = re.match(r"#\s*quality:\s*(\d{3,4})p", ln)
             pending = int(m.group(1)) if m else None
+            ms = re.search(r"\|\s*size:\s*(.+)$", ln)
+            pending_size = ms.group(1).strip() if ms else ""
             continue
         if ln.startswith("# "):
             title = ln[2:].strip()
@@ -253,8 +257,9 @@ def _parse_qualities(body):
         if ln.startswith("http"):
             if pending and page and (page, pending) not in seen:
                 seen.add((page, pending))
-                out.append((title, page, pending, ln))
+                out.append((title, page, pending, ln, pending_size))
             pending = None
+            pending_size = ""
     return out
 
 
