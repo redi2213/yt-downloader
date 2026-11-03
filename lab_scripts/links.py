@@ -10,6 +10,7 @@ import asyncio
 import signal
 import subprocess
 import sys
+from urllib.parse import urljoin
 from typing import Any
 
 
@@ -335,6 +336,8 @@ def via_ytdlp(url: str, proxy: str | None) -> dict:
                     "resolution": f"{f.get('width')}x{h}",
                     "link": u,
                     "ext": ext,
+                    "size": f.get("filesize") or f.get("filesize_approx"),
+                    "size_exact": bool(f.get("filesize")),
                 }
             )
 
@@ -425,6 +428,106 @@ async def try_with_proxies(url: str, proxies: list[str]) -> dict:
     }
 
 
+# ---------------------------------------------------------------- file sizes
+def fmt_size(n: int) -> str:
+    if n >= 1024 ** 3:
+        return f"{n / 1024 ** 3:.2f} GB"
+    return f"{n / 1024 ** 2:.1f} MB"
+
+
+def size_label(q: dict) -> str:
+    n = q.get("size")
+    if not n:
+        return "Unknown size"
+    return ("" if q.get("size_exact") else "~") + fmt_size(int(n))
+
+
+def _curl(args: list[str], proxy: str | None, timeout: int = 20, head: bool = False) -> str:
+    cmd = ["curl", "-sL", "--max-time", str(timeout), "-A", "Mozilla/5.0"]
+    if proxy:
+        cmd += ["-x", proxy]
+    try:
+        p = subprocess.run(cmd + args, capture_output=True, timeout=timeout + 5)
+        return p.stdout.decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
+def _range_size(url: str, proxy: str | None) -> int | None:
+    """Total size of a file/segment: ask for byte 0 only and read Content-Range."""
+    out = _curl(["-o", "/dev/null", "-D", "-", "-r", "0-0", url], proxy, 15)
+    blocks = [b for b in re.split(r"\r?\n\r?\n", out) if b.strip().upper().startswith("HTTP/")]
+    if not blocks:
+        return None
+    head = blocks[-1].lower()
+    m = re.search(r"content-range:\s*bytes\s+[^/]*/(\d+)", head)
+    if m:
+        return int(m.group(1))
+    status = re.match(r"http/\S+\s+(\d+)", head)
+    m = re.search(r"content-length:\s*(\d+)", head)
+    if status and status.group(1) == "200" and m:
+        return int(m.group(1))
+    return None
+
+
+def _hls_estimate(url: str, proxy: str | None) -> int | None:
+    """HLS has no total size: measure a few segments and multiply by the segment count."""
+    text = _curl([url], proxy, 20)
+    if "#EXTM3U" not in text:
+        return None
+    if "#EXT-X-STREAM-INF" in text:
+        lines = text.splitlines()
+        for i, ln in enumerate(lines):
+            if ln.startswith("#EXT-X-STREAM-INF"):
+                for nxt in lines[i + 1:]:
+                    if nxt.strip() and not nxt.startswith("#"):
+                        url = urljoin(url, nxt.strip())
+                        break
+                break
+        text = _curl([url], proxy, 20)
+        if "#EXTM3U" not in text:
+            return None
+    segs = [urljoin(url, ln.strip()) for ln in text.splitlines()
+            if ln.strip() and not ln.startswith("#")]
+    if not segs:
+        return None
+    n = len(segs)
+    idx = sorted({0, n // 3, (2 * n) // 3})
+    sizes = [s for s in (_range_size(segs[i], proxy) for i in idx) if s]
+    if not sizes:
+        return None
+    return int(sum(sizes) / len(sizes) * n)
+
+
+def _probe(q: dict, proxy: str | None) -> None:
+    link = str(q.get("link") or "")
+    try:
+        if q.get("ext") == "m3u8" or ".m3u8" in link:
+            n = _hls_estimate(link, proxy)
+            if n:
+                q["size"], q["size_exact"] = n, False
+        elif not q.get("size_exact"):
+            n = _range_size(link, proxy)
+            if n:
+                q["size"], q["size_exact"] = n, True
+    except Exception as e:
+        print(f"  [size] {q.get('quality')}: {type(e).__name__}: {e}")
+
+
+def add_sizes(data: dict) -> None:
+    """Fill q['size'] / q['size_exact'] for every quality (same proxy that found the links)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    quals = data.get("qualities") or []
+    if not quals or data.get("error"):
+        return
+    proxy = data.get("proxy_used")
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        list(ex.map(lambda q: _probe(q, proxy), quals))
+    for q in quals:
+        print(f"  size {q.get('quality')}: {size_label(q)}")
+
+
 def print_result(data: dict, index: int | None = None) -> None:
     prefix = f"[{index}] " if index is not None else ""
     print("=" * 55)
@@ -441,7 +544,7 @@ def print_result(data: dict, index: int | None = None) -> None:
         print(f"\nMaster/HLS:\n{data['m3u8']}")
     for i, q in enumerate(data.get("qualities") or [], 1):
         print(
-            f"\n  {i}. [{q.get('quality')}] {q.get('resolution')} ({q.get('ext', '')})"
+            f"\n  {i}. [{q.get('quality')}] {q.get('resolution')} ({q.get('ext', '')}) {size_label(q)}"
         )
         print(f"     {q['link']}")
     print("=" * 55)
@@ -519,6 +622,7 @@ async def main() -> None:
     results = []
     for i, url in enumerate(urls, 1):
         data = await try_with_proxies(url, proxies)
+        add_sizes(data)
         print_result(data, index=i if len(urls) > 1 else None)
         results.append(data)
 
@@ -537,7 +641,7 @@ async def main() -> None:
         if item.get("m3u8"):
             txt.append(str(item["m3u8"]))
         for q in item.get("qualities") or []:
-            txt.append(f"# quality: {q.get('quality')} ({q.get('ext', '')})")
+            txt.append(f"# quality: {q.get('quality')} ({q.get('ext', '')}) | size: {size_label(q)}")
             txt.append(q["link"])
         txt.append("")
     text = "\n".join(txt) + "\n"
