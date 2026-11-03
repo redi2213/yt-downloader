@@ -1,0 +1,44 @@
+name: Lab Refresh Configs
+
+# Tests the default config subscription (lab/default_sources.json) and saves the few best
+# working configs on the lab branch (lab/working_configs.txt). Started every 24 h by
+# lab-schedule.yml (on main), or by hand from the app (Lab > Link lab > Free proxies).
+# This file is the real definition: it runs from the lab branch (main only keeps a stub).
+
+run-name: ${{ inputs.run_title || 'Lab configs' }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      subscription:
+        description: "Subscription link (empty = lab/default_sources.json)"
+        required: false
+        default: ''
+        type: string
+      max_configs:
+        description: "How many working configs to keep (empty = lab/default_sources.json)"
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.
+# The real definition lives on the `lab` branch (same path) and is what runs when the app
+# dispatches this file with ref=lab. Do not put steps here.
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stub on main. The real workflow runs from the lab branch."
