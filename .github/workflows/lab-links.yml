@@ -92,6 +92,10 @@ jobs:
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
         run: python3 lab_scripts/xray_setup.py || true
 
+      - name: Default configs (auto-refreshed list; skipped when you set a proxy or config)
+        if: ${{ inputs.v2ray_config == '' && inputs.proxy == '' }}
+        run: python3 lab_scripts/xray_default.py || true
+
       - name: Prepare proxy list
         env:
           PROXY_IN: ${{ inputs.proxy }}
