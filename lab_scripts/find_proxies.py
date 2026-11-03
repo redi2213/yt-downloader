@@ -57,7 +57,7 @@ def parse_lines(text: str, proto: str) -> list[str]:
     return out
 
 
-def test_proxy(proxy_url: str) -> dict | None:
+def _test_proxy_basic(proxy_url: str) -> dict | None:
     """Return dict if proxy can reach TEST_URL, else None."""
     try:
         # urllib ProxyHandler only supports http/https proxies natively.
@@ -136,6 +136,28 @@ def test_socks5(proxy_url: str) -> dict | None:
                 pass
     except Exception:
         return None
+
+
+CONFIRM_URL = os.environ.get("CONFIRM_URL", "https://cp.cloudflare.com/generate_204")
+
+
+def confirm(proxy_url: str) -> bool:
+    """Second, different HTTPS check: a proxy must pass both to be called alive."""
+    try:
+        import requests
+
+        r = requests.get(CONFIRM_URL, proxies={"http": proxy_url, "https": proxy_url},
+                         timeout=TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+        return r.status_code in (200, 204)
+    except Exception:
+        return False
+
+
+def test_proxy(proxy_url: str) -> dict | None:
+    res = _test_proxy_basic(proxy_url)
+    if res and res.get("ok") and not confirm(proxy_url):
+        return None
+    return res
 
 
 def main():
