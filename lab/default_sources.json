@@ -1,0 +1,5 @@
+{
+  "subscription": "https://raw.githubusercontent.com/patterniha/Free-Configs/main/configs.txt",
+  "max_configs": 5,
+  "note": "Used by the lab-refresh-configs workflow (every 24 h). Free proxies are refreshed every 12 h by lab-find-proxies. Edit this file to change the subscription."
+}
