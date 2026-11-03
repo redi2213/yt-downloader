@@ -13,6 +13,7 @@ import time
 S = {"urls": "", "quality": "720", "proxy": "", "v2ray": "", "loaded": False}
 QUALITIES = [("Best", "best"), ("1080", "1080"), ("720", "720"), ("480", "480")]
 PROXY_FILE = "lab/working_proxies.txt"
+CONFIG_FILE = "lab/working_configs.txt"
 
 
 def _load(host):
@@ -61,8 +62,10 @@ def build(host):
 # ---------------------------------------------------------------- options
 def options_screen(host):
     host.title("Options")
-    host.text("Both are optional. With both empty, the saved free proxy list is tried first "
-              "(Free proxies button), then the plain GitHub IP.")
+    host.text("Both are optional. With both empty, Lab uses its automatic sources: the free "
+              "proxies (refreshed every 12 hours) and the best configs of the default "
+              "subscription (refreshed every 24 hours). They are tried together and the "
+              "first that answers wins. Fill these only to use your own.")
     host.text("Proxy (socks5://ip:port or http://ip:port)")
     proxy = host.input("Proxy override", text=S["proxy"])
     host.text("v2ray / Xray config: vless://, vmess://, trojan://, ss:// link, "
@@ -266,10 +269,14 @@ def _parse_qualities(body):
 # ---------------------------------------------------------------- free proxies
 def proxies_screen(host):
     host.title("Free proxies (lab list)")
-    host.text("The list is saved on the lab branch (%s) and used by Get links and "
-              "Download when no proxy / v2ray config is set." % PROXY_FILE)
+    host.text("Both lists refresh by themselves: proxies every 12 hours, configs every 24 hours "
+              "(GitHub schedule). They are saved on the lab branch (%s, %s) and used by Get "
+              "links and Download when no proxy / v2ray config is set. The buttons below "
+              "refresh them right now." % (PROXY_FILE, CONFIG_FILE))
     host.button("Find new working proxies", lambda: host.show(find_screen))
     host.button("Show the saved list", lambda: host.show(list_screen))
+    host.button("Refresh default configs", lambda: host.show(configs_find_screen))
+    host.button("Show default configs", lambda: host.show(configs_list_screen))
     host.back_button()
 
 
@@ -335,4 +342,84 @@ def list_view(host, heading, lines):
     host.status()
     if lines:
         host.button("Copy the list", lambda: (host.copy("\n".join(lines)), host.set_status("Copied")))
+    host.back_button()
+
+
+# ---------------------------------------------------------------- default configs
+def _read_configs(host):
+    """(updated text, ['vless host:port', ...]) from the saved list. Keys are never shown."""
+    from urllib.parse import urlsplit
+    try:
+        text = host.gh.read_file(CONFIG_FILE, ref="lab")
+    except Exception as e:
+        host.log("config list read:", e)
+        return None
+    updated, items = "", []
+    for ln in text.splitlines():
+        ln = ln.strip()
+        if ln.startswith("# Updated:"):
+            updated = ln[10:].strip()
+        if not ln or ln.startswith("#"):
+            continue
+        try:
+            u = urlsplit(ln)
+            items.append("%s %s:%s" % (u.scheme, u.hostname, u.port))
+        except Exception:
+            items.append(ln.split("://")[0] + " (config)")
+    return updated, items
+
+
+def configs_find_screen(host):
+    host.title("Refreshing configs")
+    host.text("Runs lab-refresh-configs.yml: tests the nodes of the default subscription and "
+              "keeps the best few. It takes a few minutes; the result is saved on GitHub even "
+              "if you leave this screen.")
+    host.status()
+    host.set_status("Starting...")
+
+    def work():
+        run_id = host.gh.dispatch("lab-refresh-configs.yml", {})
+        if not run_id:
+            raise RuntimeError("Could not find the workflow run on GitHub")
+        host.log("lab-refresh-configs run", run_id)
+        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        return conclusion, _read_configs(host)
+
+    def done(res, err):
+        if err is not None:
+            host.set_status("Failed: %s" % err)
+            return
+        conclusion, info = res
+        host.replace(configs_view, "Run finished: %s" % conclusion, info)
+
+    host.background(work, done=done)
+    host.back_button()
+
+
+def configs_list_screen(host):
+    host.title("Default configs")
+    host.status()
+    host.set_status("Reading...")
+
+    def done(info, err):
+        if err is not None:
+            host.set_status("Failed: %s" % err)
+            return
+        host.replace(configs_view, "Default configs", info)
+
+    host.background(lambda: _read_configs(host), done=done)
+    host.back_button()
+
+
+def configs_view(host, heading, info):
+    host.title(heading)
+    if info is None:
+        host.text("No saved configs yet. Use \"Refresh default configs\".")
+    else:
+        updated, items = info
+        if not items:
+            host.text("The list is empty.")
+        else:
+            host.text("%d configs (updated %s):\n%s" % (len(items), updated or "?", "\n".join(items)))
+    host.status()
     host.back_button()
