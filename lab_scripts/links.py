@@ -58,6 +58,23 @@ def load_proxies() -> list[str]:
         if p not in seen:
             seen.add(p)
             out.append(p)
+
+    # Default configs (lab/working_configs.txt started by xray_default.py): mixed in with the
+    # free proxies one by one, so the race tries both kinds at the same time.
+    dflt: list[str] = []
+    if os.path.isfile("/tmp/xray_default_proxies.txt"):
+        with open("/tmp/xray_default_proxies.txt", encoding="utf-8") as f:
+            dflt = [ln.strip() for ln in f if ln.strip()]
+    if dflt:
+        rest = [p for p in out if p not in dflt]
+        mixed: list[str] = []
+        for i in range(max(len(dflt), len(rest))):
+            if i < len(dflt):
+                mixed.append(dflt[i])
+            if i < len(rest):
+                mixed.append(rest[i])
+        print(f"Default configs: {len(dflt)} (mixed with {len(rest)} free proxies)")
+        out = mixed
     return out
 
 
@@ -398,7 +415,7 @@ async def try_with_proxies(url: str, proxies: list[str]) -> dict:
             data = await try_one(url, None)
             if _ok(data):
                 return data
-            cands = [p for p in proxies if p][:8]
+            cands = [p for p in proxies if p][:10]
             if not cands:
                 return data
             if is_beeg(url):
@@ -445,7 +462,7 @@ def size_label(q: dict) -> str:
 def _curl(args: list[str], proxy: str | None, timeout: int = 20, head: bool = False) -> str:
     cmd = ["curl", "-sL", "--max-time", str(timeout), "-A", "Mozilla/5.0"]
     if proxy:
-        cmd += ["-x", proxy]
+        cmd += ["-x", proxy.replace("socks5://", "socks5h://", 1)]
     try:
         p = subprocess.run(cmd + args, capture_output=True, timeout=timeout + 5)
         return p.stdout.decode("utf-8", "replace")
