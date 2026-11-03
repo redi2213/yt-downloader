@@ -81,10 +81,12 @@ def apply_proxy_env(proxy: str | None) -> None:
         os.environ[k] = proxy
 
 
-def make_client(proxy: str | None = None):
+def make_client(proxy: str | None = None, module: str = "xhamster_api"):
     apply_proxy_env(proxy)
     _compat_base_api()
-    from xhamster_api import Client
+    import importlib
+
+    Client = importlib.import_module(module).Client
 
     if not proxy:
         return Client()
@@ -136,6 +138,55 @@ async def via_api(url: str, proxy: str | None) -> dict:
                 "ext": "m3u8",
             }
         )
+    return result
+
+
+def is_beeg(url: str) -> bool:
+    return bool(re.search(r"(^|//|\.)beeg\.com(/|$)", url or "", re.I))
+
+
+def xray_only() -> bool:
+    """True when a v2ray_config started Xray (then ONLY the local SOCKS is used)."""
+    return os.path.isfile("/tmp/xray_from_config") or (
+        os.path.isfile("/tmp/xray.pid") and bool(os.environ.get("V2RAY_CONFIG", "").strip())
+    )
+
+
+async def via_beeg(url: str, proxy: str | None) -> dict:
+    """Beeg through unofficial-api-for-beeg: the HLS master + one playlist per height."""
+    client = make_client(proxy, "beeg_api")
+    video = await client.get_video(url)
+    title = getattr(video, "title", None) or "unknown"
+    m3u8 = getattr(video, "m3u8_base_url", None)
+    result: dict[str, Any] = {
+        "url": url,
+        "title": title,
+        "max_resolution": None,
+        "m3u8": m3u8,
+        "qualities": [],
+        "error": None,
+        "proxy_used": proxy,
+        "method": "beeg_api",
+    }
+    if not m3u8:
+        result["error"] = "m3u8 not found"
+        return result
+    try:
+        heights = await client.core.list_available_qualities(m3u8)
+    except Exception as e:
+        print(f"  [beeg_api] quality list failed: {type(e).__name__}: {e}")
+        heights = []
+    for h in sorted({int(x) for x in heights}, reverse=True):
+        try:
+            link = await client.core.get_m3u8_by_quality(m3u8, h)
+        except Exception as e:
+            print(f"  [beeg_api] {h}p skipped: {type(e).__name__}: {e}")
+            continue
+        result["qualities"].append(
+            {"quality": f"{h}p", "resolution": f"{h}p", "link": str(link), "ext": "m3u8"}
+        )
+    if result["qualities"]:
+        result["max_resolution"] = result["qualities"][0]["quality"]
     return result
 
 
@@ -243,14 +294,16 @@ def via_ytdlp(url: str, proxy: str | None) -> dict:
 
 
 async def try_one(url: str, proxy: str | None) -> dict:
-    print("  [api] ...")
+    beeg = is_beeg(url)
+    label = "beeg_api" if beeg else "api"
+    print(f"  [{label}] ...")
     try:
-        data = await via_api(url, proxy)
+        data = await (via_beeg(url, proxy) if beeg else via_api(url, proxy))
         if (data.get("m3u8") or data.get("qualities")) and not data.get("error"):
             return data
-        print(f"  [api] fail: {data.get('error')}")
+        print(f"  [{label}] fail: {data.get('error')}")
     except Exception as e:
-        print(f"  [api] exception: {type(e).__name__}: {e}")
+        print(f"  [{label}] exception: {type(e).__name__}: {e}")
     print("  [yt-dlp] ...")
     data = via_ytdlp(url, proxy)
     if data.get("error"):
@@ -260,6 +313,13 @@ async def try_one(url: str, proxy: str | None) -> dict:
 
 async def try_with_proxies(url: str, proxies: list[str]) -> dict:
     chain: list[str | None] = list(proxies) if proxies else [None]
+    if is_beeg(url) and not xray_only():
+        # Beeg: plain GitHub IP first; only if that fails the proxy override / saved free list
+        override = (os.environ.get("PROXY") or "").strip()
+        if override:
+            chain = [override, None]
+        else:
+            chain = [None] + [p for p in proxies if p]
     last: dict | None = None
     for proxy in chain:
         print(f"\n>>> Trying {proxy or '(direct)'}")

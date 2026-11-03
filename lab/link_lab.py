@@ -31,7 +31,7 @@ def build(host):
         S["urls"] = host.prefill
     host.title("Link Lab (any site)")
     host.text("Paste one or more video page links, one per line. yt-dlp reads the page, "
-              "so most sites work.")
+              "so most sites work (xHamster and Beeg use their own API first).")
     urls = host.input("Links, one per line", text=S["urls"], multiline=True)
     host.text("Quality (for the download)")
     quality = host.choice(QUALITIES, default=S["quality"])

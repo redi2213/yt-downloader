@@ -76,6 +76,7 @@ jobs:
           pip install curl_cffi requests PySocks
           pip uninstall -y xhamster_api unofficial-api-for-xhamster 2>/dev/null || true
           pip install -U unofficial-api-for-xhamster
+          pip install -U unofficial-api-for-beeg || echo "beeg api install failed (Beeg falls back to yt-dlp)"
           pip install -U yt-dlp
           python - <<'PY'
           import base_api.base as b
