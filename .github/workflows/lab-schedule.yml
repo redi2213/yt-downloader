@@ -1,0 +1,41 @@
+name: Lab Schedule
+
+# Keeps the Lab's free proxies and default configs fresh.
+# GitHub only runs schedules from the main branch, so this small file lives on main and just
+# starts the real Lab workflows from the lab branch:
+#   every 12 h  -> lab-find-proxies.yml   (free proxies that really connect)
+#   every 24 h  -> lab-refresh-configs.yml (best configs of the default subscription)
+# Edit the subscription / how many configs to keep in lab/default_sources.json on the lab branch.
+
+on:
+  schedule:
+    - cron: "23 */12 * * *"
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+    inputs:
+      what:
+        description: "proxies / configs / both"
+        required: false
+        default: both
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  proxies:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '23 */12 * * *' || github.event_name == 'workflow_dispatch' && inputs.what != 'configs' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run lab-find-proxies.yml --ref lab -f needed=10 -f max_candidates=200 -f xh_check=0 -f run_title="Lab proxies (auto)"
+
+  configs:
+    if: ${{ github.event_name == 'schedule' && github.event.schedule == '47 3 * * *' || github.event_name == 'workflow_dispatch' && inputs.what != 'proxies' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run lab-refresh-configs.yml --ref lab -f run_title="Lab configs (auto)"
