@@ -439,6 +439,7 @@ async def main() -> None:
     for item in results:
         txt.append(f"# {item.get('title') or item['url']}")
         txt.append(f"# method: {item.get('method')} proxy: {item.get('proxy_used')}")
+        txt.append(f"# page: {item.get('url')}")
         if item.get("error"):
             txt.append(f"# ERROR: {item['error']}")
             txt.append("")
@@ -446,6 +447,7 @@ async def main() -> None:
         if item.get("m3u8"):
             txt.append(str(item["m3u8"]))
         for q in item.get("qualities") or []:
+            txt.append(f"# quality: {q.get('quality')} ({q.get('ext', '')})")
             txt.append(q["link"])
         txt.append("")
     text = "\n".join(txt) + "\n"

@@ -7,6 +7,7 @@ Uses three workflows that are copies of redi2213/link_downloader:
 The app's own tools and workflows are not touched. Edit this file on the config
 branch (lab/link_lab.py) and open the tool again: no build needed.
 """
+import re
 import time
 
 S = {"urls": "", "quality": "720", "proxy": "", "v2ray": "", "loaded": False}
@@ -141,6 +142,16 @@ def links_result(host, run_id, conclusion, body):
         host.title("Links (%d)" % len(links))
         host.text(body.strip())
     host.status()
+    picks = _parse_qualities(body) if conclusion == "success" else []
+    if picks:
+        host.text("Download one quality (runs lab-download.yml and makes a GitHub release):")
+        for title, page, height in picks[:12]:
+            label = "Download %dp" % height
+            if len({p[1] for p in picks}) > 1:
+                label += " - " + (title[:28] or page[:28])
+            host.button(label, lambda p=page, h=height: _run_download(host, p, str(h)))
+        if len(picks) > 12:
+            host.text("(%d more not shown)" % (len(picks) - 12))
     if links:
         host.button("Copy all links", lambda: (host.copy("\n".join(links)), host.set_status("Copied")))
     if body.strip():
@@ -149,15 +160,49 @@ def links_result(host, run_id, conclusion, body):
 
 
 # ---------------------------------------------------------------- download
-def start_download(host):
+def _run_download(host, url, quality):
     action = {
         "workflow": "lab-download.yml",
         "workflow_inputs": {"url": "{url}", "quality": "{quality}",
                             "proxy": "{proxy}", "v2ray_config": "{v2ray_config}"},
     }
-    host.log("download:", S["quality"], S["urls"][:200])
-    host.run_action(action, {"url": S["urls"], "quality": S["quality"],
+    host.log("download:", quality, url[:200])
+    host.run_action(action, {"url": url, "quality": quality,
                              "proxy": S["proxy"], "v2ray_config": S["v2ray"]})
+
+
+def start_download(host):
+    _run_download(host, S["urls"], S["quality"])
+
+
+def _parse_qualities(body):
+    """Read the release notes written by lab_scripts/links.py: (title, page link, height)."""
+    out, seen = [], set()
+    title = page = ""
+    pending = None
+    for raw in (body or "").splitlines():
+        ln = raw.strip()
+        if not ln:
+            continue
+        if ln.startswith("# page:"):
+            page = ln[7:].strip()
+            continue
+        if ln.startswith("# method:") or ln.startswith("# ERROR"):
+            continue
+        if ln.startswith("# quality:"):
+            m = re.match(r"#\s*quality:\s*(\d{3,4})p", ln)
+            pending = int(m.group(1)) if m else None
+            continue
+        if ln.startswith("# "):
+            title = ln[2:].strip()
+            pending = None
+            continue
+        if ln.startswith("http"):
+            if pending and page and (page, pending) not in seen:
+                seen.add((page, pending))
+                out.append((title, page, pending))
+            pending = None
+    return out
 
 
 # ---------------------------------------------------------------- free proxies
