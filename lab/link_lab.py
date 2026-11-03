@@ -145,11 +145,15 @@ def links_result(host, run_id, conclusion, body):
     picks = _parse_qualities(body) if conclusion == "success" else []
     if picks:
         host.text("Download one quality (runs lab-download.yml and makes a GitHub release):")
-        for title, page, height in picks[:12]:
+        for title, page, height, link in picks[:12]:
             label = "Download %dp" % height
             if len({p[1] for p in picks}) > 1:
-                label += " - " + (title[:28] or page[:28])
-            host.button(label, lambda p=page, h=height: _run_download(host, p, str(h)))
+                label += " - " + (title[:22] or page[:22])
+            host.row([
+                (label, lambda p=page, h=height: _run_download(host, p, str(h))),
+                ("Copy %dp link" % height,
+                 lambda u=link, h=height: (host.copy(u), host.set_status("Copied %dp link" % h))),
+            ])
         if len(picks) > 12:
             host.text("(%d more not shown)" % (len(picks) - 12))
     if links:
@@ -225,7 +229,7 @@ def start_download(host):
 
 
 def _parse_qualities(body):
-    """Read the release notes written by lab_scripts/links.py: (title, page link, height)."""
+    """Read the release notes written by lab_scripts/links.py: (title, page link, height, direct link)."""
     out, seen = [], set()
     title = page = ""
     pending = None
@@ -249,7 +253,7 @@ def _parse_qualities(body):
         if ln.startswith("http"):
             if pending and page and (page, pending) not in seen:
                 seen.add((page, pending))
-                out.append((title, page, pending))
+                out.append((title, page, pending, ln))
             pending = None
     return out
 

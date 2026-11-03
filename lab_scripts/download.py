@@ -77,15 +77,28 @@ def pick_media(item: dict, quality_pref: str) -> tuple[str | None, str]:
     return None, ""
 
 
-def download_hls(url: str, referer: str, out_base: str, out_dir: Path) -> Path | None:
+def _clean_partial(out_dir: Path, out_base: str) -> None:
+    """Remove leftovers of a failed try (with --no-part a half file looks like a finished one)."""
+    for f in out_dir.glob(f"{out_base}.*"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
+
+
+def download_hls(url: str, referer: str, out_base: str, out_dir: Path, proxy: str | None = None) -> Path | None:
+    _clean_partial(out_dir, out_base)
     UA = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
     out_dir.mkdir(parents=True, exist_ok=True)
-    # no proxy for CDN — proxy was causing 30min stalls
+    # Default: no proxy for the CDN (a proxy can make it very slow). The proxy is only used
+    # by the last-chance retry below, with the proxy that found the links.
     cmd = [
         "yt-dlp",
+        "--socket-timeout",
+        "30",
         "--no-playlist",
         "--no-part",
         "--no-mtime",
@@ -105,6 +118,8 @@ def download_hls(url: str, referer: str, out_base: str, out_dir: Path) -> Path |
         str(out_dir / f"{out_base}.%(ext)s"),
         url,
     ]
+    if proxy:
+        cmd[1:1] = ["--proxy", proxy]
     print("yt-dlp:", " ".join(cmd), flush=True)
     p = subprocess.run(cmd)
     if p.returncode == 0:
@@ -123,6 +138,9 @@ def download_hls(url: str, referer: str, out_base: str, out_dir: Path) -> Path |
                 print(f"OK {files[0]} ({files[0].stat().st_size} bytes)")
                 return files[0]
 
+    if proxy:
+        # ffmpeg cannot use socks proxies, so with a proxy only yt-dlp is tried
+        return None
     print("yt-dlp failed or empty — ffmpeg fallback", flush=True)
     out_mp4 = out_dir / f"{out_base}.mp4"
     if out_mp4.exists():
@@ -190,8 +208,18 @@ def main() -> int:
         if not path and page and kind != "page":
             print("retry via page URL")
             path = download_hls(page, referer=page, out_base=base, out_dir=out_dir)
+        route = "GitHub IP (no proxy)"
+        used_proxy = (item.get("proxy_used") or "").strip()
+        if not path and used_proxy:
+            print(f"GitHub IP could not download - retrying through the proxy that found the links: {used_proxy}", flush=True)
+            path = download_hls(media, referer=page or media, out_base=base, out_dir=out_dir, proxy=used_proxy)
+            if not path and page and kind != "page":
+                path = download_hls(page, referer=page, out_base=base, out_dir=out_dir, proxy=used_proxy)
+            route = f"proxy {used_proxy}"
         if path:
             files.append(path)
+            notes.append(f"  route: {route}")
+            print(f"Downloaded through: {route}", flush=True)
         else:
             print("FAILED this item")
 
