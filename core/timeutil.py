@@ -7,6 +7,37 @@ from core import config
 
 _ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
+# Settings > Appearance and language > Date format: "gregorian" or "jalali" (Shamsi).
+_date_mode = "gregorian"
+
+
+def set_date_mode(mode):
+    global _date_mode
+    _date_mode = "jalali" if mode == "jalali" else "gregorian"
+
+
+def date_mode():
+    return _date_mode
+
+
+_G_DAYS = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+
+
+def gregorian_to_jalali(gy, gm, gd):
+    """(year, month, day) of the Gregorian calendar -> the Jalali (Shamsi) date."""
+    gy2 = gy + 1 if gm > 2 else gy
+    days = 355666 + 365 * gy + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400 + gd + _G_DAYS[gm - 1]
+    jy = -1595 + 33 * (days // 12053)
+    days %= 12053
+    jy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        jy += (days - 1) // 365
+        days = (days - 1) % 365
+    if days < 186:
+        return jy, 1 + days // 31, 1 + days % 31
+    return jy, 7 + (days - 186) // 30, 1 + (days - 186) % 30
+
 
 def _local_tz():
     return timezone(timedelta(minutes=config.LOCAL_UTC_OFFSET_MINUTES))
@@ -28,7 +59,11 @@ def datetime_to_local(dt, fmt="%Y-%m-%d %H:%M"):
         return ""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(_local_tz()).strftime(fmt)
+    local = dt.astimezone(_local_tz())
+    if _date_mode == "jalali" and "%" in fmt:
+        jy, jm, jd = gregorian_to_jalali(local.year, local.month, local.day)
+        fmt = fmt.replace("%Y", f"{jy:04d}").replace("%m", f"{jm:02d}").replace("%d", f"{jd:02d}")
+    return local.strftime(fmt)
 
 
 def utc_iso_to_local(iso, fmt="%Y-%m-%d %H:%M"):

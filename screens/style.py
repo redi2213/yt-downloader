@@ -19,7 +19,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.widget import Widget
 
-from core import appearance, i18n
+from core import appearance, i18n, timeutil
 from screens import common
 
 _installed = False
@@ -35,6 +35,7 @@ def start(flat_dir=None):
     """Called once when the app starts and again after a theme / language change."""
     global _flat
     i18n.set_language(appearance.prefs().get("lang"))
+    timeutil.set_date_mode(appearance.prefs().get("date_mode"))
     if flat_dir and not any(_flat):
         _flat = appearance.flat_images(flat_dir)
     colors = appearance.colors()

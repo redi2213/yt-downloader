@@ -2,10 +2,11 @@
 import json
 import re
 import time
+from datetime import datetime, timezone
 
 from api.github import client
 from api.github.auth import auth_headers
-from core import timeutil
+from core import retention, timeutil
 from core.config import API_BASE, BOT_API_BASE, BOT_TAG_PREFIXES
 from core.exceptions import NetworkError
 
@@ -281,20 +282,41 @@ def _read_text_asset(asset) -> str:
     return lines[0]
 
 
+def _deadline_fields(rel, asset_id, created, repo, keep, now):
+    """What the lists show about when a file is deleted (see scripts/retention_core.py).
+    ``expires``: ISO text or None; ``days_left``: None when the file never expires."""
+    tag = rel.get("tag_name", "")
+    kind = retention.kind_of(tag, bot=repo == "bot")
+    if kind is None or asset_id is None or is_app_build(rel):
+        return {"expires": None, "days_left": None, "forever": False, "deadline_text": ""}
+    forever = retention.is_forever(keep, asset_id)
+    when = retention.expires_at(kind, created, keep, asset_id)
+    return {
+        "expires": retention.iso(when) if when else None,
+        "days_left": retention.days_left(when, now),
+        "forever": forever,
+        "deadline_text": retention.deadline_text(when, forever, now),
+    }
+
+
 def _history_items(rel, repo=None):
     """The History items of one release: one per file."""
     tag = rel.get("tag_name", "")
     assets = rel.get("assets", [])
     body = rel.get("body") or ""     # holds the quality block (when there is one) - read per file below
+    keep = retention.parse_keep(body)
+    now = datetime.now(timezone.utc)
     items = []
     if not assets:
         # Arvan-only release: the file lives on Arvan, listed in the description
-        when = timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at"))
+        stamp = rel.get("published_at") or rel.get("created_at")
+        when = timeutil.utc_iso_to_local(stamp)
         for f in _arvan_files(rel):
             items.append({
                 "title": f.get("name") or "file",
                 "link": f["url"],
                 "date": when,
+                "sort_ts": stamp or "",
                 "release_id": rel["id"],
                 "repo": repo,
                 "asset_id": None,          # not a GitHub asset
@@ -302,24 +324,47 @@ def _history_items(rel, repo=None):
                 "size": f.get("size", 0),
                 "storage": "arvan",
                 "quality_label": quality_label(body, f.get("name")),
+                "expires": None, "days_left": None, "forever": False, "deadline_text": "",
             })
         return items
     # One item per file: a multi-file upload keeps all its files in one release
     for asset in sorted(assets, key=lambda a: a.get("id", 0)):
-        items.append({
+        # The time the FILE was uploaded (an Auto follow release grows for weeks); the
+        # release's published_at (not created_at, which is the date of the tagged commit)
+        # when GitHub gives no asset time.
+        stamp = asset.get("created_at") or rel.get("published_at") or rel.get("created_at")
+        item = {
             "title": asset["name"],
             "link": asset["browser_download_url"],
-            # published_at, not created_at: GitHub's created_at for a release is
-            # the date of the commit its tag points to, not when it was made.
-            "date": timeutil.utc_iso_to_local(rel.get("published_at") or rel.get("created_at")),
+            "date": timeutil.utc_iso_to_local(stamp),
+            "sort_ts": stamp or "",
             "release_id": rel["id"],
             "repo": repo,
             "asset_id": asset["id"],
             "tag_name": tag,
             "size": asset.get("size", 0),
             "quality_label": quality_label(body, asset.get("name")),
-        })
+        }
+        item.update(_deadline_fields(rel, asset["id"], stamp, repo, keep, now))
+        items.append(item)
     return items
+
+
+def _newest_first(items):
+    """Newest upload first (by date AND time), whatever order GitHub lists the releases in."""
+    return sorted(items, key=lambda it: it.get("sort_ts") or "", reverse=True)
+
+
+def _all_releases(repo=None, max_pages=10):
+    """Every release of a repo (GitHub gives 100 per request; old ones are deleted after a week,
+    so a few requests are enough)."""
+    out = []
+    for page in range(1, max_pages + 1):
+        batch = client.get(f"{_base(repo)}/releases?per_page=100&page={page}").json()
+        out.extend(batch)
+        if len(batch) < 100:
+            break
+    return out
 
 
 def get_live_history(tag=None):
@@ -329,16 +374,14 @@ def get_live_history(tag=None):
     automatic downloads never crowd it."""
     if tag:
         r = client.get_allow_missing(f"{API_BASE}/releases/tags/{tag}")
-        return _history_items(r.json()) if r.status_code == 200 else []
-    url = f"{API_BASE}/releases?per_page=30"
-    r = client.get(url)
+        return _newest_first(_history_items(r.json())) if r.status_code == 200 else []
     items = []
-    for rel in r.json():
+    for rel in client.get(f"{API_BASE}/releases?per_page=30").json():
         t = rel.get("tag_name", "")
         if not (t.startswith("run-") or t.startswith("job-")):
             continue
         items.extend(_history_items(rel))
-    return items
+    return _newest_first(items)
 
 
 def _base(repo=None):
@@ -367,28 +410,21 @@ def is_app_build(rel) -> bool:
 def get_live_history_page(page=0, page_size=HISTORY_PAGE_SIZE, repo=None, apk=False):
     """One page of the History: ``(items, has_next, page)``.
 
-    GitHub lists releases newest first, 100 per request. Releases that are not
-    the app's own (run-* / job-*, e.g. auto-*) are skipped and a release with
-    several files counts once per file, so the list is read request by request
-    until the wanted page is full AND one more file proves there is a next
-    page. A page past the end (e.g. after deleting the last file of the last
+    Every release is read, the files are sorted newest first by upload date and time (GitHub's own
+    order follows the date of the tagged commit, not the upload), then the page is cut. Releases
+    that are not the app's own (run-* / job-*, e.g. auto-*) are skipped and a release with several
+    files counts once per file. A page past the end (e.g. after deleting the last file of the last
     page) falls back to the last page."""
     page = max(0, int(page or 0))
-    items, github_page, more = [], 1, True
-    while more:
-        r = client.get(f"{_base(repo)}/releases?per_page=100&page={github_page}")
-        batch = r.json()
-        for rel in batch:
-            t = rel.get("tag_name", "")
-            if not t.startswith(_prefixes(repo)):
-                continue
-            if repo is None and is_app_build(rel) != apk:
-                continue   # app builds live behind their own button
-            items.extend(_history_items(rel, repo))
-        more = len(batch) >= 100
-        github_page += 1
-        if len(items) > (page + 1) * page_size:
-            break   # the wanted page is full and there is at least one more file
+    items = []
+    for rel in _all_releases(repo):
+        t = rel.get("tag_name", "")
+        if not t.startswith(_prefixes(repo)):
+            continue
+        if repo is None and is_app_build(rel) != apk:
+            continue   # app builds live behind their own button
+        items.extend(_history_items(rel, repo))
+    items = _newest_first(items)
     last_page = max(0, (len(items) - 1) // page_size) if items else 0
     page = min(page, last_page)
     start = page * page_size
@@ -433,3 +469,73 @@ def rename_release_asset(release_id, asset_id, new_filename, repo=None):
     url = f"{_base(repo)}/releases/assets/{asset_id}"
     r = client.patch(url, json={"name": new_filename})
     return r.json().get("browser_download_url")
+
+
+# -- how long files stay (the cleanup workflows delete them; see scripts/retention_core.py) --------
+def get_deadline_groups(names=None):
+    """Every file with its deletion date, in groups: the Release History, each Auto follow channel
+    (``names``: release tag -> channel name) and the Telegram bot.
+    Returns ``(groups, errors)``; a group is ``{"key", "title", "repo", "items"}``, soonest deadline
+    first (files that never expire last)."""
+    names = names or {}
+    groups, errors = {}, []
+
+    def add(key, title, repo, items):
+        g = groups.setdefault(key, {"key": key, "title": title, "repo": repo, "items": []})
+        g["items"].extend(items)
+
+    for rel in _all_releases():
+        tag = rel.get("tag_name", "")
+        if is_app_build(rel):
+            continue
+        if tag.startswith(("run-", "job-")):
+            add("history", "Release History", None, _history_items(rel))
+        elif tag.startswith("auto-"):
+            add(tag, f"Auto follow: {names.get(tag) or tag[5:]}", None, _history_items(rel))
+    try:
+        for rel in _all_releases("bot"):
+            if rel.get("tag_name", "").startswith(BOT_TAG_PREFIXES):
+                add("bot", "Telegram bot files", "bot", _history_items(rel, "bot"))
+    except Exception as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        errors.append("No access to the Telegram bot repo (aparat-bot)." if status in (401, 403, 404)
+                      else f"Could not load the bot files: {str(e)[:60]}")
+    order = sorted(groups.values(), key=lambda g: (g["key"] != "history", g["key"] == "bot", g["key"]))
+    for g in order:
+        g["items"] = [it for it in g["items"] if it.get("asset_id") is not None]
+        g["items"].sort(key=lambda it: (it["days_left"] is None, it["days_left"] or 0, it["sort_ts"] or ""))
+    return [g for g in order if g["items"]], errors
+
+
+def extend_items(items, days=None, forever=False):
+    """Pushes the deletion date of the given files ``days`` later (or keeps them forever): the date is
+    kept in the hidden keep block of each release's description. Returns how many files changed."""
+    by_release = {}
+    for it in items:
+        if it.get("asset_id") is not None:
+            by_release.setdefault((it.get("repo"), it["release_id"]), []).append(it)
+    changed = 0
+    now = datetime.now(timezone.utc)
+    for (repo, release_id), group in by_release.items():
+        r = client.get_allow_missing(f"{_base(repo)}/releases/{release_id}")
+        if r.status_code != 200:
+            continue    # the release is gone already
+        rel = r.json()
+        body = rel.get("body") or ""
+        keep = retention.parse_keep(body)
+        live = {str(a["id"]): a for a in rel.get("assets", [])}
+        keep["files"] = {k: v for k, v in keep["files"].items() if k in live}   # forget deleted files
+        kind = retention.kind_of(rel.get("tag_name", ""), bot=repo == "bot")
+        for it in group:
+            key = str(it["asset_id"])
+            if key not in live:
+                continue
+            if forever:
+                keep["files"][key] = retention.FOREVER
+            else:
+                stamp = live[key].get("created_at") or rel.get("published_at")
+                current = retention.expires_at(kind, stamp, keep, key) or retention.parse_iso(stamp)
+                keep["files"][key] = retention.iso(retention.extended(current, days, datetime.now(timezone.utc)))
+            changed += 1
+        client.patch(f"{_base(repo)}/releases/{release_id}", json={"body": retention.with_keep(body, keep)})
+    return changed

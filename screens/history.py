@@ -9,7 +9,7 @@ from kivy.metrics import dp
 
 from screens.common import (
     BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box,
-    content_width, paint_card, wrapped_label_height,
+    content_width, paint_card, wrapped_label, wrapped_label_height,
 )
 
 _DANGER = (1.0, 0.55, 0.55, 1)   # tint for buttons that delete things
@@ -45,13 +45,20 @@ def build_bot_error(nav, message, back=None):
 
 
 def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False,
-          follows=None, new=None, on_follow=None, bot=False, on_bot=None, apk=False, on_apk=None):
+          follows=None, new=None, on_follow=None, bot=False, on_bot=None, apk=False, on_apk=None,
+          on_deadlines=None):
     """``title`` / ``back``: another title and parent screen when this list shows only
     one Auto follow channel's files. ``extra``: (button text, function) shown at the top."""
     nav.clear()
     paged = back is None or bot or apk   # the normal list and the bot's list are paged; one Auto follow channel is not
     heading = f"{title} - page {page + 1} ({len(items)} files)" if paged else f"{title} ({len(items)} found)"
     nav.add(Label(text=heading, size_hint_y=None, height=BTN_H))
+
+    if on_deadlines and not bot and not apk and page == 0:
+        dl_btn = Button(text="File deadlines\nwhen each file is deleted", size_hint_y=None,
+                        height=dp(64), halign="center")
+        dl_btn.bind(on_press=lambda i: on_deadlines())
+        nav.add(dl_btn)
 
     if on_bot and not bot and page == 0:
         bot_btn = Button(text="Telegram bot files\noutputs of the Telegram bot", size_hint_y=None,
@@ -163,7 +170,8 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
 
         # One card per file: tap the file's text to select it - the whole card
         # turns green. Link on its own line, then four evenly spaced buttons.
-        row = card_box([title_height, SMALL_BTN_H, BTN_H])
+        has_deadline = bool(item.get("deadline_text")) and item.get("asset_id") is not None
+        row = card_box([title_height, SMALL_BTN_H, BTN_H] + ([BTN_H] if has_deadline else []))
         color = paint_card(row, CARD)
 
         title_btn = Button(text=title_text, size_hint_y=None, height=title_height, halign="left",
@@ -188,6 +196,8 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         for btn in (copy_btn, rename_btn, zip_btn, delete_btn):
             action_buttons.add_widget(btn)
         row.add_widget(action_buttons)
+        if has_deadline:
+            row.add_widget(_deadline_button(nav, item, nav.show_live_history))
         nav.add(row)
 
     if paged and (page > 0 or has_next):
@@ -202,6 +212,105 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
 
     nav.add(back_button(nav, to=back))
     return follow_box
+
+
+def _deadline_button(nav, item, back):
+    """Shows the days left of a file; tapping it opens the Extend screen. A file that never expires
+    (Upload File releases) has the text only."""
+    text = item["deadline_text"]
+    if item.get("days_left") is None and not item.get("forever"):
+        return Button(text=text, size_hint_y=None, height=BTN_H, disabled=True)
+    btn = Button(text=f"{text}  -  Extend", size_hint_y=None, height=BTN_H)
+    btn.bind(on_press=lambda i, it=item: nav.show_extend_prompt([it], back))
+    return btn
+
+
+def build_deadlines(nav, res, back):
+    """File deadlines: every file with its days left, per group (Release History, each Auto follow
+    channel, the Telegram bot), soonest first, with Extend per file and Extend all per group."""
+    nav.clear()
+    if not res.get("ok"):
+        nav.add(Label(text=res.get("error", "Could not load the deadlines"), size_hint_y=None, height=dp(80)))
+        nav.add(back_button(nav, to=back))
+        return
+    groups = res.get("groups") or []
+    total = sum(len(g["items"]) for g in groups)
+    nav.add(Label(text=f"File deadlines ({total} files)", size_hint_y=None, height=BTN_H))
+    nav.add(wrapped_label("Files are deleted by a daily cleanup. Extend adds days to a file's deletion date "
+                          "(or keeps it forever)."))
+    for message in res.get("errors") or []:
+        nav.add(wrapped_label(message))
+    if not groups:
+        nav.add(Label(text="No files yet", size_hint_y=None, height=BTN_H))
+    inner_width = content_width() - 2 * dp(8)
+    for group in groups:
+        items = group["items"]
+        nav.add(Label(text=group["title"], size_hint_y=None, height=BTN_H))
+        extendable = [it for it in items if it.get("days_left") is not None]
+        if extendable:
+            all_btn = Button(text=f"Extend all {len(extendable)} files", size_hint_y=None, height=BTN_H)
+            all_btn.bind(on_press=lambda i, its=extendable: nav.show_extend_prompt(its, nav.show_deadlines))
+            nav.add(all_btn)
+        for item in items:
+            size_mb = item.get("size", 0) / (1024 * 1024)
+            size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
+            text = f"{item['title']}{size_text}\n{item['date']}  -  {item['deadline_text']}"
+            text_height = wrapped_label_height(text, extra_padding=dp(14), width=inner_width - dp(16))
+            has_button = item.get("days_left") is not None or item.get("forever")
+            row = card_box([text_height] + ([BTN_H] if has_button else []))
+            paint_card(row, CARD)
+            label = Label(text=text, size_hint_y=None, height=text_height, halign="left", valign="middle")
+            label.text_size = (inner_width - dp(16), None)
+            row.add_widget(label)
+            if has_button:
+                btn = Button(text="Extend", size_hint_y=None, height=BTN_H)
+                btn.bind(on_press=lambda i, it=item: nav.show_extend_prompt([it], nav.show_deadlines))
+                row.add_widget(btn)
+            nav.add(row)
+    nav.add(back_button(nav, to=back))
+
+
+def build_extend_prompt(nav, items, back):
+    """Pick how many days to add to the deletion date of ``items``, or keep them forever."""
+    from core import retention
+    nav.clear()
+    count = len(items)
+    nav.add(Label(text=f"Extend {count} file{'s' if count != 1 else ''}", size_hint_y=None, height=BTN_H))
+    if count == 1:
+        nav.add(wrapped_label(f"{items[0]['title']}\n{items[0].get('deadline_text', '')}"))
+    nav.add(Label(text="Add days to the deletion date", size_hint_y=None, height=BTN_H))
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    for days in retention.EXTEND_PRESETS:
+        btn = Button(text=f"+{days} days")
+        btn.bind(on_press=lambda i, d=days: nav.do_extend(items, days=d, back=back))
+        row.add_widget(btn)
+    nav.add(row)
+    custom = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    days_input = TextInput(hint_text="Number of days", multiline=False, input_filter="int", size_hint_x=0.6)
+    add_btn = Button(text="Add days", size_hint_x=0.4)
+
+    def add_custom(_inst):
+        try:
+            days = int(days_input.text.strip())
+        except ValueError:
+            return
+        if 0 < days <= 3650:
+            nav.do_extend(items, days=days, back=back)
+
+    add_btn.bind(on_press=add_custom)
+    custom.add_widget(days_input)
+    custom.add_widget(add_btn)
+    nav.add(custom)
+    forever_btn = Button(text="Keep forever", size_hint_y=None, height=BTN_H)
+    forever_btn.bind(on_press=lambda i: nav.do_extend(items, forever=True, back=back))
+    nav.add(forever_btn)
+    nav.add(back_button(nav, to=back))
+
+
+def build_extending(nav, back):
+    nav.clear()
+    nav.add(Label(text="Extending...", size_hint_y=None, height=60))
+    nav.add(back_button(nav, to=back))
 
 
 def build_delete_confirm(nav, item):

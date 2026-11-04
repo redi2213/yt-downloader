@@ -227,6 +227,11 @@ class Navigator:
         self.remember(self.show_appearance_theme)
         appearance.build_theme(self)
 
+    def show_appearance_date(self):
+        from screens import appearance
+        self.remember(self.show_appearance_date)
+        appearance.build_date(self)
+
     def show_appearance_font(self):
         from screens import appearance
         self.remember(self.show_appearance_font)
@@ -2435,7 +2440,8 @@ class Navigator:
             box = history_screen.build(
                 self, items, page=res["page"], has_next=res["has_next"],
                 follows=getattr(self, "_follows", None) or [], new=getattr(self, "_follow_new", None) or {},
-                on_follow=self.show_follow_history, on_bot=self.show_bot_history, on_apk=self.show_apk_history)
+                on_follow=self.show_follow_history, on_bot=self.show_bot_history, on_apk=self.show_apk_history,
+                on_deadlines=self.show_deadlines)
             if box is not None:
                 self._load_follow_buttons(box)
             return
@@ -2460,6 +2466,40 @@ class Navigator:
             self.schedule(after)
 
         follow_service.start_overview(done)
+
+    # -- how long files stay (deletion dates, extend) ----------------------------
+    def show_deadlines(self):
+        """Every file of Release History, the Auto follow channels and the Telegram bot with the days
+        left before the daily cleanup deletes it, and the buttons to extend them."""
+        from screens import history as history_screen
+        self.remember(self.show_deadlines)
+        history_screen.build_loading(self)
+        names = {follow_core.release_tag(f): f.get("name") for f in (getattr(self, "_follows", None) or [])}
+
+        def done(res):
+            self.schedule(lambda: history_screen.build_deadlines(self, res, back=self.show_release_history))
+
+        history_service.start_load_deadlines(done, names)
+
+    def show_extend_prompt(self, items, back=None):
+        """Choose how many days to add to the deletion date of ``items`` (or keep them forever)."""
+        from screens import history as history_screen
+        history_screen.build_extend_prompt(self, items, back or self.show_live_history)
+
+    def do_extend(self, items, days=None, forever=False, back=None):
+        from screens import history as history_screen
+        back = back or self.show_live_history
+        history_screen.build_extending(self, back)
+
+        def done(res):
+            def after():
+                if res.get("ok"):
+                    back()
+                else:
+                    self.show_result(res["error"], extra_buttons=[("Back", back)])
+            self.schedule(after)
+
+        history_service.start_extend(items, days=days, forever=forever, on_complete=done)
 
     def show_delete_confirm(self, item):
         from screens import history as history_screen

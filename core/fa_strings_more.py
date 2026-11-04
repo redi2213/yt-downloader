@@ -571,3 +571,46 @@ MORE_PATTERNS.extend([
     (r"This build \((.+)\) is newer than main \((.+)\)\.", "این بیلد ({0}) از main ({1}) جلوتر است."),
     (r"Could not compare versions \((.+) / (.+)\)\.", "مقایسه‌ی نسخه‌ها ممکن نشد ({0} / {1})."),
 ])
+
+
+# --- file deadlines (Release History > File deadlines), date format
+MORE_EXACT.update({
+    "File deadlines": "مهلت فایل‌ها",
+    "when each file is deleted": "زمان حذف هر فایل",
+    "Files are deleted by a daily cleanup. Extend adds days to a file's deletion date (or keeps it forever).":
+        "فایل‌ها با یک پاک‌سازی روزانه حذف می‌شوند. تمدید چند روز به تاریخ حذف فایل اضافه می‌کند (یا آن را برای همیشه نگه می‌دارد).",
+    "Could not load the deadlines": "بارگذاری مهلت‌ها ممکن نشد",
+    "Extend": "تمدید",
+    "Extending...": "در حال تمدید...",
+    "Add days to the deletion date": "چند روز به تاریخ حذف اضافه کن",
+    "Number of days": "تعداد روز",
+    "Add days": "اضافه کن",
+    "Keep forever": "برای همیشه نگه دار",
+    "Date format": "قالب تاریخ",
+    "Choose how dates are shown": "نحوه نمایش تاریخ را انتخاب کن",
+    "Gregorian": "میلادی",
+    "Jalali (Shamsi)": "شمسی (جلالی)",
+    "Every date in the app (releases, runs, deadlines) follows this choice. Times are Tehran time.":
+        "همه‌ی تاریخ‌های برنامه (ریلیزها، اجراها، مهلت‌ها) از این انتخاب پیروی می‌کنند. ساعت‌ها به وقت تهران است.",
+    "No access to the Telegram bot repo (aparat-bot).": "دسترسی به مخزن ربات تلگرام (aparat-bot) نیست.",
+})
+MORE_PATTERNS.extend([
+    (r"File deadlines \((\d+) files\)", "مهلت فایل‌ها ({0} فایل)"),
+    (r"Extend all (\d+) files?", "تمدید همه ({0} فایل)"),
+    (r"Extend (\d+) files?", "تمدید {0} فایل"),
+    (r"\+(\d+) days", "+{0} روز"),
+    (r"Auto follow: (.+)", "دنبال‌کردن خودکار: {0}"),
+])
+PHRASES.extend([
+    ("Less than 1 day left", "کمتر از ۱ روز مانده"),
+    ("days left", "روز مانده"),
+    ("day left", "روز مانده"),
+    ("Due for deletion", "به‌زودی حذف می‌شود"),
+    ("Kept forever", "برای همیشه نگه داشته می‌شود"),
+    ("No time limit", "بدون محدودیت زمانی"),
+    ("Extend failed:", "تمدید ناموفق بود:"),
+    ("Could not load the deadlines:", "بارگذاری مهلت‌ها ممکن نشد:"),
+    ("Extend", "تمدید"),
+    ("Gregorian", "میلادی"),
+    ("Jalali (Shamsi)", "شمسی (جلالی)"),
+])

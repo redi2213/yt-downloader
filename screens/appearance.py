@@ -8,7 +8,9 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from core import appearance
+from datetime import datetime, timezone
+
+from core import appearance, timeutil
 from screens import style
 from screens.common import BTN_H, GAP, back_button, fa_text, wrapped_label
 
@@ -35,7 +37,8 @@ def build_menu(nav):
     nav.add(Label(text="Appearance and language", size_hint_y=None, height=44))
     for text, action in (("Language", nav.show_appearance_language),
                          ("Theme and colors", nav.show_appearance_theme),
-                         ("Font and sizes", nav.show_appearance_font)):
+                         ("Font and sizes", nav.show_appearance_font),
+                         ("Date format", nav.show_appearance_date)):
         btn = Button(text=text, size_hint_y=None, height=52)
         btn.bind(on_press=lambda i, a=action: a())
         nav.add(btn)
@@ -70,6 +73,31 @@ def _fa_font(current):
 def _set_language(nav, code):
     appearance.save(lang=code)
     _apply(nav, nav.show_appearance_language)
+
+
+# -- date format --------------------------------------------------------------------------------------------------
+def build_date(nav):
+    nav.clear()
+    nav.add(Label(text="Date format", size_hint_y=None, height=44))
+    nav.add(Label(text="Choose how dates are shown", size_hint_y=None, height=32))
+    mode = appearance.prefs().get("date_mode") or "gregorian"
+    now = datetime.now(timezone.utc)
+    shown = timeutil.date_mode()
+    for code, label in (("gregorian", "Gregorian"), ("jalali", "Jalali (Shamsi)")):
+        timeutil.set_date_mode(code)
+        text = f"{label}\n{timeutil.datetime_to_local(now, '%Y-%m-%d')}"
+        btn = Button(text=(_ON + text) if mode == code else text, size_hint_y=None, height=64, halign="center")
+        btn.bind(on_press=lambda i, c=code: _set_date_mode(nav, c))
+        nav.add(btn)
+    timeutil.set_date_mode(shown)
+    nav.add(wrapped_label("Every date in the app (releases, runs, deadlines) follows this choice. "
+                          "Times are Tehran time."))
+    nav.add(back_button(nav, to=nav.show_appearance))
+
+
+def _set_date_mode(nav, code):
+    appearance.save(date_mode=code)
+    _apply(nav, nav.show_appearance_date)
 
 
 # -- theme and colors ---------------------------------------------------------------------------------------------

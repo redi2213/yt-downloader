@@ -144,6 +144,37 @@ def _zip_thread(item, on_complete):
         _emit_complete(on_complete, {"ok": False, "error": f"Zip failed: {str(e)[:60]}"})
 
 
+def start_load_deadlines(on_complete=None, names=None):
+    """``on_complete({"ok", "groups", "errors"})``: every file with its deletion date (see
+    api/github/releases.get_deadline_groups). ``names``: Auto follow release tag -> channel name."""
+    run_in_background(_deadlines_thread, on_complete, names)
+
+
+def _deadlines_thread(on_complete, names):
+    try:
+        groups, errors = releases.get_deadline_groups(names)
+        _emit_complete(on_complete, {"ok": True, "groups": groups, "errors": errors})
+    except AuthenticationError:
+        _emit_complete(on_complete, {"ok": False, "error": _TOKEN_ERROR})
+    except Exception as e:
+        _emit_complete(on_complete, {"ok": False, "error": f"Could not load the deadlines: {str(e)[:60]}"})
+
+
+def start_extend(items, days=None, forever=False, on_complete=None):
+    """Pushes the deletion date of ``items`` ``days`` later, or keeps them forever."""
+    run_in_background(_extend_thread, items, days, forever, on_complete)
+
+
+def _extend_thread(items, days, forever, on_complete):
+    try:
+        count = releases.extend_items(items, days=days, forever=forever)
+        _emit_complete(on_complete, {"ok": True, "count": count})
+    except AuthenticationError:
+        _emit_complete(on_complete, {"ok": False, "error": _TOKEN_ERROR})
+    except Exception as e:
+        _emit_complete(on_complete, {"ok": False, "error": f"Extend failed: {str(e)[:60]}"})
+
+
 def _emit(on_status, text):
     if on_status:
         on_status(text)

@@ -1,7 +1,8 @@
 name: Cleanup old releases
 
-# Deletes (1) releases whose file is gone and (2) video releases older than 7 days.
-# APK builds and project backups are kept. Rules: scripts/cleanup_releases.py
+# Deletes (1) releases whose file is gone and (2) files older than 7 days (video releases and
+# Auto follow files; APK builds and project backups are kept; a file extended in the app waits
+# until its new date). Rules: scripts/cleanup_releases.py + scripts/retention_core.py
 
 on:
   schedule:

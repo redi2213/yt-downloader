@@ -5,7 +5,8 @@ turns these values into colors and sizes.
 from api.github.auth import _settings_store
 
 _KEY = "appearance"
-DEFAULTS = {"lang": "en", "theme": "classic", "colors": {}, "font": "", "font_scale": 1.0, "box_scale": 1.0}
+DEFAULTS = {"lang": "en", "theme": "classic", "colors": {}, "font": "", "font_scale": 1.0, "box_scale": 1.0,
+            "date_mode": "gregorian"}
 
 
 def load() -> dict:
