@@ -63,7 +63,7 @@
     "time": "2026-11-05T22:05:14Z",
     "tool": "hello_promoted_test",
     "action_id": "hello_promoted_test",
-    "status": "rollback_partial",
+    "status": "rolled_back",
     "new_action": {
       "id": "hello_promoted_test",
       "title": "Hello promoted test",
@@ -108,6 +108,7 @@
       "promoted": null,
       "promoted_at": null,
       "promoted_as": null
-    }
+    },
+    "rolled_back_at": "2026-11-05T22:07:12Z"
   }
 ]
