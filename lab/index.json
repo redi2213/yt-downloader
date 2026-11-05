@@ -40,13 +40,6 @@
       "file": "m3u8_sniffer.py",
       "description": "Open a series/movie page in an in-app browser, log in with your account, press play: the tool catches the .m3u8 link. Then copy it or send it to lab-download (same as Link Lab).",
       "min_host": 1
-    },
-    {
-      "id": "hello_promoted_test",
-      "title": "Hello promoted test",
-      "file": "hello_promoted_test.py",
-      "description": "Dummy tool to test Promote (safe to delete)",
-      "min_host": 1
     }
   ]
 }
