@@ -1,5 +1,5 @@
 name: Arvan Upload
-run-name: ${{ inputs.run_title || 'Arvan upload' }} [${{ inputs.job_id }}]
+run-name: ${{ inputs.run_title || 'Arvan upload' }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
 
 on:
   workflow_dispatch:
@@ -15,6 +15,11 @@ on:
         type: string
       run_title:
         description: 'Short name for this run, set by the app'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so "Run again" can repeat this run'
         required: false
         default: ''
         type: string
@@ -36,10 +41,11 @@ jobs:
           path: _repo
           sparse-checkout: scripts
 
-      - name: Install boto3
-        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Install tools
+        run: |
+          python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
 
-      - name: Upload to Arvan
+      - name: Upload the release files to Arvan
         env:
           GH_TOKEN: ${{ github.token }}
           ITEMS: ${{ inputs.items }}
@@ -54,12 +60,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_TITLE: ${{ inputs.run_title }}
-          JOB_ID: ${{ inputs.job_id }}
         run: |
           set -euo pipefail
-          [ -f result.json ] || { echo "no result file"; exit 0; }
-          cp result.json _yt-arvan-result.json
-          gh release create "run-$GITHUB_RUN_ID" _yt-arvan-result.json \
+          [ -f notes.md ] || { echo "no result"; exit 0; }
+          gh release create "run-$GITHUB_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" --prerelease \
-            --title "Arvan ${RUN_TITLE:-${JOB_ID:-$GITHUB_RUN_ID}}" \
+            --title "${RUN_TITLE:-Arvan upload}" \
             --notes-file notes.md

@@ -30,6 +30,16 @@ on:
         required: false
         default: ''
         type: string
+      run_title:
+        description: 'Set by the app (unused)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app (unused)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write

@@ -92,13 +92,20 @@ def write_result(args, ok, failed):
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False)
     if getattr(args, "notes", None):
-        lines = []
+        # Hidden block read by the app (same shape as scripts/storage_publish.py): the release has
+        # no asset, so Release History shows these files as "kept on Arvan" with their links.
+        meta = {"files": [{"name": r["name"], "url": r["url"], "size": r.get("size", 0)}
+                          for r in ok if r.get("url")]}
+        if failed:
+            meta["warn"] = [f"{r['name']}: {r['error']}" for r in failed]
+        block = json.dumps(meta, ensure_ascii=False).replace("--", "\\u002d\\u002d")
+        lines = [f"<!--ytb-storage:{block}-->", ""]
         for r in ok:
             lines.append(f"Arvan: {r['name']}\n{r['url']}\n")
         for r in failed:
             lines.append(f"FAILED: {r['name']} - {r['error']}\n")
         with open(args.notes, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) or "no files")
+            f.write("\n".join(lines))
     print(f"done: {len(ok)} uploaded, {len(failed)} failed")
     return 1 if failed else 0
 

@@ -23,6 +23,7 @@ from core import follow as follow_core
 from api import run_mode_prefs
 from services import auth_service, storage_service, file_download_service, runs_service
 from screens import common
+from screens.arvan_controller import ArvanController
 
 
 # Most links one box may start at once (GitHub allows ~20 runs in parallel).
@@ -32,7 +33,7 @@ MAX_LINKS_AT_ONCE = 20
 RELEASE_FILE_KINDS = {"backup_project": "backup", "build_apk": "apk"}
 
 
-class Navigator:
+class Navigator(ArvanController):
     def __init__(self, app):
         self.app = app
         self.job_manager = JobManager()

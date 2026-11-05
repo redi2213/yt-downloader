@@ -71,6 +71,12 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         apk_btn.bind(on_press=lambda i: on_apk())
         nav.add(apk_btn)
 
+    if paged and not bot and not apk and page == 0 and hasattr(nav, "show_arvan_files"):
+        arvan_btn = Button(text="Arvan files\nall files of the Arvan bucket", size_hint_y=None,
+                           height=dp(64), halign="center")
+        arvan_btn.bind(on_press=lambda i: nav.show_arvan_files())
+        nav.add(arvan_btn)
+
     follow_box = None
     if paged and not bot and not apk and page == 0:
         follow_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
@@ -123,6 +129,16 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         if sel:
             nav.show_bulk_delete_confirm(sel, scope="selected")
 
+    def arvan_selected(_inst):
+        sel = need_selection()
+        if not sel:
+            return
+        own = [it for it in sel if it.get("asset_id") is not None and not it.get("repo")]
+        if own:
+            nav.start_arvan_upload(own)
+        else:
+            info.text = "Select files kept on GitHub (not Arvan or bot files)"
+
     def set_all(value):
         for idx in range(len(items)):
             set_selected(idx, value)
@@ -151,6 +167,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         delete_sel_btn.bind(on_press=delete_selected)
         action_row.add_widget(copy_sel_btn)
         action_row.add_widget(share_sel_btn)
+        if not bot and not apk and hasattr(nav, "start_arvan_upload"):
+            arvan_sel_btn = Button(text="To Arvan")
+            arvan_sel_btn.bind(on_press=arvan_selected)
+            action_row.add_widget(arvan_sel_btn)
         action_row.add_widget(delete_sel_btn)
         nav.add(action_row)
 
