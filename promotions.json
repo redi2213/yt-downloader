@@ -56,7 +56,7 @@
     "time": "2026-11-05T22:05:58Z",
     "tool": "hello_promoted_test",
     "action_id": "hello_promoted_test",
-    "status": "config_done",
+    "status": "done",
     "new_action": {
       "id": "hello_promoted_test",
       "title": "Hello promoted test v2",
@@ -81,7 +81,10 @@
     "written": {
       "plugins/hello_promoted_test.py": "6ba0c909c991a826d6a3ffe801e7e38022729ae5"
     },
-    "commits": {},
+    "commits": {
+      "config": "e12eb3d9ab20b530cd4b2f3ea2cb3a9a4b98b3a2",
+      "lab": "d8f72c168be2e277e23d613fadc0fbe9c667c5ac"
+    },
     "previous_action": {
       "id": "hello_promoted_test",
       "title": "Hello promoted test",
@@ -99,6 +102,11 @@
     },
     "previous_index": 13,
     "config_version_before": 31,
-    "config_version_after": 32
+    "config_version_after": 32,
+    "lab_before": {
+      "promoted": true,
+      "promoted_at": "2026-11-05T22:05:26Z",
+      "promoted_as": "hello_promoted_test"
+    }
   }
 ]
