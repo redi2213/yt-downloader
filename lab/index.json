@@ -46,10 +46,7 @@
       "title": "Hello promoted test",
       "file": "hello_promoted_test.py",
       "description": "Dummy tool to test Promote (safe to delete)",
-      "min_host": 1,
-      "promoted": true,
-      "promoted_at": "2026-11-05T22:05:26Z",
-      "promoted_as": "hello_promoted_test"
+      "min_host": 1
     }
   ]
 }
