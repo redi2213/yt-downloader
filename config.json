@@ -1,5 +1,5 @@
 {
-  "config_version": 30,
+  "config_version": 31,
   "actions": [
     {
       "id": "tiktok_download",
@@ -846,6 +846,21 @@
         "max_candidates": "150",
         "xh_check": "0"
       }
+    },
+    {
+      "id": "hello_promoted_test",
+      "title": "Hello promoted test",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "example.com",
+        "test.org"
+      ],
+      "plugin": "hello_promoted_test",
+      "file": "hello_promoted_test.py",
+      "source": "config",
+      "min_host": 1,
+      "group": "upload"
     }
   ],
   "error_help": [

@@ -1,0 +1,45 @@
+[
+  {
+    "id": "p-20261105220514-hello_promoted_test",
+    "time": "2026-11-05T22:05:14Z",
+    "tool": "hello_promoted_test",
+    "action_id": "hello_promoted_test",
+    "status": "config_done",
+    "new_action": {
+      "id": "hello_promoted_test",
+      "title": "Hello promoted test",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "example.com",
+        "test.org"
+      ],
+      "plugin": "hello_promoted_test",
+      "file": "hello_promoted_test.py",
+      "source": "config",
+      "min_host": 1,
+      "group": "upload"
+    },
+    "config_created": [
+      "plugins/hello_promoted_test.py"
+    ],
+    "config_overwritten": {},
+    "main_created": [
+      ".github/workflows/promote-test.yml",
+      "lab_scripts/promote_test.py",
+      "lab_scripts/promote_test_helper.py"
+    ],
+    "main_overwritten": {},
+    "written": {
+      "plugins/hello_promoted_test.py": "6ba0c909c991a826d6a3ffe801e7e38022729ae5",
+      ".github/workflows/promote-test.yml": "325be0a95db6d98bebedae87e505a23304f1b206",
+      "lab_scripts/promote_test.py": "8944ff8ee214975ba6b82d4c7e8e5731b54d7aef",
+      "lab_scripts/promote_test_helper.py": "96766802bd555f14ace322a7f376c4551f1bf5b7"
+    },
+    "commits": {},
+    "previous_action": null,
+    "previous_index": null,
+    "config_version_before": 30,
+    "config_version_after": 31
+  }
+]
