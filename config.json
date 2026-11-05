@@ -1,5 +1,5 @@
 {
-  "config_version": 29,
+  "config_version": 30,
   "actions": [
     {
       "id": "tiktok_download",
@@ -202,6 +202,34 @@
       "workflow": "drive-to-release.yml",
       "workflow_inputs": {
         "drive_url": "{url}"
+      }
+    },
+    {
+      "id": "arvan_from_link",
+      "title": "Direct link to Arvan",
+      "icon": "download",
+      "enabled": true,
+      "group": "upload",
+      "fields": [
+        {
+          "key": "urls",
+          "type": "text",
+          "label": "Direct links (one per line)",
+          "hint": "https://example.com/file.zip",
+          "multiline": true
+        },
+        {
+          "key": "referer",
+          "type": "text",
+          "label": "Referer (optional)",
+          "hint": "Only for sites that check it",
+          "optional": true
+        }
+      ],
+      "workflow": "arvan-from-link.yml",
+      "workflow_inputs": {
+        "urls": "{urls}",
+        "referer": "{referer}"
       }
     },
     {
