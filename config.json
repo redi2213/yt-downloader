@@ -1,5 +1,5 @@
 {
-  "config_version": 32,
+  "config_version": 33,
   "actions": [
     {
       "id": "tiktok_download",
@@ -849,7 +849,7 @@
     },
     {
       "id": "hello_promoted_test",
-      "title": "Hello promoted test v2",
+      "title": "Hello promoted test",
       "icon": "download",
       "enabled": true,
       "domains": [

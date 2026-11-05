@@ -56,7 +56,7 @@
     "time": "2026-11-05T22:05:58Z",
     "tool": "hello_promoted_test",
     "action_id": "hello_promoted_test",
-    "status": "done",
+    "status": "rollback_partial",
     "new_action": {
       "id": "hello_promoted_test",
       "title": "Hello promoted test v2",
