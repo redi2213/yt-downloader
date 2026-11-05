@@ -50,5 +50,55 @@
       "promoted_at": null,
       "promoted_as": null
     }
+  },
+  {
+    "id": "p-20261105220558-hello_promoted_test",
+    "time": "2026-11-05T22:05:58Z",
+    "tool": "hello_promoted_test",
+    "action_id": "hello_promoted_test",
+    "status": "config_done",
+    "new_action": {
+      "id": "hello_promoted_test",
+      "title": "Hello promoted test v2",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "example.com",
+        "test.org"
+      ],
+      "plugin": "hello_promoted_test",
+      "file": "hello_promoted_test.py",
+      "source": "config",
+      "min_host": 1,
+      "group": "upload"
+    },
+    "config_created": [],
+    "config_overwritten": {
+      "plugins/hello_promoted_test.py": "\"\"\"Dummy tool used to test Promote.\"\"\"\nWORKFLOW = \"promote-test.yml\"\n\n\ndef build(host):\n    host.title(\"Hello promoted test\")\n    host.text(host.gh.read_file(\"lab_scripts/promote_test.py\"))\n    host.button(\"Run\", lambda: host.gh.dispatch(WORKFLOW, {}))\n    host.back_button(\"Back\")\n"
+    },
+    "main_created": [],
+    "main_overwritten": {},
+    "written": {
+      "plugins/hello_promoted_test.py": "6ba0c909c991a826d6a3ffe801e7e38022729ae5"
+    },
+    "commits": {},
+    "previous_action": {
+      "id": "hello_promoted_test",
+      "title": "Hello promoted test",
+      "icon": "download",
+      "enabled": true,
+      "domains": [
+        "example.com",
+        "test.org"
+      ],
+      "plugin": "hello_promoted_test",
+      "file": "hello_promoted_test.py",
+      "source": "config",
+      "min_host": 1,
+      "group": "upload"
+    },
+    "previous_index": 13,
+    "config_version_before": 31,
+    "config_version_after": 32
   }
 ]
