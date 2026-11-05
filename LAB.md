@@ -104,6 +104,52 @@ The plugin file stays the same. Only its place changes:
 
 The button appears in Download Anything without a build.
 
+## Promote (Lab > "Promote tool to Download Anything")
+
+Does the steps of "Moving a finished tool to Download Anything" for you, with no
+APK build, and can undo them. It is itself a Lab plugin (`lab/promote.py` +
+`lab/lib/promote_core.py`); the app code on `main` is never touched.
+
+**Promote a tool**
+
+1. Pick a tool from the Lab list. Each one shows *Lab only*, *in Download Anything* or *bundled*.
+2. Pre-flight: every file is compiled (a syntax error blocks), `min_host` is checked, and
+   warnings are shown for things that change after promotion (`ref="lab"`, `"lab/..."` paths,
+   `gh.read_file()` without `ref=`, `dispatch(..., ref=)`). The workflows the plugin starts
+   (`.dispatch("x.yml"`, `"workflow": "x.yml"`, `WORKFLOW = "x.yml"`) are found, and so are
+   the scripts they run that exist only on `lab` (e.g. `lab_scripts/...`).
+3. Settings: button title, action id, group, domains (share-link routing), enabled, the name
+   each workflow gets on `main` (a `lab-` prefix is dropped unless that name is already used),
+   copy the scripts or not, keep the tool in the Lab list or hide it.
+4. Dry run: every file that will be created / overwritten, per branch. Nothing is written
+   until you confirm. Overwriting a real workflow or script on `main`, a file another action
+   uses, or a workflow that still checks out `lab` asks a second time.
+5. Apply, one commit per branch:
+   `config`: `plugins/<file>` (+ modules), `config.json` (action added or updated by id,
+   `config_version` +1, everything else unchanged), `promotions.json` (the Rollback record);
+   `main`: the real workflow(s) (replacing the Lab stub) and the scripts;
+   `lab`: `lab/index.json` gets `"promoted": true`.
+   Then it re-reads `config.json` and the plugin file to check them.
+6. Open Download Anything and use **Reload list**.
+
+Promoting the same tool again updates it (no duplicate action). `build-apk.yml` and any
+workflow the plugin does not start are never touched. `version.txt` is never changed.
+
+**Rollback**: lists the promotions. It restores the previous action (or removes the new
+one), deletes the files the promotion created, puts back the files and workflows it
+replaced (a Lab stub comes back as the stub) and clears the `promoted` flag. `config_version`
+goes **up** by one, never back, so phones notice the change. If it stops halfway, run
+Rollback again: it only redoes what is left.
+
+**Test write access** pushes and deletes a throw-away branch with a workflow file to
+check the app's GitHub sign-in may write workflow files (a GitHub App needs the
+*Workflows: read and write* permission). Nothing else changes.
+
+If Apply fails after the config step, the screen lists what was done and offers Rollback.
+
+Self-test of the pure logic (config upsert, workflow detection, stub detection ...):
+`python lab/lib/promote_core.py` (prints `ok`).
+
 ## Final build
 
 1. Copy each finished plugin into the repo as `plugins_bundled/<file>.py`
