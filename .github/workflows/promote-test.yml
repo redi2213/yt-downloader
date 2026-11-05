@@ -1,9 +1,9 @@
 name: Promote test
-# REGISTRATION STUB. real one runs from lab.
 on:
   workflow_dispatch:
 jobs:
-  stub:
+  t:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Stub on main. The real workflow runs from the lab branch."
+      - uses: actions/checkout@v4
+      - run: python lab_scripts/promote_test.py
