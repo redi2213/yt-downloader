@@ -1,0 +1,95 @@
+name: Arvan Manage
+run-name: Arvan ${{ inputs.action }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'list, delete or rename'
+        required: true
+        default: 'list'
+        type: choice
+        options: [list, delete, rename]
+      keys:
+        description: 'delete: JSON list of object keys'
+        required: false
+        default: ''
+        type: string
+      old_key:
+        description: 'rename: current object key'
+        required: false
+        default: ''
+        type: string
+      new_key:
+        description: 'rename: new object key'
+        required: false
+        default: ''
+        type: string
+      job_id:
+        description: 'Unique id the app puts in the run name (set by the app)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: arvan-manage
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ARVAN_ACCESS_KEY: ${{ secrets.ARVAN_ACCESS_KEY }}
+      ARVAN_SECRET_KEY: ${{ secrets.ARVAN_SECRET_KEY }}
+      ARVAN_BUCKET: ${{ secrets.ARVAN_BUCKET }}
+      ARVAN_ENDPOINT: ${{ secrets.ARVAN_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Install boto3
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+
+      - name: Delete
+        if: ${{ inputs.action == 'delete' }}
+        env:
+          KEYS: ${{ inputs.keys }}
+        run: python3 _repo/scripts/arvan_tool.py delete --out action-result.json
+
+      - name: Rename
+        if: ${{ inputs.action == 'rename' }}
+        env:
+          OLD_KEY: ${{ inputs.old_key }}
+          NEW_KEY: ${{ inputs.new_key }}
+        run: python3 _repo/scripts/arvan_tool.py rename --out action-result.json
+
+      - name: List the whole bucket
+        if: ${{ !cancelled() }}
+        run: python3 _repo/scripts/arvan_tool.py list --out arvan-list.json
+
+      - name: Publish the list (release arvan-index, overwritten each time)
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -euo pipefail
+          [ -f arvan-list.json ] || { echo "no list"; exit 0; }
+          [ -f action-result.json ] || echo '{"ok":[],"failed":[]}' > action-result.json
+          python3 - <<'PY'
+          import json
+          lst = json.load(open('arvan-list.json', encoding='utf-8'))
+          lst['job_id'] = __import__('os').environ.get('JOB_ID', '')
+          lst['last_action'] = json.load(open('action-result.json', encoding='utf-8'))
+          json.dump(lst, open('arvan-list.json', 'w', encoding='utf-8'), ensure_ascii=False)
+          PY
+          gh release view arvan-index --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create arvan-index --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "Arvan index" --notes "Latest listing of the Arvan bucket (overwritten by arvan-manage.yml)"
+          gh release upload arvan-index arvan-list.json --repo "$GITHUB_REPOSITORY" --clobber

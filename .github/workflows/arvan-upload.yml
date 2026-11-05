@@ -1,0 +1,65 @@
+name: Arvan Upload
+run-name: ${{ inputs.run_title || 'Arvan upload' }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      items:
+        description: 'JSON list of release assets: [{"asset_id":123,"name":"file.mp4"}]'
+        required: true
+        type: string
+      job_id:
+        description: 'Unique id the app puts in the run name (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: arvan-upload-${{ inputs.job_id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Install boto3
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+
+      - name: Upload to Arvan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ITEMS: ${{ inputs.items }}
+          ARVAN_ACCESS_KEY: ${{ secrets.ARVAN_ACCESS_KEY }}
+          ARVAN_SECRET_KEY: ${{ secrets.ARVAN_SECRET_KEY }}
+          ARVAN_BUCKET: ${{ secrets.ARVAN_BUCKET }}
+          ARVAN_ENDPOINT: ${{ secrets.ARVAN_ENDPOINT }}
+        run: python3 _repo/scripts/arvan_tool.py upload-release --out result.json --notes notes.md
+
+      - name: Publish the result as a release
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_TITLE: ${{ inputs.run_title }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -euo pipefail
+          [ -f result.json ] || { echo "no result file"; exit 0; }
+          cp result.json _yt-arvan-result.json
+          gh release create "run-$GITHUB_RUN_ID" _yt-arvan-result.json \
+            --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "Arvan ${RUN_TITLE:-${JOB_ID:-$GITHUB_RUN_ID}}" \
+            --notes-file notes.md
