@@ -33,6 +33,13 @@
       "file": "copy_tools.py",
       "description": "Copy a main workflow or a config plugin to the lab branch, edit the copy, run it from lab, or discard it. The originals are never touched.",
       "min_host": 1
+    },
+    {
+      "id": "m3u8_sniffer",
+      "title": "Page Sniffer (get m3u8 with my login)",
+      "file": "m3u8_sniffer.py",
+      "description": "Open a series/movie page in an in-app browser, log in with your account, press play: the tool catches the .m3u8 link. Then copy it or send it to lab-download (same as Link Lab).",
+      "min_host": 1
     }
   ]
 }
