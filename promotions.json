@@ -116,7 +116,7 @@
     "time": "2026-11-05T22:10:18Z",
     "tool": "hello_promoted_test",
     "action_id": "hello_promoted_test",
-    "status": "config_done",
+    "status": "done",
     "new_action": {
       "id": "hello_promoted_test",
       "title": "Hello promoted test",
@@ -144,10 +144,19 @@
       "lab_scripts/promote_test.py": "8944ff8ee214975ba6b82d4c7e8e5731b54d7aef",
       "lab_scripts/promote_test_helper.py": "96766802bd555f14ace322a7f376c4551f1bf5b7"
     },
-    "commits": {},
+    "commits": {
+      "config": "1eaa8a8eaf1e35d219049558678e67b8b200feb5",
+      "main": "c4793d5dec152a68b05393277089e6184b519b30",
+      "lab": "f3cce504bff3334f9b53d06b47a0641da6d4237d"
+    },
     "previous_action": null,
     "previous_index": null,
     "config_version_before": 34,
-    "config_version_after": 35
+    "config_version_after": 35,
+    "lab_before": {
+      "promoted": null,
+      "promoted_at": null,
+      "promoted_as": null
+    }
   }
 ]
