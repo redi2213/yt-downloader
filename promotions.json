@@ -165,7 +165,7 @@
     "time": "2026-11-06T05:53:24Z",
     "tool": "hello",
     "action_id": "hello",
-    "status": "config_done",
+    "status": "done",
     "new_action": {
       "id": "hello",
       "title": "Hello Lab (example)",
@@ -185,10 +185,18 @@
     "written": {
       "plugins/hello.py": "b745ab082f56a1d18cd73e6d635974dfd597f9f9"
     },
-    "commits": {},
+    "commits": {
+      "config": "a52e51416f6a60b1bd7fcb92b35b919b38fab4d5",
+      "lab": "18264deece21a7b0560e111681537cb6fd431dc0"
+    },
     "previous_action": null,
     "previous_index": null,
     "config_version_before": 36,
-    "config_version_after": 37
+    "config_version_after": 37,
+    "lab_before": {
+      "promoted": null,
+      "promoted_at": null,
+      "promoted_as": null
+    }
   }
 ]
