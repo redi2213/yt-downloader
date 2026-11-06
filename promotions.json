@@ -165,7 +165,7 @@
     "time": "2026-11-06T05:53:24Z",
     "tool": "hello",
     "action_id": "hello",
-    "status": "rollback_partial",
+    "status": "rolled_back",
     "new_action": {
       "id": "hello",
       "title": "Hello Lab (example)",
@@ -197,6 +197,7 @@
       "promoted": null,
       "promoted_at": null,
       "promoted_as": null
-    }
+    },
+    "rolled_back_at": "2026-11-06T05:56:39Z"
   }
 ]
