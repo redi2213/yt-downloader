@@ -71,7 +71,10 @@
         "kind": "download_anything",
         "action_id": "cpy_demo",
         "file": "cpy_demo.py"
-      }
+      },
+      "promoted": true,
+      "promoted_at": "2026-11-06T11:01:56Z",
+      "promoted_as": "cpy_demo"
     }
   ]
 }
