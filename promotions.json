@@ -165,7 +165,7 @@
     "time": "2026-11-06T05:53:24Z",
     "tool": "hello",
     "action_id": "hello",
-    "status": "done",
+    "status": "rollback_partial",
     "new_action": {
       "id": "hello",
       "title": "Hello Lab (example)",

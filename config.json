@@ -1,5 +1,5 @@
 {
-  "config_version": 37,
+  "config_version": 38,
   "actions": [
     {
       "id": "tiktok_download",
@@ -846,16 +846,6 @@
         "max_candidates": "150",
         "xh_check": "0"
       }
-    },
-    {
-      "id": "hello",
-      "title": "Hello Lab (example)",
-      "icon": "download",
-      "enabled": true,
-      "plugin": "hello",
-      "file": "hello.py",
-      "source": "config",
-      "min_host": 1
     }
   ],
   "error_help": [
