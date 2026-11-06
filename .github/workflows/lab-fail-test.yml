@@ -1,0 +1,25 @@
+name: Fail test
+run-name: ${{ inputs.run_title || 'Fail test' }} [${{ inputs.job_id }}]
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Set by the app: unique id put in the run name so it can find this run'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Set by the app: short name for this run'
+        required: false
+        default: ''
+        type: string
+      url:
+        description: 'a link'
+        required: true
+        type: string
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "link is ${{ inputs.url }}"
+      - run: python3 -c "import nonexistent_module_xyz"
