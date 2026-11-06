@@ -18,11 +18,12 @@ STUB_NOTE = ["# REGISTRATION STUB. GitHub only starts a workflow by file name wh
 FIXES = {
     "add_dispatch": "add workflow_dispatch (so the app can start it)",
     "add_inputs": "add the job_id / run_title inputs the app fills in",
+    "dispatch_only": "keep only workflow_dispatch (other triggers would also fire on every push)",
     "set_run_name": "set run-name so the app finds its run",
     "add_permissions": "add permissions: contents: write",
     "fix_tag": "use the tag run-${{ github.run_id }}",
 }
-_FIX_ORDER = ["add_dispatch", "add_inputs", "set_run_name", "add_permissions", "fix_tag"]
+_FIX_ORDER = ["add_dispatch", "add_inputs", "dispatch_only", "set_run_name", "add_permissions", "fix_tag"]
 
 
 def _f(level, fid, msg, fix=None):
@@ -349,9 +350,11 @@ def check(text, ctx=None):
                 out.append(_f("error", "missing_action", "Uses the local action %s which is not in the repo." % p))
     if re.search(r"runs-on\s*:\s*\[?\s*self-hosted", text):
         out.append(_f("warn", "self_hosted", "Needs a self-hosted runner; GitHub's own runners will not pick it up."))
-    if on["dispatch"] and any(e in ("schedule", "push", "pull_request") for e in on["events"]):
-        out.append(_f("info", "triggers", "Other triggers (%s) only work from the main branch; the Lab copy runs "
-                      "only when started from the app." % ", ".join(e for e in on["events"] if e != "workflow_dispatch")))
+    others = [e for e in on["events"] if e != "workflow_dispatch"]
+    if on["dispatch"] and others:
+        out.append(_f("warn", "triggers", "Other triggers (%s) would also start it by themselves (a push to the lab branch "
+                      "runs it); the app only needs workflow_dispatch." % ", ".join(others),
+                      "dispatch_only" if on["form"] == "block_map" else None))
     njobs = len(re.findall(r"(?m)^  [A-Za-z_][\w\-]*:\s*$", text[text.find("jobs:"):])) if "jobs" in top else 0
     if njobs > 1:
         out.append(_f("info", "jobs", "%d jobs: the app's progress view follows the first job." % njobs))
@@ -451,6 +454,15 @@ def _fix_inputs(text):
     return "\n".join(lines)
 
 
+def _fix_dispatch_only(text):
+    on = on_info(text)
+    if on["form"] != "block_map" or not on["dispatch"]:
+        raise ValueError("on: is not a normal block with workflow_dispatch")
+    lines = text.split("\n")
+    lines[on["line"]:on["end"]] = ["on:"] + _dispatch_block(text)
+    return "\n".join(lines)
+
+
 def _fix_run_name(text, hint):
     lines = text.split("\n")
     top = top_level(text)
@@ -506,6 +518,8 @@ def apply_fixes(text, ids, hint="Workflow"):
                 new = _fix_dispatch(cur) if not on_info(cur)["dispatch"] else cur
             elif fid == "add_inputs":
                 new = _fix_inputs(cur)
+            elif fid == "dispatch_only":
+                new = _fix_dispatch_only(cur)
             elif fid == "set_run_name":
                 new = _fix_run_name(cur, hint)
             elif fid == "add_permissions":
@@ -706,6 +720,10 @@ def selftest():
     out, ap, fa = apply_fixes(ex, ["add_inputs"])
     d = declared_inputs(out)
     assert set(d) == {"url", "job_id", "run_title"} and d["url"]["required"], (d, out)
+    only, ap3, fa3 = apply_fixes(fixed, ["dispatch_only"])
+    assert ap3 == ["dispatch_only"] and not fa3 and on_info(only)["events"] == ["workflow_dispatch"], (only, fa3)
+    assert set(declared_inputs(only)) == {"job_id", "run_title"}
+    ok, _ = validate_yaml(only); assert ok in (True, None)
     stub = make_stub(fixed, "lab-x.yml")
     assert "workflow_dispatch:" in stub and "job_id:" in stub and "REGISTRATION STUB" in stub and "scripts/run.py" not in stub
     assert is_stub(stub) and "push" not in stub.split("jobs:")[0]
