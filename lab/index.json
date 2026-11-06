@@ -5,7 +5,10 @@
       "title": "Hello Lab (example)",
       "file": "hello.py",
       "description": "Example: menus, sub-menus, input, choices, background work, saved values.",
-      "min_host": 1
+      "min_host": 1,
+      "promoted": true,
+      "promoted_at": "2026-11-06T05:53:31Z",
+      "promoted_as": "hello"
     },
     {
       "id": "mornye_lab",
