@@ -648,7 +648,10 @@ def explain_log(text):
 
 def log_tail(text, n=60):
     """Last n lines of a job log without the timestamps, plus all ##[error] lines."""
-    lines = [re.sub(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ", "", l) for l in (text or "").splitlines()]
+    text = text or ""
+    if "\n" not in text.strip() and "\\n" in text:           # a log that arrived as one escaped string
+        text = text.strip('"').replace("\\n", "\n").replace('\\"', '"')
+    lines = [re.sub(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ", "", l)[:240] for l in text.splitlines()]
     errors = [l for l in lines if "##[error]" in l]
     return lines[-n:], errors[:15]
 
@@ -739,6 +742,10 @@ def selftest():
     assert parse_github_url("https://example.com/a/b.yml")["kind"] == "raw" and parse_github_url("hello") is None
     causes = explain_log("ModuleNotFoundError: No module named 'requests'\n##[error]Process completed with exit code 1.")
     assert causes[0]["cause"].endswith("requests.") and len(causes) == 2, causes
+    tl, te = log_tail("2026-01-01T00:00:00.1Z hello\n2026-01-01T00:00:00.2Z ##[error]boom\n", 5)
+    assert tl == ["hello", "##[error]boom"] and te == ["##[error]boom"], (tl, te)
+    tl2, te2 = log_tail('"2026-01-01T00:00:00.1Z a\\n2026-01-01T00:00:00.2Z ##[error]x\\n"', 5)
+    assert tl2 == ["a", "##[error]x"], tl2
     assert slugify("My-Tool v2!") == "my_tool_v2" and workflow_title(fixed) == "My Tool"
     assert git_blob_sha("hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
     rep = build_report("t", "w.yml", {"a": 1}, {"id": 5, "conclusion": "failure"}, f, causes, ["l1"], ["e1"], "name: x")
