@@ -13,7 +13,6 @@ on:
         required: false
         default: ''
         type: string
-  push:
 jobs:
   go:
     runs-on: ubuntu-latest
