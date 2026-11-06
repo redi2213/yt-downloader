@@ -238,5 +238,45 @@
       "promoted_at": null,
       "promoted_as": null
     }
+  },
+  {
+    "id": "p-20261106110147-cpy_demo_copy",
+    "time": "2026-11-06T11:01:47Z",
+    "tool": "cpy_demo_copy",
+    "action_id": "cpy_demo",
+    "status": "config_done",
+    "new_action": {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "icon": "download",
+      "enabled": true,
+      "plugin": "cpy_demo",
+      "file": "cpy_demo.py",
+      "source": "config",
+      "min_host": 1
+    },
+    "config_created": [],
+    "config_overwritten": {
+      "plugins/cpy_demo.py": "def build(host):\n    host.title(\"v1 original\")\n    host.back_button(\"Back\")\n"
+    },
+    "main_created": [],
+    "main_overwritten": {},
+    "written": {
+      "plugins/cpy_demo.py": "8c0d20755e1c192154f37ba9880135d7496e45b8"
+    },
+    "commits": {},
+    "previous_action": {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "icon": "download",
+      "enabled": true,
+      "plugin": "cpy_demo",
+      "file": "cpy_demo.py",
+      "source": "config",
+      "min_host": 1
+    },
+    "previous_index": 13,
+    "config_version_before": 39,
+    "config_version_after": 40
   }
 ]
