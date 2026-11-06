@@ -46,6 +46,12 @@ def is_stub(text):
     return len(text) < 3000 and bool(re.search(r"(?m)^  stub:\s*$", text))
 
 
+def dump_index(plugins):
+    """lab/index.json text (same layout the repo uses: 2-space JSON, trailing newline)."""
+    import json
+    return json.dumps({"plugins": plugins}, indent=2, ensure_ascii=False) + "\n"
+
+
 def slugify(text):
     s = re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
     return s[:30] or "workflow"
