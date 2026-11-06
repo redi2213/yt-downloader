@@ -244,7 +244,7 @@
     "time": "2026-11-06T11:01:47Z",
     "tool": "cpy_demo_copy",
     "action_id": "cpy_demo",
-    "status": "config_done",
+    "status": "done",
     "new_action": {
       "id": "cpy_demo",
       "title": "Cpy demo",
@@ -264,7 +264,10 @@
     "written": {
       "plugins/cpy_demo.py": "8c0d20755e1c192154f37ba9880135d7496e45b8"
     },
-    "commits": {},
+    "commits": {
+      "config": "6116324471f76bbfb9387fe8ff3d97016025e008",
+      "lab": "41cd8d1d73c57b6bbe42be6add456059e9962b5c"
+    },
     "previous_action": {
       "id": "cpy_demo",
       "title": "Cpy demo",
@@ -277,6 +280,11 @@
     },
     "previous_index": 13,
     "config_version_before": 39,
-    "config_version_after": 40
+    "config_version_after": 40,
+    "lab_before": {
+      "promoted": null,
+      "promoted_at": null,
+      "promoted_as": null
+    }
   }
 ]
