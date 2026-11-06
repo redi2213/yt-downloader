@@ -60,6 +60,18 @@
       "promoted": true,
       "promoted_at": "2026-11-06T11:01:10Z",
       "promoted_as": "cpy_demo"
+    },
+    {
+      "id": "cpy_demo_copy",
+      "title": "cpy_demo (copy of Download Anything)",
+      "file": "cpy_demo_copy.py",
+      "description": "Lab copy of plugins/cpy_demo.py. The original is untouched; Promote can replace it in place.",
+      "min_host": 1,
+      "copied_from": {
+        "kind": "download_anything",
+        "action_id": "cpy_demo",
+        "file": "cpy_demo.py"
+      }
     }
   ]
 }
