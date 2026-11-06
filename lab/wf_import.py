@@ -224,6 +224,7 @@ def _do_analyze(host, src, existing):
             same_files.append(path)
         else:
             conflicts.append(path)
+    findings = [f for f in findings if not (f["id"] == "missing_file" and any(f["msg"].startswith("Runs %s " % p) for p in missing))]
     for p in conflicts:
         findings.append({"level": "error", "id": "conflict", "fix": None,
                          "msg": "%s already exists on the lab branch with different content (used by another tool); it is not overwritten." % p})
