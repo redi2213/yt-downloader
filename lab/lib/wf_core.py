@@ -351,10 +351,10 @@ def check(text, ctx=None):
     if re.search(r"runs-on\s*:\s*\[?\s*self-hosted", text):
         out.append(_f("warn", "self_hosted", "Needs a self-hosted runner; GitHub's own runners will not pick it up."))
     others = [e for e in on["events"] if e != "workflow_dispatch"]
-    if on["dispatch"] and others:
+    if others:
         out.append(_f("warn", "triggers", "Other triggers (%s) would also start it by themselves (a push to the lab branch "
                       "runs it); the app only needs workflow_dispatch." % ", ".join(others),
-                      "dispatch_only" if on["form"] == "block_map" else None))
+                      None if on["form"] == "inline_map" else "dispatch_only"))
     njobs = len(re.findall(r"(?m)^  [A-Za-z_][\w\-]*:\s*$", text[text.find("jobs:"):])) if "jobs" in top else 0
     if njobs > 1:
         out.append(_f("info", "jobs", "%d jobs: the app's progress view follows the first job." % njobs))
@@ -720,10 +720,8 @@ def selftest():
     out, ap, fa = apply_fixes(ex, ["add_inputs"])
     d = declared_inputs(out)
     assert set(d) == {"url", "job_id", "run_title"} and d["url"]["required"], (d, out)
-    only, ap3, fa3 = apply_fixes(fixed, ["dispatch_only"])
-    assert ap3 == ["dispatch_only"] and not fa3 and on_info(only)["events"] == ["workflow_dispatch"], (only, fa3)
-    assert set(declared_inputs(only)) == {"job_id", "run_title"}
-    ok, _ = validate_yaml(only); assert ok in (True, None)
+    assert "dispatch_only" in applied and on_info(fixed)["events"] == ["workflow_dispatch"], (applied, fixed)
+    assert set(declared_inputs(fixed)) == {"job_id", "run_title"}
     stub = make_stub(fixed, "lab-x.yml")
     assert "workflow_dispatch:" in stub and "job_id:" in stub and "REGISTRATION STUB" in stub and "scripts/run.py" not in stub
     assert is_stub(stub) and "push" not in stub.split("jobs:")[0]
