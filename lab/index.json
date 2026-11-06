@@ -50,30 +50,6 @@
       ],
       "description": "Move a tested Lab tool to Download Anything (config branch + main workflows) with no build: dry-run preview, one commit per branch, Rollback.",
       "min_host": 1
-    },
-    {
-      "id": "fail_test",
-      "title": "Fail test [imported]",
-      "file": "wf_fail_test.py",
-      "modules": [
-        "lib/wf_core.py",
-        "lib/wf_runner.py"
-      ],
-      "description": "Imported workflow lab-fail-test.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
-      "min_host": 1,
-      "imported": {
-        "workflow": "lab-fail-test.yml",
-        "source": "pasted",
-        "files": [
-          ".github/workflows/lab-fail-test.yml",
-          "lab/wf_fail_test.py"
-        ],
-        "fixes": [
-          "add_inputs",
-          "set_run_name"
-        ],
-        "added": "2026-11-06T10:57:15Z"
-      }
     }
   ]
 }
