@@ -50,6 +50,13 @@
       ],
       "description": "Move a tested Lab tool to Download Anything (config branch + main workflows) with no build: dry-run preview, one commit per branch, Rollback.",
       "min_host": 1
+    },
+    {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "file": "cpy_demo.py",
+      "description": "test",
+      "min_host": 1
     }
   ]
 }
