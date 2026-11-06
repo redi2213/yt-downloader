@@ -1,0 +1,21 @@
+name: Cpy wf
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        required: true
+        type: string
+      job_id:
+        required: false
+        default: ''
+        type: string
+      run_title:
+        required: false
+        default: ''
+        type: string
+run-name: ${{ inputs.run_title || 'Cpy wf' }} [${{ inputs.job_id }}]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo original
