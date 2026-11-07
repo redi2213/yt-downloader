@@ -4,6 +4,14 @@ texts that are put together from pieces (``f"Last check: {when}"``): every known
 in the text is replaced and the rest (names, numbers) stays as it is."""
 
 MORE_EXACT = {
+    # --- Lab screen
+    "Lab - test tools": "آزمایشگاه - ابزارهای در حال آزمایش",
+    "Loading the tool list...": "در حال بارگیری فهرست ابزارها...",
+    "Add workflow": "افزودن ورک‌فلو",
+    "Forget saved copies": "پاک کردن نسخه‌های ذخیره‌شده",
+    "Saved copies removed": "نسخه‌های ذخیره‌شده پاک شد",
+    "Offline: showing the saved tool list.": "آفلاین: فهرست ذخیره‌شده‌ی ابزارها نشان داده می‌شود.",
+    "No tools yet. Add one to lab/index.json (see LAB.md on the lab branch).": "هنوز ابزاری نیست. یکی به lab/index.json اضافه کنید (LAB.md را روی برنچ lab ببینید).",
     # --- config.json (Download Anything buttons and their fields)
     "Download from TikTok": "دانلود از تیک‌تاک",
     "Video links (one per line)": "لینک ویدیوها (هر خط یکی)",
