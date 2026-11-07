@@ -61,6 +61,37 @@
       ],
       "description": "Bring a workflow from a GitHub link or pasted .yml into the Lab as a new tool: checks it against what the app needs, one-tap fixes, run, copyable error report.",
       "min_host": 1
+    },
+    {
+      "id": "pintress",
+      "title": "Download Pinterest video [imported]",
+      "file": "wf_pintress.py",
+      "modules": [
+        "lib/wf_core.py",
+        "lib/wf_runner.py"
+      ],
+      "description": "Imported workflow lab-workflow.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "meta": {
+        "id": "pinterest_video",
+        "title": "Download Pinterest video",
+        "group": "download",
+        "domains": [
+          "pinterest.com",
+          "www.pinterest.com",
+          "pin.it"
+        ]
+      },
+      "imported": {
+        "workflow": "lab-workflow.yml",
+        "source": "pasted text",
+        "files": [
+          ".github/workflows/lab-workflow.yml",
+          "lab/wf_pintress.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-07T11:07:54Z"
+      }
     }
   ]
 }

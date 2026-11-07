@@ -1,0 +1,160 @@
+# app-id: pinterest_video
+# app-title: Download Pinterest video
+# app-group: download
+# app-domains: pinterest.com, www.pinterest.com, pin.it
+# app-secrets:
+name: Download Pinterest video
+run-name: \( {{ inputs.run_title || inputs.url }} [ \){{ inputs.job_id }}]${{ inputs.rerun && format(' \~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Pinterest pin / video link'
+        required: true
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so Run again can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download Pinterest video
+        env:
+          URL: ${{ inputs.url }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+
+          echo "URL: $URL"
+
+          # Basic sanity check
+          case "$URL" in
+            *pinterest.com*|*pin.it*) ;;
+            *)
+              echo "::error::This does not look like a Pinterest link"
+              exit 1
+              ;;
+          esac
+
+          # Install latest yt-dlp
+          python3 -m pip install -U --quiet yt-dlp || \
+            python3 -m pip install -U --quiet --break-system-packages yt-dlp
+
+          # Download best video+audio, merge to mp4, safe Windows filenames
+          if ! python3 -m yt_dlp \
+              --no-playlist \
+              --windows-filenames \
+              -f "bv*+ba/b" \
+              --merge-output-format mp4 \
+              -o "out/%(title).200B [%(id)s].%(ext)s" \
+              --retries 3 \
+              --fragment-retries 3 \
+              --socket-timeout 30 \
+              "$URL"; then
+            echo "::error::Could not download the video. Make sure the pin is public and contains a video."
+            exit 1
+          fi
+
+          # Keep only real video files, remove any leftover junk
+          find out -type f ! -name '*.mp4' ! -name '*.mkv' ! -name '*.webm' -delete || true
+
+          if [ -z "$(ls -A out 2>/dev/null)" ]; then
+            echo "::error::Download finished but no video file was produced"
+            exit 1
+          fi
+
+          echo "Downloaded files:"
+          ls -la out
+
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-\( {{ github.run_id }}" --title "Pinterest video run- \){{ github.run_id }}"
+
+      - name: Notify (ntfy)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: Download Pinterest video
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: \( {{ github.server_url }}/ \){{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then echo "No ntfy.json on the config branch: no notification."; exit 0; fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then echo "ntfy topic is not set: no notification."; exit 0; fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="\( BODY" \)'\n'"$RUN_TITLE"; fi
+          BODY="\( BODY" \)'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
+              -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi
