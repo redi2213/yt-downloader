@@ -39,8 +39,9 @@ def build(host):
     host.title("Add workflow")
     host.text("Bring a workflow made elsewhere into the Lab as a new tool to test. It is checked against what the app "
               "needs and can be fixed automatically.")
+    host.button("Upload .yml file(s) from the phone", lambda: host.show(_upload_screen, None))
     host.button("From a GitHub link", lambda: host.show(_url_screen))
-    host.button("Paste workflow text", lambda: host.show(_paste_screen))
+    host.button("Paste workflow text", lambda: host.show(_paste_screen, None))
     host.button("My imported tools", lambda: host.show(_mine))
     host.status()
     host.back_button("Back")
@@ -129,8 +130,65 @@ def _fetch_one(host, info, item, existing):
                     else _fail(host, "Could not read the file", e))
 
 
+# =============================================================== source: file from the phone
+def _upload_screen(host, existing=None):
+    host.title("Upload from the phone")
+    host.text("Choose the workflow .yml. You can pick several files at once: the .yml plus the scripts it runs "
+              "(.py, .sh, requirements.txt). Scripts are matched by file name to what the workflow runs.")
+    host.status()
+
+    def go():
+        try:
+            from core import android_files
+        except Exception:
+            host.set_status("Picking a file works only inside the app on the phone. Use Paste workflow text here.")
+            return
+        android_files.pick_files(lambda files: _picked(host, files, existing), lambda msg: host.set_status(msg))
+
+    host.button("Choose file(s)", go)
+    host.back_button()
+
+
+def _picked(host, files, existing):
+    """The phone's picker returned [(name, bytes)] (runs on the app thread)."""
+    ymls, extras, notes = [], {}, []
+    for name, data in files:
+        try:
+            text = bytes(data).decode("utf-8-sig").replace("\r\n", "\n")
+        except UnicodeDecodeError:
+            notes.append("%s is not a text file (skipped)" % name)
+            continue
+        if name.lower().endswith((".yml", ".yaml")):
+            ymls.append((core.safe_name(name), text))
+        else:
+            extras[name] = text
+    if not ymls:
+        host.set_status("No .yml file among the chosen files.")
+        return
+    if len(ymls) == 1:
+        _use_yml(host, ymls[0], extras, notes, existing)
+        return
+    host.replace(_choose_yml, ymls, extras, notes, existing)
+
+
+def _choose_yml(host, ymls, extras, notes, existing):
+    host.title("Which workflow?")
+    host.text("You chose more than one .yml. Pick the one to add (add the others in a second round).")
+    for name, text in ymls:
+        host.button(name, lambda n=name, t=text: _use_yml(host, (n, t), extras, notes, existing))
+    host.back_button()
+
+
+def _use_yml(host, yml, extras, notes, existing):
+    name, text = yml
+    deps, unused, missing = core.map_uploaded(text, extras)
+    src = {"text": text, "name": name, "url": "", "info": None, "origin": "uploaded from the phone",
+           "uploaded_deps": deps, "uploaded_missing": missing, "notes": notes + ["%s was not used by the workflow (ignored)" % n for n in unused]}
+    host.replace(_analyze, src, existing)
+
+
 # =============================================================== source: paste
-def _paste_screen(host):
+def _paste_screen(host, existing=None):
     host.title("Paste workflow text")
     host.text("Copy the whole .yml file and paste it below. Scripts it runs cannot come with pasted text: "
               "the check lists them, add them to the lab branch by hand.")
@@ -146,7 +204,7 @@ def _paste_screen(host):
         if not body.text.strip():
             host.set_status("Paste the workflow text first")
             return
-        host.show(_analyze, {"text": body.text.replace("\r\n", "\n"), "name": n, "url": "", "info": None}, None)
+        host.show(_analyze, {"text": body.text.replace("\r\n", "\n"), "name": n, "url": "", "info": None, "origin": "pasted text"}, existing)
 
     host.button("Analyze", go)
     host.back_button()
@@ -164,6 +222,8 @@ def _analyze(host, src, existing=None):
 
 def _fetch_deps(host, src):
     """Scripts the workflow runs, from the same public repo: {path: text}, [not found]."""
+    if src.get("uploaded_deps") is not None:
+        return src["uploaded_deps"], src.get("uploaded_missing", [])
     info = src.get("info")
     deps, missing = {}, []
     if not info or info["kind"] != "file":
@@ -230,7 +290,8 @@ def _do_analyze(host, src, existing):
                          "msg": "%s already exists on the lab branch with different content (used by another tool); it is not overwritten." % p})
     for p in missing:
         findings.append({"level": "error", "id": "missing_file", "fix": None,
-                         "msg": "%s is run by the workflow but could not be fetched from the repo." % p})
+                         "msg": ("%s is run by the workflow but was not among the files you chose." if src.get("uploaded_deps") is not None
+                                 else "%s is run by the workflow but could not be fetched from the repo.") % p})
     index = json.loads(rn.read_or_none(host, "lab/index.json", LAB) or '{"plugins": []}')
     plugins = index.get("plugins") if isinstance(index, dict) else index
     return {"src": src, "findings": findings, "fixable": core.fixable(findings), "deps": new_files, "same": same_files,
@@ -243,7 +304,8 @@ def _do_analyze(host, src, existing):
 # =============================================================== review + add
 def _report_text(a):
     src = a["src"]
-    L = ["Source: %s" % (src["url"] or "pasted text"), "Workflow: %s" % src["name"], ""]
+    L = ["Source: %s" % (src["url"] or src.get("origin") or "pasted text"), "Workflow: %s" % src["name"]] + \
+        ["Note: " + n for n in src.get("notes", [])] + [""]
     L.append(rn.format_findings(a["findings"]))
     if a["fixable"]:
         L += ["", "Automatic fixes:"] + ["  - " + core.FIXES[i] for i in a["fixable"]]
@@ -337,7 +399,7 @@ def _do_add(host, a, form):
     entry = {"id": form["id"], "title": title, "file": "wf_%s.py" % form["id"], "modules": list(LIBS),
              "description": "Imported workflow %s. Run, Check and a copyable error report inside; edit the workflow on the lab branch." % form["workflow"],
              "min_host": 1,
-             "imported": {"workflow": form["workflow"], "source": src["url"] or "pasted", "files": files, "fixes": applied,
+             "imported": {"workflow": form["workflow"], "source": src["url"] or src.get("origin") or "pasted", "files": files, "fixes": applied,
                           "added": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}}
     done = []
     old_id = (ex or {}).get("id", form["id"])
@@ -416,8 +478,11 @@ def _tool(host, t):
     imp = t["imported"]
     host.title(t.get("title", t["id"]))
     host.text("Workflow: %s\nSource: %s\nAdded: %s\nFiles: %d" % (imp.get("workflow"), imp.get("source"), imp.get("added"), len(imp.get("files", []))))
-    if imp.get("source") and imp["source"] != "pasted":
+    if str(imp.get("source", "")).startswith("http"):
         host.button("Update from the source link", lambda: host.show(_fetch, imp["source"], t))
+    else:
+        host.button("Update: upload a new .yml", lambda: host.show(_upload_screen, t))
+        host.button("Update: paste new text", lambda: host.show(_paste_screen, t))
     host.button("Remove this tool", lambda: host.show(_remove, t))
     host.back_button()
 

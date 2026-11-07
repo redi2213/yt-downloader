@@ -257,6 +257,39 @@ def python_imports(text):
     return mods
 
 
+def safe_name(name, default="workflow.yml"):
+    """A file name from the phone's picker ("upload-file (1).yml") made safe for a repo."""
+    n = re.sub(r"[^\w.\-]+", "-", str(name or "")).strip("-.")
+    n = re.sub(r"-+(\.[A-Za-z0-9]+)$", r"\1", n)
+    return n or default
+
+
+def map_uploaded(text, extras):
+    """Match the other files picked on the phone to what the workflow runs.
+    extras {picked name: text}. -> (deps {repo path: text}, unused [picked names], missing [repo paths])"""
+    by_base = {}
+    for n in extras:
+        by_base.setdefault(n.rsplit("/", 1)[-1], n)
+    wanted = referenced_files(text)
+    deps, used, seen, queue = {}, set(), set(), list(wanted)
+    while queue:
+        path = queue.pop(0)
+        if path in seen:
+            continue
+        seen.add(path)
+        src = path if path in extras else by_base.get(path.rsplit("/", 1)[-1])
+        if src is None:
+            continue
+        deps[path] = extras[src]
+        used.add(src)
+        if path.endswith(".py"):
+            folder = path.rsplit("/", 1)[0] + "/" if "/" in path else ""
+            for mod in python_imports(extras[src]):
+                if mod + ".py" in by_base and folder + mod + ".py" not in seen:
+                    queue.append(folder + mod + ".py")
+    return deps, [n for n in extras if n not in used], [p for p in wanted if p not in deps]
+
+
 _REL = re.compile(r"gh\s+release\s+(?:create|upload|edit)|softprops/action-gh-release|actions/create-release|"
                   r"ncipollo/release-action|actions/upload-release-asset|marvinpinto/action-automatic-releases")
 _TAG_OK = re.compile(r"run-\$\{\{\s*github\.run_id\s*\}\}|run-\$\{?GITHUB_RUN_ID\}?")
@@ -746,6 +779,12 @@ def selftest():
     assert tl == ["hello", "##[error]boom"] and te == ["##[error]boom"], (tl, te)
     tl2, te2 = log_tail('"2026-01-01T00:00:00.1Z a\\n2026-01-01T00:00:00.2Z ##[error]x\\n"', 5)
     assert tl2 == ["a", "##[error]x"], tl2
+    assert safe_name("upload-file (1).yml") == "upload-file-1.yml", safe_name("upload-file (1).yml")
+    assert safe_name("") == "workflow.yml" and " " not in safe_name("a b.yml")
+    deps, unused, missing = map_uploaded("run: python scripts/hello.py\nrun: pip install -r requirements.txt\nrun: bash gone.sh",
+                                         {"hello.py": "import util\nprint(1)\n", "util.py": "X=1\n", "extra.txt": "x", "requirements.txt": "yt-dlp\n"})
+    assert set(deps) == {"scripts/hello.py", "scripts/util.py", "requirements.txt"}, deps
+    assert unused == ["extra.txt"] and missing == ["gone.sh"], (unused, missing)
     assert slugify("My-Tool v2!") == "my_tool_v2" and workflow_title(fixed) == "My Tool"
     assert git_blob_sha("hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
     rep = build_report("t", "w.yml", {"a": 1}, {"id": 5, "conclusion": "failure"}, f, causes, ["l1"], ["e1"], "name: x")

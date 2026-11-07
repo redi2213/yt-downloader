@@ -161,9 +161,15 @@ Self-test of the pure logic (config upsert, workflow detection, stub detection .
 
 Brings a workflow made somewhere else into the Lab as a new tool under test.
 
-1. **Source**: a link to a public GitHub file, folder (`.github/workflows`) or repo (the scripts the
-   workflow runs, e.g. `python scripts/x.py`, are fetched from the same repo), or pasted `.yml` text
-   (scripts cannot come with pasted text: the check lists the missing ones).
+1. **Source**: any of these
+   - **Upload from the phone**: the system file picker, several files at once. Pick the `.yml` and,
+     if it runs scripts, the scripts too (`.py`, `.sh`, `requirements.txt`): they are matched by file
+     name to what the workflow runs (`python scripts/x.py` <- the picked `x.py`) and put at that path
+     on the lab branch; modules a picked script imports are matched too. Files that are not used are
+     listed and ignored. Works only inside the app on the phone.
+   - a link to a public GitHub file, folder (`.github/workflows`) or repo (the scripts the workflow
+     runs are fetched from the same repo);
+   - pasted `.yml` text (scripts cannot come with it: the check lists the missing ones).
 2. **Check** against what the app needs: `workflow_dispatch`, the `job_id` / `run_title` inputs,
    `run-name` containing `inputs.job_id`, the release tag `run-${{ github.run_id }}`,
    `contents: write` for releases, other triggers (a `push` trigger would run it on every push to
@@ -179,7 +185,7 @@ Brings a workflow made somewhere else into the Lab as a new tool under test.
    A failed run shows the failed step and the probable causes in plain words (missing Python package,
    missing file, 403, tag already exists ...). **Copy report** puts the causes, the log tail, the checks
    and the workflow file in one text to paste for help.
-5. **My imported tools**: update from the source link, or remove (deletes the files, the index entry
+5. **My imported tools**: update (from the source link, or by uploading / pasting a new version), or remove (deletes the files, the index entry
    and the stub; a workflow already promoted to Download Anything is kept).
 6. When it works, use **Promote**.
 
