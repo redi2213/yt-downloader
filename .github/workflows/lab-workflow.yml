@@ -1,5 +1,5 @@
 name: Download Pinterest video
-run-name: \( {{ inputs.run_title || inputs.url }} [ \){{ inputs.job_id }}]${{ inputs.rerun && format(' \~{0}', inputs.rerun) || '' }}
+run-name: ${{ inputs.run_title || inputs.url }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
 
 on:
   workflow_dispatch:
