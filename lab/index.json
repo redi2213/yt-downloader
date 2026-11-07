@@ -56,10 +56,7 @@
       "title": "Cpy demo",
       "file": "cpy_demo.py",
       "description": "test",
-      "min_host": 1,
-      "promoted": true,
-      "promoted_at": "2026-11-06T11:01:10Z",
-      "promoted_as": "cpy_demo"
+      "min_host": 1
     },
     {
       "id": "cpy_demo_copy",
