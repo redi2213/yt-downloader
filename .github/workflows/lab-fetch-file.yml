@@ -1,4 +1,4 @@
-name: Fetch a file
+name: Fetch a file v2
 run-name: ${{ inputs.run_title || inputs.file_url }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
 
 on:
