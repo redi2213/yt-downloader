@@ -189,6 +189,17 @@ Brings a workflow made somewhere else into the Lab as a new tool under test.
    and the stub; a workflow already promoted to Download Anything is kept).
 6. When it works, use **Promote**.
 
+**Names**: the workflow file and the tool id are made from the `name:` inside the workflow (`name: Download
+Pinterest video` -> `lab-download-pinterest-video.yml`, `download_pinterest_video`), not from the name of the
+file you uploaded. Both fields can be edited before adding; when a tool is updated under a new file name the
+old workflow file, its stub on main and unused script files are removed.
+
+**Testing right after adding**: the "Added" screen has **Open the tool to test it**. In **My imported
+tools** a tool has **Test it**, **Update ...**, **Promote to Download Anything** (opens Promote for that tool,
+for when it has passed testing) and **Remove**. **Run** uses the app's own progress screen (the run's steps,
+cancel, Running jobs, notification) and, when the workflow publishes a release, the same result screen as the
+other tools; a workflow that makes no release gets a small result screen of its own.
+
 **Guide for other AIs**: the button **Copy the guide for AI** (top menu of Add workflow) copies
 `WORKFLOW_GUIDE.md` (on the lab branch, edit it freely) to the clipboard. Paste it into any AI together
 with a request ("make a tool that ...") and the workflow it writes follows the app's rules: only

@@ -49,7 +49,7 @@ def is_stub(text):
 
 
 def dump_index(plugins):
-    """lab/index.json text (same layout the repo uses: 2-space JSON, trailing newline)."""
+    """Text of the Lab index file (same layout the repo uses: 2-space JSON, trailing newline)."""
     import json
     return json.dumps({"plugins": plugins}, indent=2, ensure_ascii=False) + "\n"
 

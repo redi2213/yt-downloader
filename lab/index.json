@@ -46,7 +46,8 @@
       "title": "Promote tool to Download Anything",
       "file": "promote.py",
       "modules": [
-        "lib/promote_core.py"
+        "lib/promote_core.py",
+        "lib/promote_flow.py"
       ],
       "description": "Move a tested Lab tool to Download Anything (config branch + main workflows) with no build: dry-run preview, one commit per branch, Rollback.",
       "min_host": 1
@@ -57,7 +58,9 @@
       "file": "wf_import.py",
       "modules": [
         "lib/wf_core.py",
-        "lib/wf_runner.py"
+        "lib/wf_runner.py",
+        "lib/promote_core.py",
+        "lib/promote_flow.py"
       ],
       "description": "Bring a workflow from a GitHub link or pasted .yml into the Lab as a new tool: checks it against what the app needs, one-tap fixes, run, copyable error report.",
       "min_host": 1

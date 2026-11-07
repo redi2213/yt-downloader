@@ -347,9 +347,11 @@ def _review(host, a):
     meta = core.parse_meta(src["text"])
     if meta:
         host.text("Tool card found in the file: " + ", ".join("%s=%s" % (k, v if not isinstance(v, list) else ",".join(v)) for k, v in meta.items()))
-    tid = host.input("Tool id (letters, digits, _)", text=(ex or {}).get("id") or meta.get("id") or core.slugify(stem))
-    ttl = host.input("Tool title", text=((ex or {}).get("title") or meta.get("title") or core.workflow_title(src["text"], stem)).replace(" [imported]", ""))
-    wfn = host.input("Workflow file name on the lab branch", text=imp.get("workflow") or (stem if stem.startswith("lab-") else "lab-" + stem) + ".yml")
+    wname = core.workflow_title(src["text"], stem)
+    slug = core.file_slug(wname, "") or core.file_slug(stem)
+    tid = host.input("Tool id (letters, digits, _)", text=(ex or {}).get("id") or meta.get("id") or slug.replace("-", "_")[:30])
+    ttl = host.input("Tool title", text=((ex or {}).get("title") or meta.get("title") or wname).replace(" [imported]", ""))
+    wfn = host.input("Workflow file name on the lab branch", text=imp.get("workflow") or (slug if slug.startswith("lab-") else "lab-" + slug) + ".yml")
     fix = None
     if a["fixable"]:
         fix = host.choice([("Apply the %d suggested fixes (recommended)" % len(a["fixable"]), True), ("Add exactly as it is", False)])
@@ -426,12 +428,21 @@ def _do_add(host, a, form):
                           "added": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}}
     done = []
     old_id = (ex or {}).get("id", form["id"])
+    old_imp = (ex or {}).get("imported") or {}
+    old_files, old_wf = list(old_imp.get("files", [])), old_imp.get("workflow")
 
     def build_lab(tree):
         changes = {wf_path: text, plugin_path: _plugin_source(form["workflow"], title)}
         changes.update(a["deps"])
         idx = json.loads(rn.blob_text(host, tree["lab/index.json"]))
         plugins = idx.get("plugins") if isinstance(idx, dict) else idx
+        keep = set()
+        for p in plugins:
+            if isinstance(p, dict) and p.get("id") not in (old_id, form["id"]):
+                keep |= set((p.get("imported") or {}).get("files", []))
+        for f in old_files:                                   # files of the old version that are no longer used
+            if f not in files and f in tree and f not in keep and f not in changes:
+                changes[f] = None
         plugins = [p for p in plugins if not (isinstance(p, dict) and p.get("id") in (old_id, form["id"]))] + [entry]
         changes["lab/index.json"] = core.dump_index(plugins)
         return changes, None, None
@@ -445,12 +456,17 @@ def _do_add(host, a, form):
     stub = core.make_stub(text, form["workflow"])
 
     def build_main(tree):
+        changes = {}
         cur = tree.get(wf_path)
         if cur is not None and not core.is_stub(rn.blob_text(host, cur)):
             raise RuntimeError("%s on main is a real workflow; not overwritten" % form["workflow"])
-        if cur is not None and cur["sha"] == core.git_blob_sha(stub):
-            return {}, None, None
-        return {wf_path: stub}, None, None
+        if cur is None or cur["sha"] != core.git_blob_sha(stub):
+            changes[wf_path] = stub
+        if old_wf and old_wf != form["workflow"]:             # renamed: the old stub goes
+            old = tree.get(WF + "/" + old_wf)
+            if old is not None and core.is_stub(rn.blob_text(host, old)):
+                changes[WF + "/" + old_wf] = None
+        return changes, None, None
 
     try:
         sha, _ = rn.atomic(host, main, build_main, "lab: stub for %s" % form["workflow"])
@@ -462,7 +478,9 @@ def _do_add(host, a, form):
         done.append("fixed: " + core.FIXES[fid])
     for f in failed:
         done.append("could not fix %s: %s" % f)
-    return {"done": done, "title": title, "id": form["id"]}
+    if old_wf and old_wf != form["workflow"]:
+        done.append("the old file name %s was removed" % old_wf)
+    return {"done": done, "title": title, "id": form["id"], "workflow": form["workflow"]}
 
 
 def _added(host, res):
@@ -470,6 +488,7 @@ def _added(host, res):
     host.text("\n".join(["Done:"] + ["  - " + d for d in res["done"]] +
                         ["", "Open Lab and look for \"%s\": it has the form, Run, Check and the error report." % res["title"],
                          "When it works, use Promote to move it to Download Anything."]))
+    host.button("Open the tool to test it", lambda: host.show(rn.build, res["workflow"], res["title"]))
     host.back_button("Back")
 
 
@@ -501,13 +520,26 @@ def _tool(host, t):
     imp = t["imported"]
     host.title(t.get("title", t["id"]))
     host.text("Workflow: %s\nSource: %s\nAdded: %s\nFiles: %d" % (imp.get("workflow"), imp.get("source"), imp.get("added"), len(imp.get("files", []))))
+    host.button("Test it", lambda: host.show(rn.build, imp["workflow"], t.get("title", t["id"])))
     if str(imp.get("source", "")).startswith("http"):
         host.button("Update from the source link", lambda: host.show(_fetch, imp["source"], t))
     else:
         host.button("Update: upload a new .yml", lambda: host.show(_upload_screen, t))
         host.button("Update: paste new text", lambda: host.show(_paste_screen, t))
+    host.button("Promote to Download Anything", lambda: _promote(host, t))
     host.button("Remove this tool", lambda: host.show(_remove, t))
+    host.status()
     host.back_button()
+
+
+def _promote(host, t):
+    """Opens the Promote flow for this tool (the tool must be finished and tested)."""
+    try:
+        from labx import promote_flow
+    except Exception:
+        host.set_status("The Promote helper files are missing (lib/promote_flow.py).")
+        return
+    promote_flow.promote_tool(host, t["id"])
 
 
 def _remove(host, t):
