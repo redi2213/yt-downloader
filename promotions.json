@@ -292,7 +292,7 @@
     "time": "2026-11-07T03:40:08Z",
     "tool": "cpy_demo_copy",
     "action_id": "cpy_demo",
-    "status": "config_done",
+    "status": "done",
     "new_action": {
       "id": "cpy_demo",
       "title": "Cpy demo",
@@ -315,7 +315,11 @@
       "plugins/cpy_demo.py": "cfb3baceedc452bf62da4201070737c1d93cfac7",
       ".github/workflows/cpy-wf-v2.yml": "ab2c33a03705671227b1673d6163dd05c36b75fc"
     },
-    "commits": {},
+    "commits": {
+      "config": "2f720b5aaa88f414056ee1303b5101f66fd7812e",
+      "main": "91604e6d202250df19c16f760922786a26f427ab",
+      "lab": "0deb823c0b84105859803fd7ebe1eff92b8110ce"
+    },
     "previous_action": {
       "id": "cpy_demo",
       "title": "Cpy demo",
@@ -328,6 +332,11 @@
     },
     "previous_index": 13,
     "config_version_before": 40,
-    "config_version_after": 41
+    "config_version_after": 41,
+    "lab_before": {
+      "promoted": true,
+      "promoted_at": "2026-11-06T11:01:56Z",
+      "promoted_as": "cpy_demo"
+    }
   }
 ]
