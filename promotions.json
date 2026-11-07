@@ -286,5 +286,48 @@
       "promoted_at": null,
       "promoted_as": null
     }
+  },
+  {
+    "id": "p-20261107034008-cpy_demo_copy",
+    "time": "2026-11-07T03:40:08Z",
+    "tool": "cpy_demo_copy",
+    "action_id": "cpy_demo",
+    "status": "config_done",
+    "new_action": {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "icon": "download",
+      "enabled": true,
+      "plugin": "cpy_demo",
+      "file": "cpy_demo.py",
+      "source": "config",
+      "min_host": 1
+    },
+    "config_created": [],
+    "config_overwritten": {
+      "plugins/cpy_demo.py": "def build(host):\n    host.title(\"v2 FIXED\")\n    host.back_button(\"Back\")\n"
+    },
+    "main_created": [
+      ".github/workflows/cpy-wf-v2.yml"
+    ],
+    "main_overwritten": {},
+    "written": {
+      "plugins/cpy_demo.py": "cfb3baceedc452bf62da4201070737c1d93cfac7",
+      ".github/workflows/cpy-wf-v2.yml": "ab2c33a03705671227b1673d6163dd05c36b75fc"
+    },
+    "commits": {},
+    "previous_action": {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "icon": "download",
+      "enabled": true,
+      "plugin": "cpy_demo",
+      "file": "cpy_demo.py",
+      "source": "config",
+      "min_host": 1
+    },
+    "previous_index": 13,
+    "config_version_before": 40,
+    "config_version_after": 41
   }
 ]
