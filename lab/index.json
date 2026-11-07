@@ -61,6 +61,32 @@
       ],
       "description": "Bring a workflow from a GitHub link or pasted .yml into the Lab as a new tool: checks it against what the app needs, one-tap fixes, run, copyable error report.",
       "min_host": 1
+    },
+    {
+      "id": "upload_test_1",
+      "title": "Upload test [imported]",
+      "file": "wf_upload_test_1.py",
+      "modules": [
+        "lib/wf_core.py",
+        "lib/wf_runner.py"
+      ],
+      "description": "Imported workflow lab-upload-test-1-.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "imported": {
+        "workflow": "lab-upload-test-1-.yml",
+        "source": "uploaded from the phone",
+        "files": [
+          ".github/workflows/lab-upload-test-1-.yml",
+          "lab/wf_upload_test_1.py",
+          "scripts/upl_helper.py",
+          "scripts/upl_test.py"
+        ],
+        "fixes": [
+          "add_inputs",
+          "set_run_name"
+        ],
+        "added": "2026-11-07T03:50:58Z"
+      }
     }
   ]
 }
