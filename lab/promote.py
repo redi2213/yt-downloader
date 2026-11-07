@@ -222,6 +222,21 @@ def _perm_done(host, text):
 
 
 # =============================================================== 1. list
+def _origin(entry, actions):
+    """If this Lab tool is a copy of a Download Anything plugin (made by Copy tools):
+    {"action_id", "file", "action"}; else None."""
+    cf = entry.get("copied_from")
+    if isinstance(cf, dict) and cf.get("action_id") in actions:
+        return {"action_id": cf["action_id"], "file": cf.get("file") or (actions[cf["action_id"]].get("file") or ""),
+                "action": actions[cf["action_id"]]}
+    m = re.match(r"Lab copy of plugins/(\S+?\.py)", entry.get("description") or "")
+    if m:
+        for aid, act in actions.items():
+            if act.get("plugin") and (act.get("file") or act["plugin"] + ".py") == m.group(1):
+                return {"action_id": aid, "file": m.group(1), "action": act}
+    return None
+
+
 def _list_tools(host):
     _init(host)
     idx = json.loads(host.gh.read_file("lab/index.json", ref=LAB))
@@ -237,7 +252,7 @@ def _list_tools(host):
         act = actions.get(p.get("promoted_as") or p["id"])
         act = act if act and act.get("plugin") else None
         state = "Lab only" if not act else ("bundled" if act.get("source") == "bundled" else "in Download Anything")
-        rows.append({"entry": p, "state": state, "action": act})
+        rows.append({"entry": p, "state": state, "action": act, "origin": _origin(p, actions)})
     groups = sorted({a["group"] for a in cfg.get("actions", []) if a.get("group")})
     return {"rows": rows, "groups": groups, "version": cfg.get("config_version"), "action_ids": list(actions)}
 
@@ -256,7 +271,8 @@ def _pick_list(host, data):
     if not data["rows"]:
         host.text("No tools in lab/index.json.")
     for row in data["rows"]:
-        host.button("%s\n[%s]" % (row["entry"].get("title") or row["entry"]["id"], row["state"]),
+        note = ("  |  copy of Download Anything: %s" % row["origin"]["action_id"]) if row.get("origin") else ""
+        host.button("%s\n[%s%s]" % (row["entry"].get("title") or row["entry"]["id"], row["state"], note),
                     lambda r=row: host.show(_check, data, r), height=64)
     host.back_button()
 
@@ -351,6 +367,7 @@ def _analyze(host, data, row):
         else:
             item["state"] = "main has a DIFFERENT real file: it would be overwritten (asks again)"
             item["promote"] = True
+        item["main_real"] = bool(item["main_text"]) and not core.is_stub(item["main_text"])
         a["workflows"].append(item)
         if item["promote"]:
             hits = core.scan_workflow(item["lab_text"])
@@ -391,7 +408,11 @@ def _check(host, data, row):
 
 def _report(a):
     e = a["entry"]
-    L = ["%s (%s)" % (e.get("title") or e["id"], e["id"]), "Status: %s" % a["row"]["state"], ""]
+    L = ["%s (%s)" % (e.get("title") or e["id"], e["id"]), "Status: %s" % a["row"]["state"]]
+    if a["row"].get("origin"):
+        o = a["row"]["origin"]
+        L.append("Copy of the Download Anything tool '%s' (plugins/%s): it can replace the original in place." % (o["action_id"], o["file"]))
+    L.append("")
     if a["errors"]:
         L += ["ERRORS (must be fixed on the lab branch):"] + ["  x " + t for t in a["errors"]] + [""]
     if a["warnings"]:
@@ -422,9 +443,17 @@ def _check_result(host, a):
 
 # =============================================================== 3. form
 def _form(host, a):
-    e, ex = a["entry"], a["row"]["action"] or {}
+    e = a["entry"]
+    origin = a["row"].get("origin")
+    ex = a["row"]["action"] or (origin or {}).get("action") or {}
+    mode = None
+    if origin:
+        host.text("This tool is a copy of the Download Anything tool '%s' (plugins/%s)." % (origin["action_id"], origin["file"]))
+        mode = host.choice([("Replace the original '%s' (same button, same file)" % origin["action_id"], "replace"),
+                            ("Add as a new tool", "new")], default="replace")
     title = host.input("Button title", text=ex.get("title") or e.get("title") or e["id"])
-    aid = host.input("Action id (letters, digits, _)", text=ex.get("id") or e.get("promoted_as") or e["id"])
+    aid = host.input("Action id (used when adding as new)" if origin else "Action id (letters, digits, _)",
+                     text=(e.get("promoted_as") or e["id"]) if origin else (ex.get("id") or e.get("promoted_as") or e["id"]))
     groups = [NONE_GROUP] + a["groups"]
     gch = host.choice(groups, default=ex.get("group") if ex.get("group") in groups else NONE_GROUP)
     gnew = host.input("New group name (optional, overrides the choice)", text="")
@@ -432,10 +461,22 @@ def _form(host, a):
     en = host.choice([("Enabled", True), ("Hidden", False)], default=ex.get("enabled", True))
     wf_inputs = {}
     for w in a["workflows"]:
-        if w["promote"]:
+        if not w["promote"]:
+            continue
+        if w.get("main_real"):
+            host.text("The workflow %s already exists on main (a real one)." % w["name"])
+            wmode = host.choice([("Replace it on main", "replace"), ("Add as a new workflow, named below", "new")],
+                                default="replace" if origin else "new")
+            stem, _, ext = w["name"].rpartition(".")
+            n, cand = 2, "%s-v2.%s" % (stem, ext)
+            while cand in a["main_wf_names"]:
+                n += 1
+                cand = "%s-v%d.%s" % (stem, n, ext)
+            wf_inputs[w["name"]] = (wmode, host.input("New workflow name on main", text=cand))
+        else:
             stripped = w["name"][4:] if w["name"].startswith("lab-") else w["name"]
             default = stripped if stripped not in a["main_wf_names"] else w["name"]   # never default onto an existing file
-            wf_inputs[w["name"]] = host.input("Name on main for %s" % w["name"], text=default)
+            wf_inputs[w["name"]] = (None, host.input("Name on main for %s" % w["name"], text=default))
     sc = None
     if a["scripts"]:
         sc = host.choice([("Copy the %d script file(s) to main" % len(a["scripts"]), True),
@@ -444,10 +485,13 @@ def _form(host, a):
     host.status()
 
     def go():
-        form = {"title": title.text.strip(), "id": aid.text.strip(),
+        replace = bool(origin) and mode.value == "replace"
+        names = {old: (old if (wmode is not None and wmode.value == "replace") else inp.text.strip())
+                 for old, (wmode, inp) in wf_inputs.items()}
+        form = {"title": title.text.strip(), "id": origin["action_id"] if replace else aid.text.strip(),
+                "plugin_file": origin["file"] if replace else e["file"], "replace_origin": replace,
                 "group": (gnew.text.strip() or ("" if gch.value == NONE_GROUP else gch.value)),
-                "domains": core.parse_domains(dom.text), "enabled": en.value,
-                "wf_names": {k: v.text.strip() for k, v in wf_inputs.items()},
+                "domains": core.parse_domains(dom.text), "enabled": en.value, "wf_names": names,
                 "copy_scripts": True if sc is None else sc.value, "keep": keep.value}
         problem = _validate(form, a)
         if problem:
@@ -469,6 +513,9 @@ def _validate(form, a):
             return "Workflow name for %s must end with .yml" % old
         if core.is_protected(new):
             return "%s is protected" % new
+        w = next((x for x in a["workflows"] if x["name"] == old), None)
+        if w and w.get("main_real") and new != old and new in a["main_wf_names"]:
+            return "%s already exists on main. Choose another new name." % new
     if len(set(form["wf_names"].values())) != len(form["wf_names"]):
         return "Two workflows have the same new name"
     return ""
@@ -494,7 +541,7 @@ def _make_plan(host, a, form):
         return text
 
     modules = list(e.get("modules") or [])
-    plugin_file = e["file"]
+    plugin_file = form.get("plugin_file") or e["file"]
     action = core.build_action(e, aid, form["title"], form["domains"], form["group"], form["enabled"],
                                plugin_file, modules)
     plan["action"] = action
@@ -530,7 +577,7 @@ def _make_plan(host, a, form):
 
     # config branch files
     plan["lines_config"].append("CONFIG branch (one commit):")
-    texts = {plugin_file: final(a["codes"][plugin_file])}
+    texts = {plugin_file: final(a["codes"][e["file"]])}
     for m in modules:
         texts[m] = final(a["codes"][m])
     for rel, text in texts.items():
@@ -597,7 +644,9 @@ def _make_plan(host, a, form):
     plan["lines_lab"] = ["LAB branch (one commit):",
                          "  ~ lab/index.json: promoted flag%s" % ("" if form["keep"] else " + hidden from the Lab list")]
     plan["text"] = "\n".join(
-        ["Promote '%s' as action '%s'%s" % (e["id"], aid, " (update)" if up["previous"] else "")]
+        ["Promote '%s' as action '%s'%s" % (e["id"], aid, " (update)" if up["previous"] else ""),
+         ("It REPLACES the original Download Anything tool '%s' in place (same button, plugins/%s)." % (aid, plugin_file))
+         if form.get("replace_origin") else "It is added as a new tool."]
         + [""] + plan["lines_config"] + [""] + plan["lines_main"] + [""] + plan["lines_lab"]
         + (["", "NEEDS A SECOND CONFIRM:"] + ["  ! " + r for r in plan["risky"]] if plan["risky"] else [])
         + (["", "BLOCKED:"] + ["  x " + r for r in plan["errors"]] if plan["errors"] else [])
