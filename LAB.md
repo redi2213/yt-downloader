@@ -189,6 +189,18 @@ Brings a workflow made somewhere else into the Lab as a new tool under test.
    and the stub; a workflow already promoted to Download Anything is kept).
 6. When it works, use **Promote**.
 
+**Guide for other AIs**: the button **Copy the guide for AI** (top menu of Add workflow) copies
+`WORKFLOW_GUIDE.md` (on the lab branch, edit it freely) to the clipboard. Paste it into any AI together
+with a request ("make a tool that ...") and the workflow it writes follows the app's rules: only
+`workflow_dispatch`, the `job_id` / `run_title` / `rerun` inputs, the `run-name`, `contents: write`,
+inputs through `env:`, files in `out/`, publishing with `scripts/storage_publish.py` under the tag
+`run-<run id>`, `::error::` lines on failure, and a tool card in the first lines:
+`# app-id`, `# app-title`, `# app-group`, `# app-domains`, `# app-secrets`. Add workflow reads the card to
+pre-fill the id and title (and Promote the group and domains). Upload or paste what the AI wrote; if the
+run fails, press **Copy report** and paste it back to the AI. The template in the guide passes every check
+and was run end to end.
+
+
 Self-test of the pure logic: `python lab/lib/wf_core.py` (prints `ok`).
 
 ## Final build

@@ -43,8 +43,28 @@ def build(host):
     host.button("From a GitHub link", lambda: host.show(_url_screen))
     host.button("Paste workflow text", lambda: host.show(_paste_screen, None))
     host.button("My imported tools", lambda: host.show(_mine))
+    host.button("Copy the guide for AI", lambda: _copy_guide(host))
     host.status()
     host.back_button("Back")
+
+
+def _copy_guide(host):
+    """Puts the instructions for writing workflows (WORKFLOW_GUIDE.md on the lab branch) on the clipboard."""
+    host.set_status("Reading the guide...")
+
+    def work():
+        return rn.read_or_none(host, "WORKFLOW_GUIDE.md", LAB)
+
+    def done(text, err):
+        if err is not None:
+            host.set_status("Could not read the guide: " + rn.explain(err)[:120])
+        elif not text:
+            host.set_status("WORKFLOW_GUIDE.md is not on the lab branch.")
+        else:
+            host.copy(text)
+            host.set_status("Guide copied (%d characters). Paste it into the other AI, then describe the tool you want." % len(text))
+
+    host.background(work, done=done)
 
 
 # =============================================================== source: link
@@ -324,8 +344,11 @@ def _review(host, a):
     if not a["libs_ok"]:
         host.text("x The helper files lib/wf_core.py and lib/wf_runner.py are missing on the lab branch.")
     imp = (ex or {}).get("imported") or {}
-    tid = host.input("Tool id (letters, digits, _)", text=(ex or {}).get("id") or core.slugify(stem))
-    ttl = host.input("Tool title", text=((ex or {}).get("title") or core.workflow_title(src["text"], stem)).replace(" [imported]", ""))
+    meta = core.parse_meta(src["text"])
+    if meta:
+        host.text("Tool card found in the file: " + ", ".join("%s=%s" % (k, v if not isinstance(v, list) else ",".join(v)) for k, v in meta.items()))
+    tid = host.input("Tool id (letters, digits, _)", text=(ex or {}).get("id") or meta.get("id") or core.slugify(stem))
+    ttl = host.input("Tool title", text=((ex or {}).get("title") or meta.get("title") or core.workflow_title(src["text"], stem)).replace(" [imported]", ""))
     wfn = host.input("Workflow file name on the lab branch", text=imp.get("workflow") or (stem if stem.startswith("lab-") else "lab-" + stem) + ".yml")
     fix = None
     if a["fixable"]:
@@ -398,7 +421,7 @@ def _do_add(host, a, form):
     title = form["title"] + " [imported]"
     entry = {"id": form["id"], "title": title, "file": "wf_%s.py" % form["id"], "modules": list(LIBS),
              "description": "Imported workflow %s. Run, Check and a copyable error report inside; edit the workflow on the lab branch." % form["workflow"],
-             "min_host": 1,
+             "min_host": 1, "meta": core.parse_meta(src["text"]),
              "imported": {"workflow": form["workflow"], "source": src["url"] or src.get("origin") or "pasted", "files": files, "fixes": applied,
                           "added": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}}
     done = []

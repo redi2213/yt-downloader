@@ -451,13 +451,15 @@ def _form(host, a):
         host.text("This tool is a copy of the Download Anything tool '%s' (plugins/%s)." % (origin["action_id"], origin["file"]))
         mode = host.choice([("Replace the original '%s' (same button, same file)" % origin["action_id"], "replace"),
                             ("Add as a new tool", "new")], default="replace")
-    title = host.input("Button title", text=ex.get("title") or e.get("title") or e["id"])
+    meta = e.get("meta") or {}
+    title = host.input("Button title", text=ex.get("title") or meta.get("title") or (e.get("title") or e["id"]).replace(" [imported]", ""))
     aid = host.input("Action id (used when adding as new)" if origin else "Action id (letters, digits, _)",
                      text=(e.get("promoted_as") or e["id"]) if origin else (ex.get("id") or e.get("promoted_as") or e["id"]))
     groups = [NONE_GROUP] + a["groups"]
-    gch = host.choice(groups, default=ex.get("group") if ex.get("group") in groups else NONE_GROUP)
-    gnew = host.input("New group name (optional, overrides the choice)", text="")
-    dom = host.input("Domains for share-links (comma separated, optional)", text=",".join(ex.get("domains") or []))
+    mgroup = meta.get("group", "")
+    gch = host.choice(groups, default=ex.get("group") if ex.get("group") in groups else (mgroup if mgroup in groups else NONE_GROUP))
+    gnew = host.input("New group name (optional, overrides the choice)", text=(mgroup if mgroup and mgroup not in groups and not ex.get("group") else ""))
+    dom = host.input("Domains for share-links (comma separated, optional)", text=",".join(ex.get("domains") or meta.get("domains") or []))
     en = host.choice([("Enabled", True), ("Hidden", False)], default=ex.get("enabled", True))
     wf_inputs = {}
     for w in a["workflows"]:

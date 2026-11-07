@@ -11,6 +11,7 @@ import hashlib
 import re
 
 RUN_INPUTS = ("job_id", "run_title", "rerun")      # inputs the app fills in itself
+APP_SET_INPUTS = RUN_INPUTS + ("storage", "arvan_bucket", "release_tag", "split_large")   # never shown in a tool's form
 APP_TAG = "run-${{ github.run_id }}"
 STUB_NOTE = ["# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.",
              "# The real definition lives on the `lab` branch (same path) and is what runs when the app",
@@ -232,10 +233,11 @@ _LOCAL_USES = re.compile(r"uses:\s*(\./[\w\-./]+)")
 def referenced_files(text):
     """Repo files the workflow runs or installs from (scripts, requirements)."""
     out = []
+    elsewhere = set(re.findall(r"(?m)^\s*path\s*:\s*['\"]?([A-Za-z0-9_.\-]+)['\"]?\s*$", text))   # folders other repos/branches are checked out to
     for rx in (_EXEC, _REQ):
         for m in rx.finditer(text):
             p = m.group(1)
-            if "${{" in p or p.startswith(("http", "/")) or ".." in p.split("/"):
+            if "${{" in p or p.startswith(("http", "/")) or ".." in p.split("/") or p.split("/")[0] in elsewhere:
                 continue
             if p not in out:
                 out.append(p)
@@ -255,6 +257,22 @@ def python_imports(text):
         else:
             mods += [x.strip().split(" ")[0] for x in m.group(2).split(",") if x.strip()]
     return mods
+
+
+def parse_meta(text):
+    """The tool card an AI puts at the top of a workflow: '# app-id: x', '# app-title: ...',
+    '# app-group: upload', '# app-domains: a.com, b.com', '# app-secrets: A, B'."""
+    meta = {}
+    for line in text.split("\n")[:40]:
+        m = re.match(r"^#\s*app-(id|title|group|domains|secrets)\s*:\s*(.*?)\s*$", line)
+        if m and m.group(2):
+            meta[m.group(1)] = m.group(2)
+    if "id" in meta and not re.fullmatch(r"[a-z0-9_]{1,30}", meta["id"]):
+        meta["id"] = slugify(meta["id"])
+    for k in ("domains", "secrets"):
+        if k in meta:
+            meta[k] = [x.strip().lower() if k == "domains" else x.strip() for x in re.split(r"[,\s]+", meta[k]) if x.strip()]
+    return meta
 
 
 def safe_name(name, default="workflow.yml"):
@@ -291,7 +309,8 @@ def map_uploaded(text, extras):
 
 
 _REL = re.compile(r"gh\s+release\s+(?:create|upload|edit)|softprops/action-gh-release|actions/create-release|"
-                  r"ncipollo/release-action|actions/upload-release-asset|marvinpinto/action-automatic-releases")
+                  r"ncipollo/release-action|actions/upload-release-asset|marvinpinto/action-automatic-releases|"
+                  r"storage_publish\.py\s+(?:publish|upload)")
 _TAG_OK = re.compile(r"run-\$\{\{\s*github\.run_id\s*\}\}|run-\$\{?GITHUB_RUN_ID\}?")
 
 
@@ -373,6 +392,23 @@ def check(text, ctx=None):
             out.append(_f("error" if lost else "info", "secrets",
                           ("Secret(s) not defined in this repo: %s" % ", ".join(lost)) if lost
                           else "Secrets used and defined: %s" % ", ".join(secrets)))
+    if re.search(r"storage_publish\.py", text):
+        if "actions/checkout" not in text:
+            out.append(_f("error", "no_scripts", "Runs scripts/storage_publish.py but never checks the repo out: add the "
+                          "'Get the publish scripts' step (actions/checkout with ref: main, path: _repo, sparse-checkout: scripts)."))
+        elif not re.search(r"(?m)^\s*ref\s*:\s*['\"]?main['\"]?\s*$", text) and (
+                ctx.get("files") is None or "scripts/storage_publish.py" not in ctx.get("files")):
+            out.append(_f("warn", "scripts_ref", "The publish scripts are checked out from the branch it runs from; the lab branch "
+                          "has no scripts/ folder. Add 'ref: main' to that checkout step."))
+    inline = [n for n, l in enumerate(text.split("\n"), 1)
+              if re.search(r"\$\{\{\s*(?:github\.event\.)?inputs\.", l) and not l.lstrip().startswith("#")
+              and not re.match(r"^\s*(?:-\s+)?[\w\-]+:\s*\$\{\{", l)]
+    if inline:
+        out.append(_f("warn", "inline_inputs", "Input values are put straight into commands (line %s%s): quoting and injection "
+                      "problems. Pass them through env: and use \"$NAME\" in the script." % (
+                          ", ".join(str(n) for n in inline[:3]), " ..." if len(inline) > 3 else "")))
+    if "jobs" in top and not re.search(r"timeout-minutes\s*:", text):
+        out.append(_f("info", "timeout", "No timeout-minutes: a stuck run keeps going for 6 hours."))
     files = ctx.get("files")
     if files is not None:
         for p in referenced_files(text):
@@ -765,6 +801,7 @@ def selftest():
     assert referenced_files("run: python -u scripts/a.py x\nrun: pip install -r req/r.txt\nrun: bash ./b.sh") == \
         ["scripts/a.py", "b.sh", "req/r.txt"]
     assert referenced_files('run: python -m pip install x\nrun: echo "out.json"') == []
+    assert referenced_files("with:\n  path: _repo\nrun: python3 _repo/scripts/p.py\nrun: python3 scripts/q.py") == ["scripts/q.py"]
     assert used_secrets("${{ secrets.TOKEN_X }} ${{ secrets.GITHUB_TOKEN }}") == ["TOKEN_X"]
     assert python_imports("import os, helper\nfrom lib2 import x\n") == ["os", "helper", "lib2"]
     assert parse_github_url("https://github.com/o/r/blob/main/.github/workflows/a.yml") == \
@@ -785,6 +822,18 @@ def selftest():
                                          {"hello.py": "import util\nprint(1)\n", "util.py": "X=1\n", "extra.txt": "x", "requirements.txt": "yt-dlp\n"})
     assert set(deps) == {"scripts/hello.py", "scripts/util.py", "requirements.txt"}, deps
     assert unused == ["extra.txt"] and missing == ["gone.sh"], (unused, missing)
+    meta = parse_meta("# app-id: tiktok_dl\n# app-title: TikTok download\n# app-group: upload\n# app-domains: TikTok.com, vm.tiktok.com\nname: x\n")
+    assert meta == {"id": "tiktok_dl", "title": "TikTok download", "group": "upload", "domains": ["tiktok.com", "vm.tiktok.com"]}, meta
+    assert parse_meta("name: x\n# app-id: late\n")["id"] == "late" and parse_meta("# app-id: Bad Id!\n")["id"] == "bad_id"
+    pub = ("name: P\non:\n  workflow_dispatch:\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo \"${{ inputs.url }}\"\n"
+           "      - run: python3 _repo/scripts/storage_publish.py publish --dir out --tag run-1\n")
+    ids2 = [x["id"] for x in check(pub, {"files": {"x"}})]
+    assert "no_scripts" in ids2 and "inline_inputs" in ids2 and "timeout" in ids2, ids2
+    pub2 = pub.replace("      - run: echo", "      - uses: actions/checkout@v4\n        with:\n          path: _repo\n          sparse-checkout: scripts\n      - run: echo")
+    ids3 = [x["id"] for x in check(pub2, {"files": {"x"}})]
+    assert "no_scripts" not in ids3 and "scripts_ref" in ids3, ids3
+    assert "scripts_ref" not in [x["id"] for x in check(pub2.replace("path: _repo", "ref: main\n          path: _repo"), {"files": {"x"}})]
+    assert not [x for x in check("on:\n  workflow_dispatch:\njobs:\n  a:\n    steps:\n      - run: echo hi\n        env:\n          U: ${{ inputs.u }}\n") if x["id"] == "inline_inputs"]
     assert slugify("My-Tool v2!") == "my_tool_v2" and workflow_title(fixed) == "My Tool"
     assert git_blob_sha("hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
     rep = build_report("t", "w.yml", {"a": 1}, {"id": 5, "conclusion": "failure"}, f, causes, ["l1"], ["e1"], "name: x")

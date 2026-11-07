@@ -180,7 +180,7 @@ def _main(host, workflow, title, data):
               % (workflow, data["ref"], bad, warn))
     widgets = {}
     for name, spec in data["inputs"].items():
-        if name in core.RUN_INPUTS:
+        if name in core.APP_SET_INPUTS:
             continue
         label = "%s%s%s" % (name, " *" if spec["required"] else "", (" - " + spec["description"][:60]) if spec["description"] else "")
         if spec["options"]:
