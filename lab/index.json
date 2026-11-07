@@ -61,6 +61,32 @@
       ],
       "description": "Bring a workflow from a GitHub link or pasted .yml into the Lab as a new tool: checks it against what the app needs, one-tap fixes, run, copyable error report.",
       "min_host": 1
+    },
+    {
+      "id": "file_fetch",
+      "title": "Fetch a file from a link [imported]",
+      "file": "wf_file_fetch.py",
+      "modules": [
+        "lib/wf_core.py",
+        "lib/wf_runner.py"
+      ],
+      "description": "Imported workflow lab-file-fetch.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "meta": {
+        "id": "file_fetch",
+        "title": "Fetch a file from a link",
+        "group": "upload"
+      },
+      "imported": {
+        "workflow": "lab-file-fetch.yml",
+        "source": "pasted text",
+        "files": [
+          ".github/workflows/lab-file-fetch.yml",
+          "lab/wf_file_fetch.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-07T10:57:48Z"
+      }
     }
   ]
 }
