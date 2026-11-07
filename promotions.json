@@ -240,54 +240,6 @@
     }
   },
   {
-    "id": "p-20261106110147-cpy_demo_copy",
-    "time": "2026-11-06T11:01:47Z",
-    "tool": "cpy_demo_copy",
-    "action_id": "cpy_demo",
-    "status": "done",
-    "new_action": {
-      "id": "cpy_demo",
-      "title": "Cpy demo",
-      "icon": "download",
-      "enabled": true,
-      "plugin": "cpy_demo",
-      "file": "cpy_demo.py",
-      "source": "config",
-      "min_host": 1
-    },
-    "config_created": [],
-    "config_overwritten": {
-      "plugins/cpy_demo.py": "def build(host):\n    host.title(\"v1 original\")\n    host.back_button(\"Back\")\n"
-    },
-    "main_created": [],
-    "main_overwritten": {},
-    "written": {
-      "plugins/cpy_demo.py": "8c0d20755e1c192154f37ba9880135d7496e45b8"
-    },
-    "commits": {
-      "config": "6116324471f76bbfb9387fe8ff3d97016025e008",
-      "lab": "41cd8d1d73c57b6bbe42be6add456059e9962b5c"
-    },
-    "previous_action": {
-      "id": "cpy_demo",
-      "title": "Cpy demo",
-      "icon": "download",
-      "enabled": true,
-      "plugin": "cpy_demo",
-      "file": "cpy_demo.py",
-      "source": "config",
-      "min_host": 1
-    },
-    "previous_index": 13,
-    "config_version_before": 39,
-    "config_version_after": 40,
-    "lab_before": {
-      "promoted": null,
-      "promoted_at": null,
-      "promoted_as": null
-    }
-  },
-  {
     "id": "p-20261107034008-cpy_demo_copy",
     "time": "2026-11-07T03:40:08Z",
     "tool": "cpy_demo_copy",
@@ -339,5 +291,53 @@
       "promoted_as": "cpy_demo"
     },
     "rolled_back_at": "2026-11-07T03:41:05Z"
+  },
+  {
+    "id": "p-20261106110147-cpy_demo_copy",
+    "time": "2026-11-06T11:01:47Z",
+    "tool": "cpy_demo_copy",
+    "action_id": "cpy_demo",
+    "status": "rollback_partial",
+    "new_action": {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "icon": "download",
+      "enabled": true,
+      "plugin": "cpy_demo",
+      "file": "cpy_demo.py",
+      "source": "config",
+      "min_host": 1
+    },
+    "config_created": [],
+    "config_overwritten": {
+      "plugins/cpy_demo.py": "def build(host):\n    host.title(\"v1 original\")\n    host.back_button(\"Back\")\n"
+    },
+    "main_created": [],
+    "main_overwritten": {},
+    "written": {
+      "plugins/cpy_demo.py": "8c0d20755e1c192154f37ba9880135d7496e45b8"
+    },
+    "commits": {
+      "config": "6116324471f76bbfb9387fe8ff3d97016025e008",
+      "lab": "41cd8d1d73c57b6bbe42be6add456059e9962b5c"
+    },
+    "previous_action": {
+      "id": "cpy_demo",
+      "title": "Cpy demo",
+      "icon": "download",
+      "enabled": true,
+      "plugin": "cpy_demo",
+      "file": "cpy_demo.py",
+      "source": "config",
+      "min_host": 1
+    },
+    "previous_index": 13,
+    "config_version_before": 39,
+    "config_version_after": 40,
+    "lab_before": {
+      "promoted": null,
+      "promoted_at": null,
+      "promoted_as": null
+    }
   }
 ]
