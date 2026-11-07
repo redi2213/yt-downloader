@@ -50,25 +50,6 @@
       ],
       "description": "Move a tested Lab tool to Download Anything (config branch + main workflows) with no build: dry-run preview, one commit per branch, Rollback.",
       "min_host": 1
-    },
-    {
-      "id": "cpy_demo",
-      "title": "Cpy demo",
-      "file": "cpy_demo.py",
-      "description": "test",
-      "min_host": 1
-    },
-    {
-      "id": "cpy_demo_copy",
-      "title": "cpy_demo (copy of Download Anything)",
-      "file": "cpy_demo_copy.py",
-      "description": "Lab copy of plugins/cpy_demo.py. The original is untouched; Promote can replace it in place.",
-      "min_host": 1,
-      "copied_from": {
-        "kind": "download_anything",
-        "action_id": "cpy_demo",
-        "file": "cpy_demo.py"
-      }
     }
   ]
 }
