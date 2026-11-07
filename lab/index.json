@@ -84,13 +84,13 @@
       },
       "imported": {
         "workflow": "lab-workflow.yml",
-        "source": "pasted text",
+        "source": "uploaded from the phone",
         "files": [
           ".github/workflows/lab-workflow.yml",
           "lab/wf_pintress.py"
         ],
         "fixes": [],
-        "added": "2026-11-07T11:34:36Z"
+        "added": "2026-11-07T11:38:24Z"
       }
     }
   ]

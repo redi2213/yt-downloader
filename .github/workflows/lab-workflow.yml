@@ -4,7 +4,7 @@
 # app-domains: pinterest.com, www.pinterest.com, pin.it
 # app-secrets:
 name: Download Pinterest video
-run-name: \( {{ inputs.run_title || inputs.url }} [ \){{ inputs.job_id }}]${{ inputs.rerun && format(' \~{0}', inputs.rerun) || '' }}
+run-name: ${{ inputs.run_title || inputs.url }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
 
 on:
   workflow_dispatch:
@@ -109,7 +109,7 @@ jobs:
           ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
           ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
         run: |
-          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-\( {{ github.run_id }}" --title "Pinterest video run- \){{ github.run_id }}"
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "Pinterest video run-${{ github.run_id }}"
 
       - name: Notify (ntfy)
         if: always()
@@ -119,7 +119,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           TOOL_NAME: Download Pinterest video
           RUN_TITLE: ${{ inputs.run_title }}
-          RUN_URL: \( {{ github.server_url }}/ \){{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github.raw+json" \
@@ -146,11 +146,12 @@ jobs:
             *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
           esac
           BODY="$TOOL_NAME: $WORD"
-          if [ -n "${RUN_TITLE:-}" ]; then BODY="\( BODY" \)'\n'"$RUN_TITLE"; fi
-          BODY="\( BODY" \)'\n'"$RUN_URL"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
           if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
               -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
             echo "Notification sent."
           else
             echo "ntfy could not be reached."
           fi
+```
