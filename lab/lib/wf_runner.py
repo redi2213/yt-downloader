@@ -212,7 +212,81 @@ def _main(host, workflow, title, data):
 
 
 # ---------------------------------------------------------------- run
+def _run_native(host, workflow, title, values, text):
+    """Runs it with the app's own progress screen (the run's steps, cancel, Running jobs, notification and
+    the same result screen as the other tools). Returns False when this app version cannot do that."""
+    nav = getattr(host, "nav", None)
+    if nav is None or not hasattr(nav, "job_manager") or not hasattr(nav, "_status_and_complete_callbacks"):
+        return False
+    from core.async_utils import run_in_background
+    from services import generic_action_service as gas
+    jm = nav.job_manager
+    action = {"id": getattr(host, "id", "") or workflow, "title": title, "workflow": workflow, "workflow_inputs": {}}
+    job = gas.create_action_job(jm, action, dict(values))
+    nav.show_working("Starting workflow...", job=job)
+    on_status, on_complete = nav._status_and_complete_callbacks(job)
+
+    def fail(message):
+        jm.complete(job, ok=False, error=message)
+        on_complete(job)
+
+    def thread():
+        try:
+            on_status("Starting workflow...")
+            run_id = host.gh.dispatch(workflow, values)
+            job.run_id = run_id
+            if getattr(job, "cancel_requested", False):
+                if run_id:
+                    try:
+                        req(host, "POST", "/actions/runs/%s/cancel" % run_id)
+                    except Exception:
+                        pass
+                return
+            if run_id is None:
+                fail("Could not detect the workflow run. It may still be running on GitHub Actions.")
+                return
+            host.store.set("last_run", {"workflow": workflow, "run_id": run_id, "inputs": values})
+
+            def relay(status):
+                job.status = status
+                on_status("%s..." % status)
+
+            conclusion = host.gh.wait(run_id, on_status=relay)
+            if job.is_done:
+                return                                   # cancelled while waiting
+            if conclusion != "success":
+                fail("Action failed (%s)" % conclusion)
+                return
+            try:
+                links = list(host.gh.release_links(run_id, attempts=3, delay=2) or [])
+            except Exception:
+                links = []
+            if links:
+                gas._finish_action(jm, run_id, job, on_complete)   # the app's own result screen (files, share, download)
+                return
+            res = diagnose(host, run_id, "success", text)          # a workflow that makes no release: our own result
+            res.update({"run_id": run_id, "conclusion": "success", "inputs": values, "links": []})
+            res["report"] = _report(host, workflow, res, text)
+            jm.complete(job, ok=True, result_data={})
+
+            def show():
+                if getattr(jm, "current_job", None) is job:
+                    host.replace(_run_done, workflow, title, res)
+
+            nav.schedule(show)
+        except Exception as e:
+            fail("Error: %s" % str(e)[:60])
+
+    run_in_background(thread)
+    return True
+
+
 def _run(host, workflow, title, values, text):
+    try:
+        if _run_native(host, workflow, title, values, text):
+            return
+    except Exception as e:
+        host.log("the app's progress screen could not be used:", repr(e))
     host.title("Running")
     host.status()
     host.set_status("Starting...")
