@@ -292,7 +292,7 @@
     "time": "2026-11-07T03:40:08Z",
     "tool": "cpy_demo_copy",
     "action_id": "cpy_demo",
-    "status": "rollback_partial",
+    "status": "rolled_back",
     "new_action": {
       "id": "cpy_demo",
       "title": "Cpy demo",
@@ -337,6 +337,7 @@
       "promoted": true,
       "promoted_at": "2026-11-06T11:01:56Z",
       "promoted_as": "cpy_demo"
-    }
+    },
+    "rolled_back_at": "2026-11-07T03:41:05Z"
   }
 ]
