@@ -82,6 +82,13 @@ jobs:
             exit 1
           fi
 
+          # gh treats [ ] { } * ? as glob characters: strip them from file names
+          for f in out/*; do
+            b=$(basename "$f")
+            n=$(printf '%s' "$b" | sed -E 's/[][{}*?]+/_/g; s/__+/_/g')
+            if [ "$b" != "$n" ]; then mv -- "$f" "out/$n"; fi
+          done
+
           find out -type f ! -name '*.mp4' ! -name '*.mkv' ! -name '*.webm' -delete || true
 
           if [ -z "$(ls -A out 2>/dev/null)" ]; then
@@ -147,7 +154,7 @@ jobs:
             *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
           esac
           BODY="$TOOL_NAME: $WORD"
-          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"•UN_TITLE"; fi
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
           BODY="$BODY"$'\n'"$RUN_URL"
           if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
               -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
