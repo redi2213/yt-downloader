@@ -12,6 +12,7 @@ from core.async_utils import run_in_background
 from screens import common, plugin_runner
 
 SOURCE = "lab"
+ADD_WORKFLOW_ID = "wf_import"       # the "Add workflow" tool: shown at the bottom, next to Reload / Forget
 
 
 def show(nav):
@@ -39,6 +40,7 @@ def _render(nav, marker, res):
     nav.remember(lambda: show(nav))
     nav.add(Label(text="Lab - test tools", size_hint_y=None, height=48))
 
+    add_entry = None
     error = res.get("error")
     if error:
         nav.add(common.wrapped_label(
@@ -48,6 +50,8 @@ def _render(nav, marker, res):
         if res.get("origin") == "cache":
             nav.add(common.wrapped_label("Offline: showing the saved tool list."))
         plugins = res["plugins"]
+        add_entry = next((e for e in plugins if e.get("id") == ADD_WORKFLOW_ID), None)
+        plugins = [e for e in plugins if e.get("id") != ADD_WORKFLOW_ID]
         if not plugins:
             nav.add(common.wrapped_label("No tools yet. Add one to lab/index.json (see LAB.md on the lab branch)."))
         for entry in plugins:
@@ -57,6 +61,12 @@ def _render(nav, marker, res):
             nav.add(btn)
             if entry.get("description"):
                 nav.add(common.wrapped_label(str(entry["description"])))
+
+    if add_entry is not None:
+        add_btn = Button(text="Add workflow", size_hint_y=None, height=52)
+        add_btn.bind(on_press=lambda i, e=add_entry: plugin_runner.open_plugin(
+            nav, SOURCE, e, exit_to=lambda: show(nav)))
+        nav.add(add_btn)
 
     reload_btn = Button(text="Reload list", size_hint_y=None, height=52)
     reload_btn.bind(on_press=lambda i: show(nav))
