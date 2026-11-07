@@ -56,7 +56,6 @@ jobs:
 
           echo "URL: $URL"
 
-          # Basic sanity check
           case "$URL" in
             *pinterest.com*|*pin.it*) ;;
             *)
@@ -65,11 +64,9 @@ jobs:
               ;;
           esac
 
-          # Install latest yt-dlp
           python3 -m pip install -U --quiet yt-dlp || \
             python3 -m pip install -U --quiet --break-system-packages yt-dlp
 
-          # Download best video+audio, merge to mp4, safe Windows filenames
           if ! python3 -m yt_dlp \
               --no-playlist \
               --windows-filenames \
@@ -84,7 +81,6 @@ jobs:
             exit 1
           fi
 
-          # Keep only real video files, remove any leftover junk
           find out -type f ! -name '*.mp4' ! -name '*.mkv' ! -name '*.webm' -delete || true
 
           if [ -z "$(ls -A out 2>/dev/null)" ]; then
