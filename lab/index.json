@@ -92,28 +92,6 @@
         "fixes": [],
         "added": "2026-11-07T11:38:24Z"
       }
-    },
-    {
-      "id": "fetch_a_file",
-      "title": "Fetch a file [imported]",
-      "file": "wf_fetch_a_file.py",
-      "modules": [
-        "lib/wf_core.py",
-        "lib/wf_runner.py"
-      ],
-      "description": "Imported workflow lab-fetch-file.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
-      "min_host": 1,
-      "meta": {},
-      "imported": {
-        "workflow": "lab-fetch-file.yml",
-        "source": "pasted text",
-        "files": [
-          ".github/workflows/lab-fetch-file.yml",
-          "lab/wf_fetch_a_file.py"
-        ],
-        "fixes": [],
-        "added": "2026-11-07T23:09:59Z"
-      }
     }
   ]
 }
