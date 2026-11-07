@@ -54,6 +54,12 @@ def dump_index(plugins):
     return json.dumps({"plugins": plugins}, indent=2, ensure_ascii=False) + "\n"
 
 
+def file_slug(text, fallback="workflow", limit=40):
+    """'Download Pinterest video' -> 'download-pinterest-video' (ASCII letters/digits with '-')."""
+    s = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")[:limit].strip("-")
+    return s or fallback
+
+
 def slugify(text):
     s = re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
     return s[:30] or "workflow"
@@ -834,6 +840,8 @@ def selftest():
     assert "no_scripts" not in ids3 and "scripts_ref" in ids3, ids3
     assert "scripts_ref" not in [x["id"] for x in check(pub2.replace("path: _repo", "ref: main\n          path: _repo"), {"files": {"x"}})]
     assert not [x for x in check("on:\n  workflow_dispatch:\njobs:\n  a:\n    steps:\n      - run: echo hi\n        env:\n          U: ${{ inputs.u }}\n") if x["id"] == "inline_inputs"]
+    assert file_slug("Download Pinterest video") == "download-pinterest-video" and file_slug("تست", "x") == "x"
+    assert file_slug("A" * 80) == "a" * 40
     assert slugify("My-Tool v2!") == "my_tool_v2" and workflow_title(fixed) == "My Tool"
     assert git_blob_sha("hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
     rep = build_report("t", "w.yml", {"a": 1}, {"id": 5, "conclusion": "failure"}, f, causes, ["l1"], ["e1"], "name: x")
