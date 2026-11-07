@@ -241,11 +241,13 @@ def _copy_plugin(host, name):
     stem = name[:-3]
     text = host.gh.read_file("plugins/" + name, ref="config")
     modules = []
+    action_id = stem
     try:
         cfg = json.loads(host.gh.read_file("config.json", ref="config"))
         for a in cfg.get("actions", []):
             if a.get("plugin") == stem:
                 modules = list(a.get("modules") or [])
+                action_id = a.get("id") or stem
     except Exception:
         pass
     lab_tree = _tree(host, "lab")
@@ -257,8 +259,9 @@ def _copy_plugin(host, name):
         _write_lab(host, target, host.gh.read_file("plugins/" + mod, ref="config"), "lab: copy module %s" % mod)
     _write_lab(host, "lab/%s_copy.py" % stem, text, "lab: copy of plugin %s from config" % name)
     data = _index(host)
-    entry = {"id": stem + "_copy", "title": "%s (copy)" % stem, "file": stem + "_copy.py",
-             "description": "Lab copy of plugins/%s. The original is untouched." % name, "min_host": 1}
+    entry = {"id": stem + "_copy", "title": "%s (copy of Download Anything)" % stem, "file": stem + "_copy.py",
+             "description": "Lab copy of plugins/%s. The original is untouched; Promote can replace it in place." % name,
+             "min_host": 1, "copied_from": {"kind": "download_anything", "action_id": action_id, "file": name}}
     if modules:
         entry["modules"] = modules
     data["plugins"] = [p for p in data.get("plugins", []) if p.get("id") != entry["id"]] + [entry]
