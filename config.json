@@ -1,5 +1,5 @@
 {
-  "config_version": 43,
+  "config_version": 44,
   "actions": [
     {
       "id": "tiktok_download",
@@ -846,16 +846,6 @@
         "max_candidates": "150",
         "xh_check": "0"
       }
-    },
-    {
-      "id": "cpy_demo",
-      "title": "Cpy demo",
-      "icon": "download",
-      "enabled": true,
-      "plugin": "cpy_demo",
-      "file": "cpy_demo.py",
-      "source": "config",
-      "min_host": 1
     }
   ],
   "error_help": [
