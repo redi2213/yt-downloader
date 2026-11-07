@@ -135,6 +135,13 @@ APK build, and can undo them. It is itself a Lab plugin (`lab/promote.py` +
 Promoting the same tool again updates it (no duplicate action). `build-apk.yml` and any
 workflow the plugin does not start are never touched. `version.txt` is never changed.
 
+**Copies made with Copy tools** are marked in the Promote list ("copy of Download Anything: x").
+Promoting one asks: *Replace the original* (same action id, same `plugins/x.py`, the button keeps its
+title, group and domains) or *Add as a new tool*. For every workflow the tool starts that already
+exists on `main` as a real file, it asks: *Replace it on main* (shows what changes, asks again) or
+*Add as a new workflow* (a free name such as `x-v2.yml`; the plugin's copy on `config` is changed to
+start it and the original workflow stays untouched).
+
 **Rollback**: lists the promotions. It restores the previous action (or removes the new
 one), deletes the files the promotion created, puts back the files and workflows it
 replaced (a Lab stub comes back as the stub) and clears the `promoted` flag. `config_version`
@@ -149,6 +156,34 @@ If Apply fails after the config step, the screen lists what was done and offers 
 
 Self-test of the pure logic (config upsert, workflow detection, stub detection ...):
 `python lab/lib/promote_core.py` (prints `ok`).
+
+## Add workflow (Lab > "Add workflow (link or paste)")
+
+Brings a workflow made somewhere else into the Lab as a new tool under test.
+
+1. **Source**: a link to a public GitHub file, folder (`.github/workflows`) or repo (the scripts the
+   workflow runs, e.g. `python scripts/x.py`, are fetched from the same repo), or pasted `.yml` text
+   (scripts cannot come with pasted text: the check lists the missing ones).
+2. **Check** against what the app needs: `workflow_dispatch`, the `job_id` / `run_title` inputs,
+   `run-name` containing `inputs.job_id`, the release tag `run-${{ github.run_id }}`,
+   `contents: write` for releases, other triggers (a `push` trigger would run it on every push to
+   lab), inputs used but not declared, files it runs, secrets it uses. Problems that can be fixed
+   automatically are marked; choose "Apply the suggested fixes" (the default) or "Add exactly as it is".
+3. **Add to the Lab**: `lab` gets the workflow (as `lab-<name>.yml`, editable), the scripts, a small
+   plugin `lab/wf_<id>.py` and an index entry; `main` gets a registration stub with the same name and
+   inputs (GitHub starts a workflow by file name only when it exists on main). Nothing is overwritten:
+   a name that exists on main, or a script that exists on lab with different content, is refused.
+4. **The new tool** (Lab > its name): a form made from the workflow's inputs, **Run** (waits, shows the
+   release files or the failure), **Check workflow** (the same static check, with **Apply fixes** that
+   also keeps the stub in step), **Report of the last run**.
+   A failed run shows the failed step and the probable causes in plain words (missing Python package,
+   missing file, 403, tag already exists ...). **Copy report** puts the causes, the log tail, the checks
+   and the workflow file in one text to paste for help.
+5. **My imported tools**: update from the source link, or remove (deletes the files, the index entry
+   and the stub; a workflow already promoted to Download Anything is kept).
+6. When it works, use **Promote**.
+
+Self-test of the pure logic: `python lab/lib/wf_core.py` (prints `ok`).
 
 ## Final build
 
