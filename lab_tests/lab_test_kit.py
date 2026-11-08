@@ -223,8 +223,8 @@ def make_kit(proxy):
         SEEN.extend(wc.FIXES.values())
         for rx, cause, hint in wc._CAUSES:
             SEEN.append(cause % "NAME" if "%s" in cause else cause); SEEN.append(hint)
-        for w in wc.scan_assumptions('host.gh.read_file("lab/x")\nfoo(ref="lab")\nhost.gh.dispatch("a.yml", {}, ref="x")'): SEEN.append(w["msg"])
-        for w in wc.scan_workflow("        ref: lab\n"): SEEN.append(w["msg"])
+        for w in L.promote_core.scan_assumptions('host.gh.read_file("lab/x")\nfoo(ref="lab")\nhost.gh.dispatch("a.yml", {}, ref="x")'): SEEN.append(w["msg"])
+        for w in L.promote_core.scan_workflow("        ref: lab\n"): SEEN.append(w["msg"])
         # ---- the other Lab tools: first screens
         for p in K.index:
             if p["id"] in ("copy_tools", "hello", "link_lab", "mornye_lab", "m3u8_sniffer"):
