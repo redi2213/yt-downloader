@@ -622,3 +622,25 @@ PHRASES.extend([
     ("Gregorian", "میلادی"),
     ("Jalali (Shamsi)", "شمسی (جلالی)"),
 ])
+
+# --- Lab list: titles and descriptions of the Lab tools (the Lab tools' own screens are translated by lab/lib/lab_fa.py)
+MORE_EXACT.update({
+    "Hello Lab (example)": "سلام آزمایشگاه (نمونه)",
+    "Example: menus, sub-menus, input, choices, background work, saved values.": "نمونه: منو، زیرمنو، ورودی، انتخاب، کار پس‌زمینه، مقدارهای ذخیره‌شده.",
+    "Mornye (lab copy)": "مورنیه (کپی آزمایشگاه)",
+    "Copy of Mornye from link. The app's own Mornye is untouched; sessions are shared, settings are separate.": "کپی مورنیه از لینک. مورنیه‌ی خود اپ دست‌نخورده می‌ماند؛ نشست‌ها مشترک و تنظیم‌ها جدا هستند.",
+    "Link Lab (any site, copy of link_downloader)": "آزمایشگاه لینک (هر سایت، کپی link_downloader)",
+    "Get links / download any site through yt-dlp, with free proxies or v2ray. Uses the lab-links, lab-download and lab-find-proxies workflows; the app's own tools are untouched.": "گرفتن لینک / دانلود از هر سایت با yt-dlp، با پروکسی رایگان یا v2ray. ورک‌فلوهای lab-links و lab-download و lab-find-proxies را استفاده می‌کند؛ ابزارهای خود اپ دست‌نخورده‌اند.",
+    "Copy tools (safe copy to edit)": "ابزار کپی (نسخه‌ی امن برای ویرایش)",
+    "Copy a main workflow or a config plugin to the lab branch, edit the copy, run it from lab, or discard it. The originals are never touched.": "یک ورک‌فلوی main یا یک پلاگین config را به برنچ lab کپی کن، کپی را ویرایش کن، از lab اجرا کن یا دورش بینداز. نسخه‌های اصلی هرگز دست نمی‌خورند.",
+    "Page Sniffer (get m3u8 with my login)": "شنودگر صفحه (گرفتن m3u8 با ورود خودم)",
+    "Open a series/movie page in an in-app browser, log in with your account, press play: the tool catches the .m3u8 link. Then copy it or send it to lab-download (same as Link Lab).": "صفحه‌ی یک سریال/فیلم را در مرورگر داخل اپ باز کن، با حساب خودت وارد شو، پخش را بزن: ابزار لینک .m3u8 را می‌گیرد. بعد کپی‌اش کن یا به lab-download بفرست (مثل آزمایشگاه لینک).",
+    "Promote tool to Download Anything": "انتقال ابزار به دانلود از هر جا",
+    "Move a tested Lab tool to Download Anything (config branch + main workflows) with no build: dry-run preview, one commit per branch, Rollback.": "ابزار آزمایش‌شده‌ی آزمایشگاه را بدون بیلد به دانلود از هر جا منتقل کن (برنچ config + ورک‌فلوهای main): پیش‌نمایش آزمایشی، یک کامیت برای هر برنچ، بازگردانی.",
+    "Add workflow (link or paste)": "افزودن ورک‌فلو (لینک یا چسباندن)",
+})
+PHRASES.extend([
+    ("[imported]", "[وارد‌شده]"),
+    ("Imported workflow", "ورک‌فلوی واردشده"),
+    ("Run, Check and a copyable error report inside; edit the workflow on the lab branch.", "اجرا، بررسی و گزارش خطای قابل‌کپی داخلش هست؛ ورک‌فلو را روی برنچ lab ویرایش کن."),
+])
