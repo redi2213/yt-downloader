@@ -23,6 +23,9 @@ class HttpErr(Exception):
 
 
 def make_kit(proxy):
+    for k in list(sys.modules):
+        if k == "labx" or k.startswith("labx.") or k == "core" or k.startswith("core."):
+            del sys.modules[k]
     SEEN = []
 
     class FakeGH:
