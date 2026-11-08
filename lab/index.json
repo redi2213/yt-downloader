@@ -32,7 +32,10 @@
       "title": "Copy tools (safe copy to edit)",
       "file": "copy_tools.py",
       "description": "Copy a main workflow or a config plugin to the lab branch, edit the copy, run it from lab, or discard it. The originals are never touched.",
-      "min_host": 1
+      "min_host": 1,
+      "modules": [
+        "lib/lab_fa.py"
+      ]
     },
     {
       "id": "m3u8_sniffer",
@@ -46,6 +49,7 @@
       "title": "Promote tool to Download Anything",
       "file": "promote.py",
       "modules": [
+        "lib/lab_fa.py",
         "lib/promote_core.py",
         "lib/promote_flow.py"
       ],
@@ -57,6 +61,7 @@
       "title": "Add workflow (link or paste)",
       "file": "wf_import.py",
       "modules": [
+        "lib/lab_fa.py",
         "lib/wf_core.py",
         "lib/wf_runner.py",
         "lib/promote_core.py",
@@ -70,6 +75,7 @@
       "title": "Download Pinterest video [imported]",
       "file": "wf_pintress.py",
       "modules": [
+        "lib/lab_fa.py",
         "lib/wf_core.py",
         "lib/wf_runner.py"
       ],

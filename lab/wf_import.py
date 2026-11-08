@@ -25,7 +25,7 @@ from labx import wf_runner as rn
 
 LAB = "lab"
 WF = ".github/workflows"
-LIBS = ["lib/wf_core.py", "lib/wf_runner.py"]
+LIBS = ["lib/lab_fa.py", "lib/wf_core.py", "lib/wf_runner.py"]
 MAX_DEPS = 20
 MAX_BYTES = 200000
 
@@ -372,7 +372,7 @@ def _review(host, a):
 
 def _validate(a, form):
     if not a["libs_ok"]:
-        return "lib/wf_core.py and lib/wf_runner.py must be on the lab branch"
+        return "lib/lab_fa.py, lib/wf_core.py and lib/wf_runner.py must be on the lab branch"
     if not re.fullmatch(r"[a-z0-9_]{1,30}", form["id"]):
         return "Tool id: use a-z, 0-9 and _ only"
     if not form["title"]:

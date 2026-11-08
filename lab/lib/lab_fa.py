@@ -145,6 +145,20 @@ LABELS = {
     "Rollback will:": "بازگردانی این کارها را می‌کند:",
     "Note:": "نکته:",
     "Tool": "ابزار",
+    "Copy a": "کپی یک",
+    "Copying to the lab branch...": "در حال کپی روی برنچ lab...",
+    "Deleting...": "در حال حذف...",
+    "Discard this copy": "دور انداختن این کپی",
+    "Done": "انجام شد",
+    "My copies": "کپی‌های من",
+    "No copies yet.": "هنوز کپی‌ای نیست.",
+    "Nothing left to copy.": "چیزی برای کپی نمانده.",
+    "Reading the inputs...": "در حال خواندن ورودی‌ها...",
+    "Run from lab": "اجرا از lab",
+    "Start (from lab)": "شروع (از lab)",
+    "Yes, discard": "بله، دور بینداز",
+    "Not on main, so the app cannot start it by name yet (it needs a stub file on main).": "روی main نیست، پس اپ هنوز نمی‌تواند آن را با نام شروع کند (به یک فایل استاب روی main نیاز دارد).",
+    "This deletes the copy from the lab branch. The original is not touched.": "این کار کپی را از برنچ lab پاک می‌کند. نسخه‌ی اصلی دست نمی‌خورد.",
 }
 
 PHRASES = [
@@ -501,8 +515,16 @@ for _en, _fa in (("done", "انجام‌شده"), ("rolled_back", "بازگرد�
     _p(r"Status: " + _en, "وضعیت: " + _fa, False)
     _p(r"(\d{4}-\d\d-\d\d \d\d:\d\d) - " + _en, "{0} - " + _fa, False)
 _p(r"(.+) \[imported\]", "{0} [وارد‌شده]", False)
+_p(r"Copying (.+)\.\.\.", "در حال کپی {0}...", False)
+_p(r"Discard (\S+)\?", "{0} دور انداخته شود؟", False)
+_p(r"Open it from the Lab list\. Edit lab/(.+) on GitHub \(branch lab\)\.", "از فهرست آزمایشگاه بازش کن. lab/{0} را روی GitHub ویرایش کن (برنچ lab).", False)
+_p(r"Run (\S+) started", "اجرای {0} شروع شد", False)
+_p(r"Copied (.+) to the lab branch", "{0} به برنچ lab کپی شد", False)
+_p(r"(.+): syntax error, line (\d+): (.+)", "{0}: خطای نحوی، خط {1}: {2}", False)
+_p(r"The workflow uses lab-only data \((.+)\): not copied, it stays on the lab branch", "ورک‌فلو از داده‌ی مخصوص lab استفاده می‌کند ({0}): کپی نمی‌شود، روی برنچ lab می‌ماند", False)
 
 PHRASES += [
+    ("Plugin:", "پلاگین:"),
     ("file(s)", "فایل"),
     ("[imported]", "[وارد‌شده]"),
     ("Add workflow (link or paste)", "افزودن ورک‌فلو (لینک یا چسباندن)"),
