@@ -214,6 +214,22 @@ and was run end to end.
 
 Self-test of the pure logic: `python lab/lib/wf_core.py` (prints `ok`).
 
+## Persian (when the app language is Persian)
+
+The app translates every text on screen from its tables (`core/fa_strings*.py`). The texts of the Lab
+tools live in `lab/lib/lab_fa.py`: while a tool loads, that module adds them to the app's tables, so
+Promote, Add workflow, the workflow runner, Copy tools and the imported tools show Persian without
+a build. List `lib/lab_fa.py` first in a tool's `modules` (Add workflow does it for the tools it makes).
+Three kinds of entries: `LABELS` (a whole text), `PHRASES` (a piece of a sentence: names, numbers and
+file names inside stay as they are) and `PATTERNS` (a line with names or numbers that must move inside the
+sentence). A text that is not listed stays English: when you add a new message to a tool, add its
+line to `lab_fa.py` too. Texts copied to the clipboard (reports, the guide for AI) stay English on
+purpose. The titles and descriptions in the Lab list itself are translated by the app
+(`core/fa_strings_more.py`), not by this module.
+
+To measure what is still English: `lab_tests/lab_test_kit.py` drives the screens with a fake host and
+lists the lines the tables do not translate.
+
 ## Final build
 
 1. Copy each finished plugin into the repo as `plugins_bundled/<file>.py`
