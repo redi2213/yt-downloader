@@ -113,7 +113,10 @@ def make_kit(proxy):
     order = ["lib/lab_fa.py"] + [m for m in mods if m != "lib/lab_fa.py"] if "lib/lab_fa.py" in mods or gh("lab/lib/lab_fa.py", "lab") else mods
     for rel in order:
         name = rel.rsplit("/", 1)[-1][:-3]
-        if "labx." + name not in sys.modules: loadlab(rel, name)
+        if "labx." + name not in sys.modules:
+            try: loadlab(rel, name)
+            except Exception as e:
+                sys.modules.pop("labx." + name, None); print("module not loaded in the kit:", rel, repr(e)[:70])
     K.labx = labx
     for p in K.index:
         if not p.get("imported"):
