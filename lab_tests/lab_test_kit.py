@@ -131,7 +131,7 @@ def make_kit(proxy):
     K.H = lambda: UIHost()
 
     def collect():
-        L = K.labx; pf = L.promote_flow; imp = L.wf_import; rn = L.wf_runner; wc = L.wf_core
+        L = K.labx; pf = L.promote_flow; imp = K.plugin_wf_import; rn = L.wf_runner; wc = L.wf_core
         SEEN.clear(); Hn = K.H
         # ---- Promote
         h = Hn(); h.show(pf.build); safe(pf._perm_done, Hn(), "Workflow files (main): OK - can write\nBranch config: readable")
