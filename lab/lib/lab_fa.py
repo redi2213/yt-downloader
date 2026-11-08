@@ -452,6 +452,74 @@ PHRASES = [
 PATTERNS = []
 
 
+def _p(en_regex, fa_template, fixable=True):
+    """A line with names / numbers: en_regex has the groups, fa_template uses {0}, {1}... for them.
+    The line may start with a marker (x ! - + ~ =) and, for checks, end with [fixable]."""
+    shifted = re.sub(r"\{(\d+)\}", lambda m: "{%d}" % (int(m.group(1)) + 1), fa_template)
+    mark = r"((?:[x!\-+~=^]\s+)?)"
+    if fixable:
+        PATTERNS.append((mark + en_regex + r"\s+\[fixable\]", "{0}" + shifted + " [قابل اصلاح خودکار]"))
+    PATTERNS.append((mark + en_regex, "{0}" + shifted))
+
+
+import re
+
+_p(r"Missing input\(s\) (.+?): the app sends them with every run \(job_id lets it find exactly its run; run_title names it\)\.",
+   "ورودی(های) ناموجود {0}: اپ این‌ها را با هر اجرا می‌فرستد (job_id کمک می‌کند دقیقاً اجرای خودش را پیدا کند؛ run_title به اجرا اسم می‌دهد).")
+_p(r"No workflow_dispatch trigger: the app can only start a workflow that has it \(now: (.*)\)\.",
+   "تریگر workflow_dispatch وجود ندارد: اپ فقط ورک‌فلویی را می‌تواند شروع کند که آن را داشته باشد (الان: {0}).")
+_p(r"Runs (\S+) but that file is not in the repo branch it runs from\.", "{0} را اجرا می‌کند ولی این فایل در برنچی که از آن اجرا می‌شود وجود ندارد.")
+_p(r"Uses secrets (.+) - make sure they exist in the repo \(could not check\)\.", "از سکرت‌های {0} استفاده می‌کند - مطمئن شو در ریپو هستند (بررسی نشد).")
+_p(r"Uses the local action (\S+) which is not in the repo\.", "از اکشن محلی {0} استفاده می‌کند که در ریپو نیست.")
+_p(r"Other triggers \((.+)\) would also start it by themselves \(a push to the lab branch runs it\); the app only needs workflow_dispatch\.",
+   "تریگرهای دیگر ({0}) ورک‌فلو را خودکار هم شروع می‌کنند (push به برنچ lab آن را اجرا می‌کند)؛ اپ فقط workflow_dispatch می‌خواهد.")
+_p(r"(\d+) jobs: the app's progress view follows the first job\.", "{0} job: صفحه‌ی پیشرفت اپ job اول را دنبال می‌کند.", False)
+_p(r"Input values are put straight into commands \(line (.+)\): quoting and injection problems\. Pass them through env: and use \"\$NAME\" in the script\.",
+   "مقدار ورودی‌ها مستقیم داخل دستورها گذاشته شده (خط {0}): مشکل نقل‌قول و تزریق دستور. آن‌ها را با env: بده و در اسکریپت از \"$NAME\" استفاده کن.", False)
+_p(r"A step ended with exit code (\d+)\.", "یک مرحله با کد خروج {0} تمام شد.", False)
+_p(r"An action step failed \(exit code (\d+)\)\.", "یک مرحله‌ی اکشن شکست خورد (کد خروج {0}).", False)
+_p(r"Action failed \((.+)\)", "اکشن ناموفق بود ({0})", False)
+_p(r"FAILED \((.+)\)", "ناموفق ({0})", False)
+_p(r"Failed at: (.+)", "ناموفق در: {0}", False)
+_p(r"Fill in (\w+)", "پر کن: {0}", False)
+_p(r"Run (\d+) started", "اجرای {0} شروع شد", False)
+_p(r"Run (\d+)", "اجرای {0}", False)
+_p(r"Running \(run (\d+)\)", "در حال اجرا (اجرای {0})", False)
+_p(r"Queued on GitHub \(run (\d+)\)", "در صف GitHub (اجرای {0})", False)
+_p(r"Finishing \(run (\d+)\)", "در حال تمام شدن (اجرای {0})", False)
+_p(r"Quick check: (\d+) error\(s\), (\d+) warning\(s\) - press Check for details\.", "بررسی سریع: {0} خطا، {1} هشدار - برای جزئیات «بررسی ورک‌فلو» را بزن.", False)
+_p(r"Reading (\S+\.ya?ml)\.\.\.", "در حال خواندن {0}...", False)
+_p(r"Promote '(.+)' as action '(.+)' \(update\)", "انتقال «{0}» به‌عنوان اکشن «{1}» (به‌روزرسانی)", False)
+_p(r"Promote '(.+)' as action '(.+)'", "انتقال «{0}» به‌عنوان اکشن «{1}»", False)
+_p(r"It REPLACES the original Download Anything tool '(.+)' in place \(same button, plugins/(.+)\)\.", "ابزار اصلی «{0}» در دانلود از هر جا را در همان جا جایگزین می‌کند (همان دکمه، plugins/{1}).", False)
+_p(r"This tool is a copy of the Download Anything tool '(.+)' \(plugins/(.+)\)\.", "این ابزار کپی ابزار «{0}» در دانلود از هر جا است (plugins/{1}).", False)
+_p(r"Copy of the Download Anything tool '(.+)' \(plugins/(.+)\): it can replace the original in place\.", "کپی ابزار «{0}» در دانلود از هر جا (plugins/{1}): می‌تواند همان نسخه‌ی اصلی را جایگزین کند.", False)
+_p(r"The workflow (\S+) already exists on main \(a real one\)\.", "ورک‌فلوی {0} از قبل روی main هست (یک ورک‌فلوی واقعی).", False)
+_p(r"The id '(.+)' belongs to a built-in action \(not a plugin\)\. Choose another id\.", "شناسه‌ی «{0}» مال یک اکشن داخلی است (نه پلاگین). شناسه‌ی دیگری انتخاب کن.", False)
+_p(r"Branch (\w+): readable", "برنچ {0}: قابل خواندن", False)
+for _en, _fa in (("done", "انجام‌شده"), ("rolled_back", "بازگردانی‌شده"), ("rollback_partial", "بازگردانی ناقص"), ("config_done", "config انجام شد"), ("started", "شروع‌شده")):
+    _p(r"Status: " + _en, "وضعیت: " + _fa, False)
+    _p(r"(\d{4}-\d\d-\d\d \d\d:\d\d) - " + _en, "{0} - " + _fa, False)
+_p(r"(.+) \[imported\]", "{0} [وارد‌شده]", False)
+
+PHRASES += [
+    ("file(s)", "فایل"),
+    ("[imported]", "[وارد‌شده]"),
+    ("Add workflow (link or paste)", "افزودن ورک‌فلو (لینک یا چسباندن)"),
+    ("Copy tools (safe copy to edit)", "ابزار کپی (نسخه‌ی امن برای ویرایش)"),
+    ("Hello Lab (example)", "سلام آزمایشگاه (نمونه)"),
+    ("Link Lab (any site, copy of link_downloader)", "آزمایشگاه لینک (هر سایت، کپی link_downloader)"),
+    ("Mornye (lab copy)", "مورنیه (کپی آزمایشگاه)"),
+    ("hardcoded ref \"lab\": it will still read/run the lab branch after promotion", "ref ثابتِ \"lab\": بعد از انتقال هم برنچ lab را می‌خواند/اجرا می‌کند"),
+    ("path starting with \"lab/\": that folder exists only on the lab branch", "مسیری که با \"lab/\" شروع می‌شود: آن پوشه فقط روی برنچ lab هست"),
+    ("gh.read_file() without ref: the default changes from the lab branch to the config branch after promotion - add ref= on purpose", "gh.read_file() بدون ref: پیش‌فرض بعد از انتقال از برنچ lab به برنچ config عوض می‌شود - ref= را عمداً بنویس"),
+    ("dispatch() with an explicit ref: it keeps using that ref after promotion", "dispatch() با ref صریح: بعد از انتقال هم همان ref را استفاده می‌کند"),
+    ("Copy a main workflow or a config plugin to the lab branch, edit the copy, run it from lab, or discard it. The originals are never touched.", "یک ورک‌فلوی main یا یک پلاگین config را به برنچ lab کپی کن، کپی را ویرایش کن، از lab اجرا کن یا دورش بینداز. نسخه‌های اصلی هرگز دست نمی‌خورند."),
+    ("Make a copy on the lab branch, edit it there and try it. The originals (main, config) are never touched.", "روی برنچ lab یک کپی بساز، همان‌جا ویرایشش کن و امتحانش کن. نسخه‌های اصلی (main و config) هرگز دست نمی‌خورند."),
+    ("line", "خط"),
+]
+
+
 def install():
     """Adds the texts above to the app's translation tables. Safe to call again."""
     try:
