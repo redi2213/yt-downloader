@@ -54,8 +54,7 @@
       "include": [],
       "exclude": [],
       "start_from": {
-        "type": "last_n",
-        "value": "10"
+        "type": "now"
       },
       "stop": {
         "episode": null,
