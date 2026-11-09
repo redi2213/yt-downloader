@@ -9,8 +9,14 @@
       "url": "https://m.youtube.com/@Eshghe_Abadi",
       "enabled": true,
       "mode": "series",
-      "days": [],
-      "start": "20:00",
+      "days": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "21:10",
       "end": "23:59",
       "every_days": 3,
       "quality": "480p",
