@@ -25,6 +25,8 @@ import finglish_name
 # GitHub rejects Release assets of 2 GiB or more.
 MAX_ASSET = 2 * 1024 ** 3 - 1
 CHUNK = 256 * 1024
+# One zip stays under this size (MB); more videos than that go into more zips.
+ZIP_MAX = int(float(os.environ.get("ZIP_MAX_MB", "1900") or 1900) * 1024 * 1024)
 DOWNLOAD_ATTEMPTS = 3
 
 
@@ -32,7 +34,7 @@ def log(*args):
     print(*args, flush=True)
 
 
-def download(url, dest):
+def download(url, dest, tag=""):
     """One download attempt. Raises on any problem."""
     with requests.get(url, headers=core.HEADERS, stream=True, timeout=(15, 60)) as r:
         r.raise_for_status()
@@ -46,7 +48,7 @@ def download(url, dest):
                 f.write(chunk)
                 done += len(chunk)
                 if total and done * 100 // total >= next_mark:
-                    log(f"    {next_mark}%")
+                    log(f"    [{tag}] {next_mark}%")
                     next_mark += 25
     if done == 0:
         raise IOError("empty download")
@@ -67,7 +69,7 @@ def download_with_retry(entry, quality, dest):
             last = e
             if os.path.exists(dest):
                 os.remove(dest)
-            log(f"    attempt {attempt} failed: {e}")
+            log(f"    [{entry.get('n', '')}] attempt {attempt} failed: {e}")
             if attempt < DOWNLOAD_ATTEMPTS:
                 time.sleep(3 * attempt)
                 fresh = core.get_video(entry["uid"], entry["playlist"])
@@ -190,15 +192,15 @@ def main():
     # ----- download -----
     # Separate files go straight to outdir under a Finglish name. For a zip the
     # files wait in a work folder under a plain number, and get their Persian
-    # titles only as names inside the zip.
+    # titles only as names inside the zip. Aparat is slow per connection, so
+    # several videos download at the same time.
     zip_mode = args.output == "upload_zip"
     workdir = args.outdir.rstrip("/\\") + "_work"
     if zip_mode:
         os.makedirs(workdir, exist_ok=True)
+    workers = max(1, int(os.environ.get("DOWNLOAD_WORKERS", "5") or 5))
 
-    delivered = []  # entries that ended up as files
-    parts = []      # (path, ascii release name, title)
-    for e in entries:
+    def fetch(e):
         ascii_name = ascii_file_name(out_name, e["n"], e["title"], e["uid"])
         if zip_mode:
             dest = os.path.join(workdir, f"{e['n']:03d}.mp4")
@@ -206,6 +208,16 @@ def main():
             dest = os.path.join(args.outdir, ascii_name)
         log(f"[{e['n']}] {e['title']} ({e['link']['profile']})")
         size, err = download_with_retry(e, args.quality, dest)
+        if not err:
+            log(f"    [{e['n']}] done, {size / 1024 / 1024:.1f} MB")
+        return e, dest, ascii_name, size, err
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(fetch, entries))
+
+    delivered = []  # entries that ended up as files
+    parts = []      # (path, ascii release name, title)
+    for e, dest, ascii_name, size, err in results:
         if err:
             failed.append((e["title"], err))
             continue
@@ -215,37 +227,51 @@ def main():
             continue
         delivered.append(e)
         parts.append((dest, ascii_name, e["title"]))
-        log(f"    done, {size / 1024 / 1024:.1f} MB")
 
     if not parts:
         log("All downloads failed.")
         write_notes(args.notes, args, out_name, delivered, fallback, failed, [])
         return 1
 
-    # ----- optional zip -----
+    # ----- optional zip (split into several zips when one would be 2 GB or more) -----
     if zip_mode:
-        total = sum(os.path.getsize(x[0]) for x in parts)
-        if total + 1_000_000 < MAX_ASSET:
-            zip_path = os.path.join(
-                args.outdir,
-                finglish_name.safe_name(out_name, fallback="aparat", max_len=100) + ".zip")
-            log("Creating zip...")
-            used = set()
+        limit = min(ZIP_MAX, MAX_ASSET - 1_000_000)
+        zipped = [p for p in parts if os.path.getsize(p[0]) <= limit]
+        loose = [p for p in parts if os.path.getsize(p[0]) > limit]
+        groups, cur, cur_size = [], [], 0
+        for p in zipped:
+            s = os.path.getsize(p[0])
+            if cur and cur_size + s > limit:
+                groups.append(cur)
+                cur, cur_size = [], 0
+            cur.append(p)
+            cur_size += s
+        if cur:
+            groups.append(cur)
+
+        base = finglish_name.safe_name(out_name, fallback="aparat", max_len=100)
+        used = set()
+        for i, group in enumerate(groups, 1):
+            name = f"{base}.zip" if len(groups) == 1 else f"{base}_zip{i}of{len(groups)}.zip"
+            zip_path = os.path.join(args.outdir, name)
+            log(f"Creating {name} ({len(group)} video(s))...")
             # Python marks non-ASCII member names as UTF-8 in the zip, so
             # Persian titles show correctly when it is opened.
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as z:
-                for path, _ascii, title in parts:
+                for path, _ascii, title in group:
                     z.write(path, arcname=zip_member_name(title, used))
-            for path, _ascii, _title in parts:
-                os.remove(path)
+                    os.remove(path)  # frees disk as we go
             log(f"zip ready, {os.path.getsize(zip_path) / 1024 / 1024:.1f} MB")
-        else:
+        for path, ascii_name, _title in loose:
+            shutil.move(path, os.path.join(args.outdir, ascii_name))
+        if len(groups) > 1:
             note_lines.append(
-                "Zip would be 2 GB or larger, so files were uploaded separately "
+                f"One zip would be 2 GB or larger (GitHub's limit for a file), so the "
+                f"videos are split into {len(groups)} zips (about 1.9 GB each, whole videos).")
+        if loose:
+            note_lines.append(
+                f"{len(loose)} video(s) were too big for a zip and were uploaded as plain files "
                 "(Finglish names).")
-            log("Zip too large, uploading separate files instead.")
-            for path, ascii_name, _title in parts:
-                shutil.move(path, os.path.join(args.outdir, ascii_name))
         shutil.rmtree(workdir, ignore_errors=True)
 
     write_notes(args.notes, args, out_name, delivered, fallback, failed, note_lines)
