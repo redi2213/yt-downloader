@@ -188,8 +188,10 @@ def get_channel_entries_by_count(username, count):
     return entries[:count]
 
 
-def get_channel_entries_by_days(username, days):
+def get_channel_entries_by_days(username, days, newer_than=0):
+    """Videos uploaded between `days` and `newer_than` days ago (newer_than=0: up to now)."""
     cutoff = datetime.now() - timedelta(days=days)
+    newest = datetime.now() - timedelta(days=newer_than)
     entries = []
     seen = set()
     page = 1
@@ -215,6 +217,8 @@ def get_channel_entries_by_days(username, days):
             if dt < cutoff:
                 stop = True
                 break
+            if newer_than and dt > newest:
+                continue          # too new for this window
 
             uid = a["uid"]
             if uid not in seen:
@@ -321,8 +325,13 @@ def _resolve(link, limit="count:5"):
     if kind == "video":
         return [{"uid": value, "title": None}], f"video_{value}", {"kind": "video"}
 
+    window = re.match(r"^\s*days:(\d+)-(\d+)\s*$", str(limit))
     mode, n = parse_limit(limit)
-    if mode == "days":
+    if window and int(window.group(1)) > int(window.group(2)):
+        far, near = int(window.group(1)), int(window.group(2))
+        entries = get_channel_entries_by_days(value, far, near)
+        out_name = f"{value}_{far}-{near}days"
+    elif mode == "days":
         entries = get_channel_entries_by_days(value, n)
         out_name = f"{value}_{n}days"
     else:
