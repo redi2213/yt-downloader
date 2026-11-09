@@ -62,7 +62,7 @@
         "date": null,
         "count": null
       },
-      "max_per_run": 30,
+      "max_per_run": 9999,
       "zip": true
     }
   ]
