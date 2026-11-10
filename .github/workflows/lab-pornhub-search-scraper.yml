@@ -1,0 +1,233 @@
+# app-id: pornhub_search
+# app-title: Pornhub Search Scraper
+# app-group: adult
+# app-domains: pornhub.com, www.pornhub.com
+# app-secrets:
+name: Pornhub Search Scraper
+run-name: ${{ inputs.run_title || inputs.query }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query (e.g. blonde pov)'
+        required: true
+        type: string
+      max_results:
+        description: 'Maximum number of videos to return'
+        required: false
+        default: '20'
+        type: string
+      sort:
+        description: 'Sort order: mr (most relevant), mv (most viewed), tr (top rated), lg (longest), nd (newest)'
+        required: false
+        default: 'mr'
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so Run again can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet "unofficial-api-for-pornhub" || python3 -m pip install --quiet --break-system-packages "unofficial-api-for-pornhub"
+
+      - name: Search Pornhub and save results
+        env:
+          QUERY: ${{ inputs.query }}
+          MAX_RESULTS: ${{ inputs.max_results }}
+          SORT: ${{ inputs.sort }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+
+          python3 - <<'PY'
+          import asyncio
+          import json
+          import os
+          import re
+          import sys
+          from datetime import datetime
+
+          query = os.environ.get("QUERY", "").strip()
+          max_results = int(os.environ.get("MAX_RESULTS", "20") or "20")
+          sort = os.environ.get("SORT", "mr").strip().lower() or "mr"
+
+          if not query:
+              print("::error::Search query is empty")
+              sys.exit(1)
+
+          if max_results < 1 or max_results > 100:
+              print("::error::max_results must be between 1 and 100")
+              sys.exit(1)
+
+          print(f"Searching Pornhub for: {query!r} (max={max_results}, sort={sort})")
+
+          async def main():
+              try:
+                  from pornhub_api import Client
+              except Exception as e:
+                  print(f"::error::Failed to import pornhub_api: {e}")
+                  sys.exit(1)
+
+              client = Client()
+              results = []
+
+              try:
+                  search = client.search(query)
+                  count = 0
+                  async for video in search:
+                      if count >= max_results:
+                          break
+                      try:
+                          item = {
+                              "title": getattr(video, "title", None) or "",
+                              "url": getattr(video, "url", None) or getattr(video, "page_url", None) or "",
+                              "video_id": getattr(video, "id", None) or getattr(video, "key", None) or "",
+                              "views": getattr(video, "views", None),
+                              "rating": getattr(video, "rating", None),
+                              "duration": getattr(video, "duration", None) or getattr(video, "length", None),
+                              "publish_date": str(getattr(video, "publish_date", None) or getattr(video, "date", None) or ""),
+                              "thumb": getattr(video, "thumb", None) or getattr(video, "thumbnail", None) or "",
+                              "pornstars": [],
+                              "tags": [],
+                              "categories": [],
+                          }
+                          if hasattr(video, "pornstars") and video.pornstars:
+                              item["pornstars"] = [str(p) for p in video.pornstars]
+                          if hasattr(video, "tags") and video.tags:
+                              item["tags"] = [str(t) for t in video.tags]
+                          if hasattr(video, "categories") and video.categories:
+                              item["categories"] = [str(c) for c in video.categories]
+
+                          results.append(item)
+                          count += 1
+                          print(f"  [{count}] {item['title'][:80]}")
+                      except Exception as e:
+                          print(f"  Skipping one result: {e}")
+                          continue
+              except Exception as e:
+                  print(f"::error::Search failed: {e}")
+                  sys.exit(1)
+
+              if not results:
+                  print("::error::No videos found for this query")
+                  sys.exit(1)
+
+              safe_q = re.sub(r'[\\/:*?"<>|]', "_", query)[:40].strip() or "search"
+              out_name = f"pornhub_{safe_q}_{len(results)}.json"
+              out_path = os.path.join("out", out_name)
+
+              payload = {
+                  "query": query,
+                  "sort": sort,
+                  "count": len(results),
+                  "scraped_at": datetime.utcnow().isoformat() + "Z",
+                  "results": results,
+              }
+
+              with open(out_path, "w", encoding="utf-8") as f:
+                  json.dump(payload, f, ensure_ascii=False, indent=2)
+
+              print(f"Saved {len(results)} videos → {out_path}")
+              print(f"File size: {os.path.getsize(out_path)} bytes")
+
+          asyncio.run(main())
+          PY
+
+          ls -la out/
+
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "Pornhub Search run-${{ github.run_id }}"
+
+      - name: Notify (ntfy)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: Pornhub Search Scraper
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then echo "No ntfy.json on the config branch: no notification."; exit 0; fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then echo "ntfy topic is not set: no notification."; exit 0; fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
+              -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi

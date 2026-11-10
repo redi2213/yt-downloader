@@ -101,6 +101,37 @@
         "fixes": [],
         "added": "2026-11-07T11:38:24Z"
       }
+    },
+    {
+      "id": "pornhub_search",
+      "title": "Pornhub Search Scraper [imported]",
+      "file": "wf_pornhub_search.py",
+      "modules": [
+        "lib/lab_fa.py",
+        "lib/wf_core.py",
+        "lib/wf_runner.py"
+      ],
+      "description": "Imported workflow lab-pornhub-search-scraper.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "meta": {
+        "id": "pornhub_search",
+        "title": "Pornhub Search Scraper",
+        "group": "adult",
+        "domains": [
+          "pornhub.com",
+          "www.pornhub.com"
+        ]
+      },
+      "imported": {
+        "workflow": "lab-pornhub-search-scraper.yml",
+        "source": "uploaded from the phone",
+        "files": [
+          ".github/workflows/lab-pornhub-search-scraper.yml",
+          "lab/wf_pornhub_search.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-10T11:39:14Z"
+      }
     }
   ]
 }
