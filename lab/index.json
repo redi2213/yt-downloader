@@ -101,6 +101,37 @@
         "fixes": [],
         "added": "2026-11-07T11:38:24Z"
       }
+    },
+    {
+      "id": "peekvids_links",
+      "title": "PeekVids – Extract links [imported]",
+      "file": "wf_peekvids_links.py",
+      "modules": [
+        "lib/lab_fa.py",
+        "lib/wf_core.py",
+        "lib/wf_runner.py"
+      ],
+      "description": "Imported workflow lab-peekvids-extract-links.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "meta": {
+        "id": "peekvids_links",
+        "title": "PeekVids – Extract links",
+        "group": "video",
+        "domains": [
+          "peekvids.com",
+          "www.peekvids.com"
+        ]
+      },
+      "imported": {
+        "workflow": "lab-peekvids-extract-links.yml",
+        "source": "pasted text",
+        "files": [
+          ".github/workflows/lab-peekvids-extract-links.yml",
+          "lab/wf_peekvids_links.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-10T07:45:32Z"
+      }
     }
   ]
 }
