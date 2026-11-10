@@ -52,6 +52,7 @@ def build(host):
         return True
 
     host.button("Get links only", lambda: need() and host.show(links_screen))
+    host.button("Get links only (this phone)", lambda: need() and host.show(phone_screen))
     host.button("Download to a GitHub release", lambda: need() and start_download(host))
     host.button("Options (proxy / v2ray)", lambda: (grab(), host.show(options_screen)))
     host.button("Free proxies", lambda: (grab(), host.show(proxies_screen)))
@@ -165,6 +166,197 @@ def links_result(host, run_id, conclusion, body):
     if body.strip():
         host.button("Copy everything", lambda: (host.copy(body), host.set_status("Copied")))
     host.back_button()
+
+
+# ------------------------------------------------------- get links on the phone
+# Same button's other runner. lab-links.yml is not started and its logic is not changed.
+# yt-dlp runs here, so the request uses this phone's IP (same idea as Any site on the phone).
+def phone_screen(host):
+    host.title("Getting links on this phone")
+    host.text("yt-dlp runs on this phone (this phone's network, not GitHub), so it is usually "
+              "faster. Nothing is downloaded and lab-links.yml is not used.")
+    host.status()
+    host.set_status("Starting...")
+    urls = [ln.strip() for ln in S["urls"].splitlines() if ln.strip()]
+
+    def work():
+        return _phone_read(urls, lambda msg: host.set_status(msg))
+
+    def done(res, err):
+        if err is not None:
+            host.set_status("Failed: %s" % err)
+            host.log("phone read failed:", err)
+            return
+        host.replace(phone_result, res)
+
+    host.background(work, done=done)
+    host.back_button()
+
+
+def phone_result(host, results):
+    ok = sum(1 for r in results if r.get("rows"))
+    host.title("Links on this phone (%d of %d)" % (ok, len(results)))
+    blocks = [_phone_block(r) for r in results]
+    for r in results:
+        host.text(_phone_block(r))
+        page = r.get("url") or ""
+        for row in (r.get("rows") or [])[:12]:
+            label = _phone_label(row)
+            host.row([
+                ("Copy " + label, lambda u=row["url"], lab=label: (host.copy(u), host.set_status("Copied " + lab))),
+                ("Download " + label,
+                 lambda p=page, h=row.get("h"): _run_download(host, p, str(h or "best"))),
+            ])
+        extra = len(r.get("rows") or []) - 12
+        if extra > 0:
+            host.text("(%d more qualities not shown)" % extra)
+    host.status()
+    host.text("Copy uses the link this phone just read. Download still runs lab-download.yml on GitHub.")
+    report = "\n\n".join(blocks)
+    if any(r.get("rows") for r in results):
+        host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
+    host.back_button()
+
+
+def _phone_block(r):
+    lines = [r.get("title") or r.get("url") or "?"]
+    if r.get("extractor"):
+        lines.append("extractor: " + r["extractor"])
+    lines.append(r.get("url") or "")
+    if r.get("error"):
+        lines.append("NOT READ: " + r["error"])
+        return "\n".join(lines)
+    if r.get("note"):
+        lines.append(r["note"])
+    rows = r.get("rows") or []
+    if rows:
+        lines.append("Picture and sound together:")
+        for row in rows:
+            lines.append("  " + _phone_label(row))
+            lines.append("  " + row["url"])
+    elif r.get("video_heights"):
+        heights = ", ".join("%dp" % h for h in r["video_heights"])
+        lines.append("Supported, but picture and sound are separate (" + heights + "). "
+                     "There is no single file to copy. Use Get links only on GitHub, or Download.")
+    else:
+        lines.append("No video quality was found.")
+    return "\n".join(ln for ln in lines if ln)
+
+
+def _phone_label(row):
+    h = row.get("h")
+    bits = [("%dp" % h) if h else "unknown height"]
+    if row.get("ext"):
+        bits.append(row["ext"])
+    if row.get("hls"):
+        bits.append("HLS")
+    if row.get("size"):
+        bits.append(row["size"])
+    return " · ".join(bits)
+
+
+_PHONE_SKIP = ("dash", "ism", "f4m", "rtmp", "mhtml")
+
+
+def _phone_read(urls, on_status):
+    try:
+        import yt_dlp
+    except Exception as e:
+        raise RuntimeError("yt-dlp is not inside this build") from e
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
+            "socket_timeout": 30, "retries": 2}
+    out = []
+    for n, url in enumerate(urls, 1):
+        if on_status:
+            on_status("Reading link %d of %d on this phone..." % (n, len(urls)))
+        out.append(_phone_one(yt_dlp, opts, url))
+    if on_status:
+        on_status("Done")
+    return out
+
+
+def _phone_one(yt_dlp, opts, url):
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+    except Exception as e:
+        return {"url": url, "title": url, "error": str(e).strip().splitlines()[-1][:180]}
+    note = ""
+    entries = [e for e in (info.get("entries") or []) if e]
+    if entries:
+        note = "Playlist: showing the first video only (%d found)." % len(entries)
+        info = entries[0] or {}
+    rows, video_heights = _phone_formats(info)
+    if not rows and video_heights:
+        note = (note + " " if note else "") + "Picture and sound come as separate streams."
+    return {"url": url, "title": info.get("title") or url,
+            "extractor": info.get("extractor") or info.get("extractor_key") or "",
+            "note": note.strip(), "rows": rows, "video_heights": video_heights}
+
+
+def _phone_formats(info):
+    both, video = [], []
+    candidates = list((info or {}).get("formats") or [])
+    if not candidates and (info or {}).get("url"):
+        candidates = [info]
+    for f in candidates:
+        link = f.get("url")
+        if not link:
+            continue
+        proto = (f.get("protocol") or "").lower()
+        if any(b in proto for b in _PHONE_SKIP):
+            continue
+        v = f.get("vcodec") not in (None, "none")
+        a = f.get("acodec") not in (None, "none")
+        h = _phone_height(f)
+        if v and a:
+            both.append({"h": h, "ext": "mp4" if "m3u8" in proto else (f.get("ext") or "mp4"),
+                         "hls": "m3u8" in proto,
+                         "size": _phone_size(f.get("filesize") or f.get("filesize_approx")),
+                         "url": link.split("#")[0], "_bytes": _phone_bytes(f)})
+        elif v and h:
+            video.append(h)
+    groups = {}
+    for row in both:
+        groups.setdefault(row.get("h") or 0, []).append(row)
+    chosen = []
+    for h in sorted(groups, reverse=True):
+        pool = groups[h]
+        pool.sort(key=lambda r: (r["hls"], -(r.get("_bytes") or 0)))
+        row = pool[0]
+        row.pop("_bytes", None)
+        chosen.append(row)
+    return chosen, sorted(set(video), reverse=True)
+
+
+def _phone_height(f):
+    if f.get("height"):
+        try:
+            return int(f["height"])
+        except (TypeError, ValueError):
+            pass
+    text = "%s %s %s" % (f.get("format_note") or "", f.get("format_id") or "", f.get("format") or "")
+    m = re.search(r"(\d{3,4})p", text)
+    return int(m.group(1)) if m else 0
+
+
+def _phone_bytes(f):
+    try:
+        return int(f.get("filesize") or f.get("filesize_approx") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _phone_size(n):
+    n = _phone_bytes({"filesize": n})
+    if n <= 0:
+        return ""
+    v, i = float(n), 0
+    units = ("B", "KB", "MB", "GB")
+    while v >= 1024 and i < 3:
+        v /= 1024.0
+        i += 1
+    return "%d B" % n if i == 0 else "%.1f %s" % (v, units[i])
 
 
 # ---------------------------------------------------------------- download
