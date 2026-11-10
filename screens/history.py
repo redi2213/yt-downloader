@@ -1,3 +1,4 @@
+from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -17,6 +18,41 @@ from screens.common import (
 )
 
 _DANGER = (1.0, 0.55, 0.55, 1)   # tint for buttons that delete things
+_HOLD_SECONDS = 0.5              # how long a file card is held to open its menu
+
+
+class _PressCard(Button):
+    """A file card: a short tap calls ``on_tap``, holding it for half a second calls ``on_hold``
+    (and then the tap is not fired). Moving the finger off the card cancels both."""
+
+    def __init__(self, on_tap, on_hold, **kwargs):
+        super().__init__(**kwargs)
+        self._tap, self._hold = on_tap, on_hold
+        self._timer = None
+        self.bind(on_press=self._pressed, on_release=self._released)
+
+    def _cancel(self):
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+
+    def _pressed(self, *_args):
+        self._cancel()
+        self._timer = Clock.schedule_once(self._held, _HOLD_SECONDS)
+
+    def _held(self, _dt):
+        self._timer = None
+        self._hold()
+
+    def _released(self, *_args):
+        if self._timer is not None:       # released before the hold time: a normal tap
+            self._cancel()
+            self._tap()
+
+    def on_touch_move(self, touch):
+        if self._timer is not None and not self.collide_point(*touch.pos):
+            self._cancel()
+        return super().on_touch_move(touch)
 
 
 def build_loading(nav):
@@ -129,8 +165,9 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     one Auto follow channel's files. ``extra``: (button text, function) shown at the top.
 
     Compact list: one small card per file (title, grey size/date line, coloured days left, quick
-    Copy). Tap a card = its menu (copy, share, rename, zip, extend, delete). "Select files" turns
-    on the selection toolbar (copy/share/delete many); nothing destructive is on screen otherwise."""
+    Copy). Tap a card = select / unselect it; the bar at the bottom then offers copy / share /
+    download in app / delete for the selected files. Hold a card = its menu (copy, share, download,
+    rename, zip, extend, delete)."""
     nav.clear()
     paged = back is None or bot or apk   # the normal list and the bot's list are paged; one Auto follow channel is not
     if paged and all_files:
@@ -172,12 +209,9 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     view = []    # item indices shown now (after search / type filter / sort)
     state = {"type": 0, "sort": 0}
     cap = 40 if all_files else None   # "all files" can be hundreds: draw the first 40 of the matches
-    all_btn_ref = []
-    info = Label(text="", size_hint_y=None, height=BTN_H)
-    toolbar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
-    toolbar.bind(minimum_height=toolbar.setter("height"))
-    toolbar.height = 0
-    mode_btn = Button(text="Select files", size_hint_y=None, height=BTN_H)
+    info = Label(text="", size_hint_y=None, height=dp(34), halign="center", valign="middle", shorten=True)
+    info.text_size = (content_width(), None)
+    footer_state = {"mode": "nav", "nav": None}   # bottom bar: Back/Prev/Next, or the selection bar
     search = TextInput(hint_text="Search in this page", multiline=False, size_hint_y=None, height=SMALL_BTN_H)
     type_btn = Button(text="Type: All")
     sort_btn = Button(text="Sort: Newest")
@@ -195,7 +229,6 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         selected[idx] = value
         if idx in cards:
             cards[idx].rgba = CARD_ON if value else CARD
-        update_info()
 
     def set_all(value):
         for idx in list(view):
@@ -235,50 +268,50 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         else:
             info.text = "Select files kept on GitHub (not Arvan or bot files)"
 
-    def fill_toolbar():
-        toolbar.clear_widgets()
-        all_btn_ref.clear()
-        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        for text, fn in (("Select all", lambda i: set_all(True)), ("Clear", lambda i: set_all(False))):
-            btn = Button(text=text)
-            btn.bind(on_press=fn)
-            row.add_widget(btn)
-        toolbar.add_widget(row)
-        update_info()
-        toolbar.add_widget(info)
-        actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        buttons = [("Copy links", copy_selected), ("Share", share_selected)]
-        if not bot and not apk and hasattr(nav, "start_arvan_upload"):
-            buttons.append(("To Arvan", arvan_selected))
-        buttons.append(("Delete", delete_selected))
+    def download_selected(_inst):
+        sel = need_selection()
+        if sel:
+            info.text = f"Starting {len(sel)} download(s)..."
+            nav.start_history_download(sel, lambda text: setattr(info, "text", text))
+
+    def row_of(buttons):
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP / 2)
         for text, fn in buttons:
             btn = Button(text=text, background_color=_DANGER) if text == "Delete" else Button(text=text)
             btn.bind(on_press=fn)
-            actions.add_widget(btn)
-        toolbar.add_widget(actions)
-        all_btn = Button(text=f"Delete all {len(view)} shown", size_hint_y=None, height=BTN_H,
-                         background_color=_DANGER)
-        all_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm([items[n] for n in view]))
-        all_btn_ref.append(all_btn)
-        toolbar.add_widget(all_btn)
+            row.add_widget(btn)
+        return row
 
-    def toggle_mode(_inst):
-        select_mode[0] = not select_mode[0]
-        if select_mode[0]:
-            mode_btn.text = "Done selecting"
-            fill_toolbar()
-        else:
-            set_all(False)
-            mode_btn.text = "Select files"
-            toolbar.clear_widgets()
-            all_btn_ref.clear()
-            toolbar.height = 0
+    def make_sel_footer():
+        """The bar shown while files are selected (replaces Back / Prev / Next until Clear)."""
+        bar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP / 2)
+        bar.height = dp(34) + 2 * BTN_H + GAP
+        if info.parent is not None:
+            info.parent.remove_widget(info)
+        bar.add_widget(info)
+        top = [("Select all", lambda i: (set_all(True), changed())),
+               ("Clear", lambda i: (set_all(False), changed()))]
+        if not bot and not apk and hasattr(nav, "start_arvan_upload"):
+            top.append(("To Arvan", arvan_selected))
+        bar.add_widget(row_of(top))
+        bar.add_widget(row_of([("Copy links", copy_selected), ("Share", share_selected),
+                               ("Download", download_selected), ("Delete", delete_selected)]))
+        return bar
+
+    def refresh_footer():
+        want = "sel" if selected_items() else "nav"
+        if want == footer_state["mode"]:
+            return
+        footer_state["mode"] = want
+        nav.set_footer(make_sel_footer() if want == "sel" else footer_state["nav"])
+
+    def changed():
+        update_info()
+        refresh_footer()
 
     def on_tap(idx, item):
-        if select_mode[0]:
-            set_selected(idx, not selected[idx])
-        else:
-            nav.show_item_menu(item)
+        set_selected(idx, not selected[idx])
+        changed()
 
     def make_card(idx, item):
         parts, deadline = _meta_parts(item)
@@ -292,10 +325,11 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         row = card_box([title_height])
         cards[idx] = paint_card(row, CARD_ON if selected[idx] else CARD)
         line = BoxLayout(orientation="horizontal", size_hint_y=None, height=title_height, spacing=dp(4))
-        title_btn = Button(text=markup, markup=True, size_hint_x=0.78, halign="left", valign="middle",
-                           background_normal="", background_color=(0, 0, 0, 0))
+        title_btn = _PressCard(on_tap=lambda n=idx, it=item: on_tap(n, it),
+                               on_hold=lambda it=item: nav.show_item_menu(it),
+                               text=markup, markup=True, size_hint_x=0.78, halign="left", valign="middle",
+                               background_normal="", background_color=(0, 0, 0, 0))
         title_btn.text_size = (text_w, None)
-        title_btn.bind(on_press=lambda i, n=idx, it=item: on_tap(n, it))
         line.add_widget(title_btn)
         copy_btn = Button(text="Copy", size_hint_x=0.22)
 
@@ -341,9 +375,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             list_box.add_widget(wrapped_label(
                 f"Showing the first {cap} of {len(full)} files - type in the search box to narrow it.",
                 halign="center"))
-        update_info()
-        if all_btn_ref:
-            all_btn_ref[0].text = f"Delete all {len(view)} shown"
+        changed()
 
     def cycle_type(_inst):
         state["type"] = (state["type"] + 1) % len(_TYPE_NAMES)
@@ -370,9 +402,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             scope_btn.bind(on_press=lambda i: on_toggle_all())
             filters.add_widget(scope_btn)
         nav.add(filters)
-        mode_btn.bind(on_press=toggle_mode)
-        nav.add(mode_btn)
-        nav.add(toolbar)
+        nav.add(wrapped_label("Tap a file to select it  -  hold a file to open its menu", halign="center"))
         render_list()
         nav.add(list_box)
 
@@ -386,6 +416,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         next_btn.bind(on_press=lambda i: nav.show_history_page(page + 1))
         footer.add_widget(prev_btn)
         footer.add_widget(next_btn)
+    footer_state["nav"] = footer
     nav.set_footer(footer)
     return follow_box
 
@@ -413,8 +444,21 @@ def build_item_menu(nav, item, back, allow_arvan=True):
             Clipboard.copy(item["link"])
             btn.text = "Share not available - copied"
 
+    status = Label(text="", size_hint_y=None, height=0, halign="center", valign="middle")
+    status.text_size = (content_width(), None)
+
+    def say(text):
+        status.text = text
+        status.height = dp(60)
+
+    def download(btn):
+        say("Starting the download...")
+        nav.start_history_download([item], say)
+
     add("Copy link", copy)
     add("Share link", share)
+    add("Download in app", download)
+    nav.add(status)
     add("Rename", lambda b: nav.show_rename_prompt(item))
     add("Zip", lambda b: nav.start_zip_release(item))
     if (item.get("days_left") is not None or item.get("forever")) and item.get("asset_id") is not None:
