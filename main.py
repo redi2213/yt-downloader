@@ -34,13 +34,14 @@ class YTBridgeApp(App):
         # Placeholder until a screen replaces it with its own status label.
         self.status_label = Label(text="")
 
+        # Created BEFORE show_home(): every screen build calls clear_content(), which uses it.
+        # Fixed bar under the scrolling content (a screen fills it with Navigator.set_footer).
+        self.footer = BoxLayout(orientation="vertical", size_hint_y=None, height=0,
+                                padding=(PAD, dp(6)))
         self.nav = Navigator(self)
         self.nav.show_home()
         # The phone's own Back key (key code 27) goes one screen back.
         Window.bind(on_keyboard=self._on_keyboard)
-        # Fixed bar under the scrolling content (a screen fills it with Navigator.set_footer).
-        self.footer = BoxLayout(orientation="vertical", size_hint_y=None, height=0,
-                                padding=(PAD, dp(6)))
         root = BoxLayout(orientation="vertical")
         root.add_widget(self.scroll)
         root.add_widget(self.footer)
