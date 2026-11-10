@@ -2,6 +2,10 @@ name: Build APK
 run-name: Build APK [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
 
 on:
+  # Weekly cache refresh: Friday 00:00 Tehran time (Thursday 20:30 UTC). It builds WITHOUT the cache,
+  # saves a fresh one to the `build-cache` Release, and does not publish an APK or bump the version.
+  schedule:
+    - cron: '30 20 * * 4'
   workflow_dispatch:
     inputs:
       job_id:
@@ -13,6 +17,11 @@ on:
         description: 'Set by the app: the other inputs packed into the run name so "Run again" can repeat this run (leave empty when running by hand)'
         required: false
         default: ''
+        type: string
+      refresh_cache:
+        description: "true = build without the cache and save a fresh one to the build-cache Release (no APK is published)"
+        required: false
+        default: 'false'
         type: string
       run_title:
         description: 'Ignored (kept so the app can send it)'
@@ -27,6 +36,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    env:
+      REFRESH: ${{ github.event_name == 'schedule' || inputs.refresh_cache == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -86,11 +97,29 @@ jobs:
         with:
           python-version: '3.11'
 
-      # The buildozer cache was removed on purpose: each copy was ~4 GB, and GitHub counts
-      # caches in the same "Actions storage" quota as artifacts. Two of them filled the quota,
-      # so every upload-artifact in every workflow failed with "Artifact storage quota has been hit".
-      # Cost: the APK build is slower (no cached SDK/NDK). To bring the cache back, restore the
-      # actions/cache@v4 step here (key: buildozer-${{ hashFiles('buildozer.spec') }}).
+      # Build cache lives in a Release (tag `build-cache`), NOT in Actions storage, so it never counts
+      # against the artifact/cache quota. Normal builds only read it; the weekly refresh rewrites it.
+      - name: Restore build cache from the build-cache Release
+        if: env.REFRESH != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          sudo apt-get install -y zstd >/dev/null 2>&1 || true
+          mkdir -p /tmp/bc
+          if ! gh release download build-cache --repo "$GITHUB_REPOSITORY" -p 'cache.tar.zst.part-*' -D /tmp/bc 2>/dev/null; then
+            echo "No build cache yet: full build (the weekly refresh creates it)."
+            exit 0
+          fi
+          ls -l /tmp/bc
+          if cat /tmp/bc/cache.tar.zst.part-* | tar -C / -I zstd -xf -; then
+            echo "Build cache restored."
+          else
+            echo "::warning::Build cache could not be restored: building from scratch."
+            rm -rf "$HOME/.buildozer" "$GITHUB_WORKSPACE/.buildozer"
+          fi
+          rm -rf /tmp/bc
 
       - name: Install system dependencies
         run: |
@@ -130,7 +159,33 @@ jobs:
           yes | buildozer android release
           ls -la bin/
 
+      - name: Save build cache to the build-cache Release (weekly refresh only)
+        if: env.REFRESH == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y zstd >/dev/null 2>&1 || true
+          rm -rf "$GITHUB_WORKSPACE"/.buildozer/android/platform/build-*/build/venv
+          PATHS=""
+          for p in "$HOME/.buildozer" "$GITHUB_WORKSPACE/.buildozer"; do
+            [ -d "$p" ] && PATHS="$PATHS ${p#/}"
+          done
+          echo "Raw size:"; du -sh "$HOME/.buildozer" "$GITHUB_WORKSPACE/.buildozer" 2>/dev/null || true
+          mkdir -p /tmp/bc
+          tar -C / -I 'zstd -T0 -3' -cf - $PATHS | split -b 1900M - /tmp/bc/cache.tar.zst.part-
+          ls -l /tmp/bc
+          TOTAL=$(du -sh /tmp/bc | cut -f1)
+          gh release delete build-cache --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create build-cache /tmp/bc/cache.tar.zst.part-* --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "Build cache (do not delete)" \
+            --notes "Refreshed $(date -u +%F). Used by Build APK to skip downloading and compiling the SDK, NDK and python-for-android."
+          echo "### Build cache saved: $TOTAL compressed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Build cache saved: $TOTAL"
+
       - name: Publish APK to a release (the app finds it by run id)
+        if: env.REFRESH != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -146,6 +201,7 @@ jobs:
             --notes "Version ${VERSION}. Signed with the fixed key - installs over the previous version."
 
       - name: Save the new version number in the repo
+        if: env.REFRESH != 'true'
         run: |
           git checkout -- buildozer.spec
           git config user.name "github-actions[bot]"
