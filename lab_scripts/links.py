@@ -27,21 +27,49 @@ def _compat_base_api() -> None:
 _compat_base_api()
 
 
-def load_proxies() -> list[str]:
-    """If Xray started from v2ray_config, ONLY local SOCKS (ignore free list)."""
-    if os.path.isfile("/tmp/xray_from_config") or (
-        os.path.isfile("/tmp/xray.pid") and os.environ.get("V2RAY_CONFIG", "").strip()
-    ):
-        print("Using ONLY local Xray SOCKS (v2ray_config set — free proxies skipped)")
-        return ["socks5://127.0.0.1:10808"]
+LOCAL_XRAY = "socks5://127.0.0.1:10808"
 
-    proxies: list[str] = []
-    if os.path.isfile("/tmp/xray.pid"):
-        proxies.append("socks5://127.0.0.1:10808")
+
+def _is_local_config(proxy: str) -> bool:
+    """SOCKS on this machine: a v2ray/Xray config, not a free proxy."""
+    p = (proxy or "").strip().lower()
+    return p.startswith(("socks5://127.0.0.1:", "socks5://localhost:", "socks5h://127.0.0.1:", "socks5h://localhost:"))
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _config_xray_up() -> bool:
+    return os.path.isfile("/tmp/xray_from_config") or (
+        os.path.isfile("/tmp/xray.pid") and bool(os.environ.get("V2RAY_CONFIG", "").strip())
+    )
+
+
+def load_proxies() -> list[str]:
+    """Free proxies first, local Xray configs last.
+
+    Direct GitHub IP is tried before this list. A saved v2ray config must not
+    hide the runner IP or the free list; it is only the last fallback.
+    """
+    free: list[str] = []
+    configs: list[str] = []
+
+    def take(raw: str) -> None:
+        if _is_local_config(raw):
+            configs.append(raw)
+        else:
+            free.append(raw)
 
     one = (os.environ.get("PROXY") or "").strip()
     if one:
-        proxies.append(one)
+        take(one)
 
     for path in ("working_proxies.txt", "proxies.txt"):
         if not os.path.isfile(path):
@@ -50,32 +78,24 @@ def load_proxies() -> list[str]:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    proxies.append(line)
+                    take(line)
 
-    seen: set[str] = set()
-    out: list[str] = []
-    for p in proxies:
-        if p not in seen:
-            seen.add(p)
-            out.append(p)
-
-    # Default configs (lab/working_configs.txt started by xray_default.py): mixed in with the
-    # free proxies one by one, so the race tries both kinds at the same time.
-    dflt: list[str] = []
     if os.path.isfile("/tmp/xray_default_proxies.txt"):
         with open("/tmp/xray_default_proxies.txt", encoding="utf-8") as f:
-            dflt = [ln.strip() for ln in f if ln.strip()]
-    if dflt:
-        rest = [p for p in out if p not in dflt]
-        mixed: list[str] = []
-        for i in range(max(len(dflt), len(rest))):
-            if i < len(dflt):
-                mixed.append(dflt[i])
-            if i < len(rest):
-                mixed.append(rest[i])
-        print(f"Default configs: {len(dflt)} (mixed with {len(rest)} free proxies)")
-        out = mixed
-    return out
+            configs.extend(ln.strip() for ln in f if ln.strip())
+
+    if _config_xray_up():
+        configs.append(LOCAL_XRAY)
+
+    free = _dedupe(free)
+    configs = [c for c in _dedupe(configs) if c not in set(free)]
+    if configs:
+        print(f"Order: GitHub IP, then {len(free)} proxy(ies), then {len(configs)} config(s)")
+    elif free:
+        print(f"Order: GitHub IP, then {len(free)} proxy(ies)")
+    else:
+        print("Order: GitHub IP only")
+    return free + configs
 
 
 def apply_proxy_env(proxy: str | None) -> None:
@@ -228,13 +248,6 @@ def race_proxies(url: str, proxies: list[str], workers: int = 4) -> dict | None:
 
 def is_beeg(url: str) -> bool:
     return bool(re.search(r"(^|//|\.)beeg\.com(/|$)", url or "", re.I))
-
-
-def xray_only() -> bool:
-    """True when a v2ray_config started Xray (then ONLY the local SOCKS is used)."""
-    return os.path.isfile("/tmp/xray_from_config") or (
-        os.path.isfile("/tmp/xray.pid") and bool(os.environ.get("V2RAY_CONFIG", "").strip())
-    )
 
 
 async def via_beeg(url: str, proxy: str | None) -> dict:
@@ -416,39 +429,41 @@ async def try_one(url: str, proxy: str | None) -> dict:
 
 
 async def try_with_proxies(url: str, proxies: list[str]) -> dict:
-    chain: list[str | None] = list(proxies) if proxies else [None]
-    xh = is_xhamster(url)
-    only_xray = xray_only()
-    override = (os.environ.get("PROXY") or "").strip()
+    """GitHub IP, then free proxies, then local Xray configs. Stop at the first success."""
+    free = [p for p in proxies if p and not _is_local_config(p)][:10]
+    configs = [p for p in proxies if p and _is_local_config(p)]
 
-    if not xh and not only_xray:
-        # Every site except xHamster: the plain GitHub IP first (fast, and the links are not
-        # tied to a proxy IP); only if that fails the proxy override / the saved free list.
-        if override:
-            chain = [override, None]
-        else:
-            print("\n>>> Trying (direct, GitHub IP)")
-            data = await try_one(url, None)
+    print("\n>>> Trying (direct, GitHub IP)")
+    data = await try_one(url, None)
+    if _ok(data):
+        return data
+    last: dict = data
+
+    # beeg_api / xhamster_api keep proxy settings on a process-wide client, so one at a time.
+    # Other sites can race yt-dlp. Configs stay out of the race and run only if those fail.
+    if free and not is_beeg(url) and not is_xhamster(url):
+        print(f"\n>>> Racing {len(free)} proxies (the first that works wins)")
+        loop = asyncio.get_running_loop()
+        raced = await loop.run_in_executor(None, race_proxies, url, free)
+        if raced and _ok(raced):
+            return raced
+        if raced:
+            last = raced
+    else:
+        for proxy in free:
+            print(f"\n>>> Trying proxy {proxy}")
+            data = await try_one(url, proxy)
+            last = data
             if _ok(data):
                 return data
-            cands = [p for p in proxies if p][:10]
-            if not cands:
-                return data
-            if is_beeg(url):
-                chain = cands  # beeg_api uses process-wide proxy settings: one at a time
-            else:
-                print(f"\n>>> Racing {len(cands)} proxies (the first that works wins)")
-                loop = asyncio.get_running_loop()
-                res = await loop.run_in_executor(None, race_proxies, url, cands)
-                return res or data
 
-    last: dict | None = None
-    for proxy in chain:
-        print(f"\n>>> Trying {proxy or '(direct)'}")
+    for proxy in configs:
+        print(f"\n>>> Trying config {proxy}")
         data = await try_one(url, proxy)
         last = data
         if _ok(data):
             return data
+
     return last or {
         "url": url,
         "title": None,
