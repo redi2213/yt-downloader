@@ -1,0 +1,317 @@
+# app-id: peekvids_links
+# app-title: PeekVids – Extract links
+# app-group: video
+# app-domains: peekvids.com, www.peekvids.com
+# app-secrets:
+name: PeekVids Extract linkss
+run-name: ${{ inputs.run_title || inputs.video_url }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'PeekVids video page URL'
+        required: true
+        type: string
+      mode:
+        description: 'links = only list the m3u8 links / download = download the MP4 in the chosen quality'
+        required: false
+        default: 'links'
+        type: string
+      quality:
+        description: 'Wanted quality for download: 270, 360, 480, 720, 1080, or best (closest match is used)'
+        required: false
+        default: 'best'
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so Run again can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Probe formats (always)
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+          MODE: ${{ inputs.mode || 'links' }}
+          QUALITY: ${{ inputs.quality || 'best' }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+
+          URL="$VIDEO_URL"
+          URL="${URL%%\?*}"
+          URL="${URL%%#*}"
+
+          case "$URL" in
+            *peekvids.com/*) ;;
+            *)
+              echo "::error::Only peekvids.com URLs are supported"
+              exit 1
+              ;;
+          esac
+
+          case "$MODE" in
+            links|download) ;;
+            *)
+              echo "::error::mode must be 'links' or 'download'"
+              exit 1
+              ;;
+          esac
+
+          echo "URL:     $URL"
+          echo "Mode:    $MODE"
+          echo "Quality: $QUALITY"
+
+          python3 -m pip install -U --quiet yt-dlp
+
+          set +e
+          INFO=$(yt-dlp \
+            --ies Generic,HTML5 \
+            --no-download \
+            --dump-json \
+            --no-playlist \
+            --socket-timeout 30 \
+            --retries 3 \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+            --referer "$URL" \
+            "$URL" 2>/tmp/ytdlp.err)
+          RC=$?
+          set -e
+
+          if [ $RC -ne 0 ] || [ -z "$INFO" ]; then
+            echo "yt-dlp output:"
+            cat /tmp/ytdlp.err || true
+            echo "::error::Could not extract any media from this PeekVids page (extractor broken or page blocked)"
+            exit 1
+          fi
+
+          python3 - <<'PY' "$INFO" "$MODE" "$QUALITY"
+          import json, sys, re, os
+
+          raw, mode, want_q = sys.argv[1], sys.argv[2].lower(), sys.argv[3].lower()
+
+          try:
+              data = json.loads(raw)
+          except Exception as e:
+              print(f"::error::Bad JSON from yt-dlp: {e}")
+              sys.exit(1)
+
+          title = (data.get("title") or data.get("id") or "peekvids").strip()
+          safe = re.sub(r'[\\/:*?"<>|\r\n]+', "_", title)[:80].strip(" ._") or "peekvids"
+
+          entries = []
+          for f in data.get("formats") or []:
+              url = f.get("url")
+              if not url:
+                  continue
+              entries.append({
+                  "url": url,
+                  "ext": (f.get("ext") or "").lower(),
+                  "height": f.get("height"),
+                  "protocol": (f.get("protocol") or "").lower(),
+                  "format_id": f.get("format_id") or "",
+                  "note": f.get("format_note") or "",
+                  "filesize": f.get("filesize") or f.get("filesize_approx"),
+              })
+
+          if not entries and data.get("url"):
+              entries.append({
+                  "url": data["url"],
+                  "ext": data.get("ext") or "mp4",
+                  "height": data.get("height"),
+                  "protocol": data.get("protocol") or "",
+                  "format_id": "direct",
+                  "note": "direct",
+                  "filesize": None,
+              })
+
+          if not entries:
+              print("::error::No playable formats found on this page")
+              sys.exit(1)
+
+          entries.sort(key=lambda e: (e.get("height") or 0), reverse=True)
+
+          # Write the links file in both modes so the user always has them
+          out_txt = f"out/{safe}_links.txt"
+          out_json = f"out/{safe}_formats.json"
+          with open(out_txt, "w", encoding="utf-8") as f:
+              f.write(f"title: {title}\n")
+              f.write(f"page:  {data.get('webpage_url') or ''}\n")
+              f.write(f"id:    {data.get('id') or ''}\n\n")
+              for i, e in enumerate(entries, 1):
+                  h = f"{e['height']}p" if e.get("height") else "?"
+                  f.write(f"[{i}] {h}  {e.get('ext','')}  {e.get('protocol','')}\n")
+                  f.write(f"    {e['url']}\n\n")
+          with open(out_json, "w", encoding="utf-8") as f:
+              json.dump({"title": title, "id": data.get("id"),
+                         "webpage_url": data.get("webpage_url"),
+                         "formats": entries}, f, ensure_ascii=False, indent=2)
+
+          print(f"Found {len(entries)} format(s):")
+          for e in entries:
+              h = f"{e.get('height')}p" if e.get("height") else "?"
+              print(f"  - {h} {e.get('ext')} {e.get('protocol')}")
+
+          if mode == "links":
+              print("Mode=links: only the links file was written.")
+              sys.exit(0)
+
+          # Pick the closest quality
+          with_h = [e for e in entries if e.get("height")]
+          if not with_h:
+              print("::error::No formats with a known height; cannot pick a quality")
+              sys.exit(1)
+
+          if want_q in ("", "best", "0", "auto"):
+              chosen = max(with_h, key=lambda e: e["height"])
+          else:
+              try:
+                  target = int(want_q)
+              except ValueError:
+                  print(f"::error::quality must be a number, 'best', or empty (got {want_q!r})")
+                  sys.exit(1)
+              chosen = min(with_h, key=lambda e: abs(e["height"] - target))
+
+          print(f"Chosen format: {chosen['height']}p {chosen.get('format_id','')}")
+
+          # Hand it to the download step via $GITHUB_ENV
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write(f"CHOSEN_HEIGHT={chosen['height']}\n")
+              f.write(f"CHOSEN_FORMAT_ID={chosen.get('format_id','')}\n")
+              f.write(f"SAFE_TITLE={safe}\n")
+          PY
+
+          ls -la out/
+
+      - name: Download the chosen quality (only in download mode)
+        if: ${{ (inputs.mode || 'links') == 'download' }}
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+        run: |
+          set -euo pipefail
+
+          URL="$VIDEO_URL"
+          URL="${URL%%\?*}"
+          URL="${URL%%#*}"
+
+          HEIGHT="${CHOSEN_HEIGHT:?missing CHOSEN_HEIGHT from the probe step}"
+          FMT_ID="${CHOSEN_FORMAT_ID:?missing CHOSEN_FORMAT_ID from the probe step}"
+          TITLE="${SAFE_TITLE:-peekvids}"
+
+          echo "Downloading ${HEIGHT}p (format_id=$FMT_ID) ..."
+
+          set +e
+          yt-dlp \
+            --ies Generic,HTML5 \
+            --no-playlist \
+            --no-part \
+            --windows-filenames \
+            --merge-output-format mp4 \
+            -f "${FMT_ID}+ba/${FMT_ID}/b" \
+            --socket-timeout 30 \
+            --retries 3 \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+            --referer "$URL" \
+            -o "out/${TITLE} [${HEIGHT}p].%(ext)s" \
+            "$URL"
+          RC=$?
+          set -e
+
+          if [ $RC -ne 0 ]; then
+            echo "::error::yt-dlp could not download the MP4 (HLS link may have expired or be blocked)"
+            exit 1
+          fi
+
+          ls -la out/
+
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "PeekVids links run-${{ github.run_id }}"
+
+      - name: Notify (ntfy)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: PeekVids Extract links
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then echo "No ntfy.json on the config branch: no notification."; exit 0; fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then echo "ntfy topic is not set: no notification."; exit 0; fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
+              -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi
