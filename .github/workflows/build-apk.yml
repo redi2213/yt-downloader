@@ -86,16 +86,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Cache buildozer (platform + app build)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer
-            .buildozer
-            ~/.gradle
-          key: buildozer-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            buildozer-
+      # The buildozer cache was removed on purpose: each copy was ~4 GB, and GitHub counts
+      # caches in the same "Actions storage" quota as artifacts. Two of them filled the quota,
+      # so every upload-artifact in every workflow failed with "Artifact storage quota has been hit".
+      # Cost: the APK build is slower (no cached SDK/NDK). To bring the cache back, restore the
+      # actions/cache@v4 step here (key: buildozer-${{ hashFiles('buildozer.spec') }}).
 
       - name: Install system dependencies
         run: |
