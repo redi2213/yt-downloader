@@ -118,6 +118,8 @@ def download_hls(url: str, referer: str, out_base: str, out_dir: Path, proxy: st
         str(out_dir / f"{out_base}.%(ext)s"),
         url,
     ]
+    if "peekvids.com" in (url or ""):
+        cmd[1:1] = ["--ies", "Generic,HTML5"]
     if proxy:
         cmd[1:1] = ["--proxy", proxy]
     print("yt-dlp:", " ".join(cmd), flush=True)
