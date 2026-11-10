@@ -6,7 +6,9 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import escape_markup
 
-from core import android_actions
+from datetime import datetime
+
+from core import android_actions, timeutil
 from kivy.metrics import dp
 
 from screens.common import (
@@ -42,6 +44,40 @@ def build_bot_error(nav, message, back=None):
     nav.clear()
     nav.add(Label(text=message, size_hint_y=None, height=dp(110), halign="center"))
     nav.add(back_button(nav, to=back))
+
+
+_VIDEO = {"mp4", "mkv", "webm", "mov", "avi", "ts", "m4v", "3gp"}
+_AUDIO = {"mp3", "m4a", "flac", "opus", "ogg", "wav", "aac", "wma"}
+_TYPE_NAMES = ("All", "Video", "Audio", "Other")
+_SORT_NAMES = ("Newest", "Biggest", "Expiring soon")
+
+
+def _kind(item):
+    title = str(item.get("title", ""))
+    ext = title.rsplit(".", 1)[-1].lower() if "." in title else ""
+    return "Video" if ext in _VIDEO else ("Audio" if ext in _AUDIO else "Other")
+
+
+def _expiry_key(item):
+    if item.get("forever") or item.get("days_left") is None:
+        return (1, 0)
+    return (0, item["days_left"])
+
+
+def _day_label(item):
+    """Group heading of a file: Today / Yesterday / This week / its day (Jalali when set)."""
+    dt = timeutil.parse_utc(item.get("sort_ts"))
+    if dt is None:
+        return ""
+    tz = timeutil._local_tz()
+    diff = (datetime.now(tz).date() - dt.astimezone(tz).date()).days
+    if diff <= 0:
+        return "Today"
+    if diff == 1:
+        return "Yesterday"
+    if diff < 7:
+        return "This week"
+    return timeutil.datetime_to_local(dt, "%Y-%m-%d")
 
 
 def _deadline_color(item):
@@ -116,26 +152,36 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
 
     selected = [False] * len(items)
     select_mode = [False]
-    cards = []   # (card colour, title button) of every item, in display order
+    cards = {}   # item index -> card colour of the cards on screen
+    view = []    # item indices shown now (after search / type filter / sort)
+    state = {"type": 0, "sort": 0}
+    all_btn_ref = []
     info = Label(text="", size_hint_y=None, height=BTN_H)
     toolbar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
     toolbar.bind(minimum_height=toolbar.setter("height"))
     toolbar.height = 0
     mode_btn = Button(text="Select files", size_hint_y=None, height=BTN_H)
+    search = TextInput(hint_text="Search in this page", multiline=False, size_hint_y=None, height=SMALL_BTN_H)
+    type_btn = Button(text="Type: All")
+    sort_btn = Button(text="Sort: Newest")
+    list_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
+    list_box.bind(minimum_height=list_box.setter("height"))
+    inner_width = content_width() - 2 * dp(8)
 
     def selected_items():
-        return [it for it, on in zip(items, selected) if on]
+        return [items[i] for i in view if selected[i]]
 
     def update_info(*_args):
-        info.text = f"Selected: {len(selected_items())} of {len(items)}"
+        info.text = f"Selected: {len(selected_items())} of {len(view)}"
 
     def set_selected(idx, value):
         selected[idx] = value
-        cards[idx][0].rgba = CARD_ON if value else CARD
+        if idx in cards:
+            cards[idx].rgba = CARD_ON if value else CARD
         update_info()
 
     def set_all(value):
-        for idx in range(len(items)):
+        for idx in list(view):
             set_selected(idx, value)
 
     def need_selection():
@@ -174,6 +220,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
 
     def fill_toolbar():
         toolbar.clear_widgets()
+        all_btn_ref.clear()
         row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
         for text, fn in (("Select all", lambda i: set_all(True)), ("Clear", lambda i: set_all(False))):
             btn = Button(text=text)
@@ -192,9 +239,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             btn.bind(on_press=fn)
             actions.add_widget(btn)
         toolbar.add_widget(actions)
-        all_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None, height=BTN_H,
+        all_btn = Button(text=f"Delete all {len(view)} shown", size_hint_y=None, height=BTN_H,
                          background_color=_DANGER)
-        all_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm(items))
+        all_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm([items[n] for n in view]))
+        all_btn_ref.append(all_btn)
         toolbar.add_widget(all_btn)
 
     def toggle_mode(_inst):
@@ -206,6 +254,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             set_all(False)
             mode_btn.text = "Select files"
             toolbar.clear_widgets()
+            all_btn_ref.clear()
             toolbar.height = 0
 
     def on_tap(idx, item):
@@ -214,15 +263,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         else:
             nav.show_item_menu(item)
 
-    if not items:
-        nav.add(Label(text="No files yet" if back else "No downloads yet", size_hint_y=None, height=BTN_H))
-    else:
-        mode_btn.bind(on_press=toggle_mode)
-        nav.add(mode_btn)
-        nav.add(toolbar)
-
-    inner_width = content_width() - 2 * dp(8)
-    for idx, item in enumerate(items):
+    def make_card(idx, item):
         parts, deadline = _meta_parts(item)
         meta_plain = "  ·  ".join(parts + ([deadline] if deadline else []))
         plain = f"{item['title']}\n{meta_plain}"
@@ -231,18 +272,14 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
                   + "[/size]")
         text_w = (inner_width - dp(16)) * 0.78
         title_height = max(BTN_H, wrapped_label_height(plain, extra_padding=dp(14), width=text_w))
-
         row = card_box([title_height])
-        color = paint_card(row, CARD)
+        cards[idx] = paint_card(row, CARD_ON if selected[idx] else CARD)
         line = BoxLayout(orientation="horizontal", size_hint_y=None, height=title_height, spacing=dp(4))
-
         title_btn = Button(text=markup, markup=True, size_hint_x=0.78, halign="left", valign="middle",
                            background_normal="", background_color=(0, 0, 0, 0))
         title_btn.text_size = (text_w, None)
         title_btn.bind(on_press=lambda i, n=idx, it=item: on_tap(n, it))
-        cards.append((color, title_btn))
         line.add_widget(title_btn)
-
         copy_btn = Button(text="Copy", size_hint_x=0.22)
 
         def do_copy(btn, l=item["link"]):
@@ -252,7 +289,66 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         copy_btn.bind(on_press=do_copy)
         line.add_widget(copy_btn)
         row.add_widget(line)
-        nav.add(row)
+        return row
+
+    def compute_view():
+        q = search.text.strip().lower()
+        want = _TYPE_NAMES[state["type"]]
+        idxs = [i for i, it in enumerate(items)
+                if (not q or q in str(it.get("title", "")).lower()) and (want == "All" or _kind(it) == want)]
+        if state["sort"] == 1:
+            idxs.sort(key=lambda i: -items[i].get("size", 0))
+        elif state["sort"] == 2:
+            idxs.sort(key=lambda i: _expiry_key(items[i]))
+        return idxs
+
+    def render_list(*_args):
+        list_box.clear_widgets()
+        cards.clear()
+        view[:] = compute_view()
+        if not view:
+            list_box.add_widget(Label(text="No matching files", size_hint_y=None, height=BTN_H))
+        last = None
+        for idx in view:
+            if state["sort"] == 0:
+                group = _day_label(items[idx])
+                if group and group != last:
+                    head = Label(text=group, size_hint_y=None, height=dp(30), halign="left",
+                                 color=(0.7, 0.7, 0.7, 1))
+                    head.text_size = (inner_width, None)
+                    list_box.add_widget(head)
+                    last = group
+            list_box.add_widget(make_card(idx, items[idx]))
+        update_info()
+        if all_btn_ref:
+            all_btn_ref[0].text = f"Delete all {len(view)} shown"
+
+    def cycle_type(_inst):
+        state["type"] = (state["type"] + 1) % len(_TYPE_NAMES)
+        type_btn.text = f"Type: {_TYPE_NAMES[state['type']]}"
+        render_list()
+
+    def cycle_sort(_inst):
+        state["sort"] = (state["sort"] + 1) % len(_SORT_NAMES)
+        sort_btn.text = f"Sort: {_SORT_NAMES[state['sort']]}"
+        render_list()
+
+    if not items:
+        nav.add(Label(text="No files yet" if back else "No downloads yet", size_hint_y=None, height=BTN_H))
+    else:
+        search.bind(text=render_list)
+        nav.add(search)
+        type_btn.bind(on_press=cycle_type)
+        sort_btn.bind(on_press=cycle_sort)
+        filters = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        filters.add_widget(type_btn)
+        filters.add_widget(sort_btn)
+        nav.add(filters)
+        mode_btn.bind(on_press=toggle_mode)
+        nav.add(mode_btn)
+        nav.add(toolbar)
+        render_list()
+        nav.add(list_box)
 
     if paged and (page > 0 or has_next):
         pager = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
