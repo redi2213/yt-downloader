@@ -19,7 +19,7 @@ on:
         default: '20'
         type: string
       sort:
-        description: 'Sort order: mr (most relevant), mv (most viewed), tr (top rated), lg (longest), nd (newest)'
+        description: 'Sort order: mr (most relevant), mv (most viewed), tr (top rated)'
         required: false
         default: 'mr'
         type: string
@@ -92,6 +92,10 @@ jobs:
               print("::error::max_results must be between 1 and 100")
               sys.exit(1)
 
+          # Only allow valid sort values
+          if sort not in ("mr", "mv", "tr"):
+              sort = "mr"
+
           print(f"Searching Pornhub for: {query!r} (max={max_results}, sort={sort})")
 
           async def main():
@@ -105,35 +109,46 @@ jobs:
               results = []
 
               try:
-                  search = client.search(query)
+                  # Correct method: search_videos
+                  search = client.search_videos(query, sort_by=sort, pages=3)
                   count = 0
-                  async for video in search:
+                  async for item in search:
                       if count >= max_results:
                           break
                       try:
-                          item = {
-                              "title": getattr(video, "title", None) or "",
-                              "url": getattr(video, "url", None) or getattr(video, "page_url", None) or "",
-                              "video_id": getattr(video, "id", None) or getattr(video, "key", None) or "",
+                          video = item  # ScrapeResult wraps the Video
+                          if hasattr(item, "data"):
+                              video = item.data
+                          elif hasattr(item, "result"):
+                              video = item.result
+
+                          title = getattr(video, "title", None) or ""
+                          url = getattr(video, "url", None) or getattr(video, "page_url", None) or ""
+                          vid = getattr(video, "id", None) or getattr(video, "key", None) or getattr(video, "viewkey", None) or ""
+
+                          row = {
+                              "title": str(title),
+                              "url": str(url),
+                              "video_id": str(vid),
                               "views": getattr(video, "views", None),
                               "rating": getattr(video, "rating", None),
                               "duration": getattr(video, "duration", None) or getattr(video, "length", None),
                               "publish_date": str(getattr(video, "publish_date", None) or getattr(video, "date", None) or ""),
-                              "thumb": getattr(video, "thumb", None) or getattr(video, "thumbnail", None) or "",
+                              "thumb": str(getattr(video, "thumb", None) or getattr(video, "thumbnail", None) or ""),
                               "pornstars": [],
                               "tags": [],
                               "categories": [],
                           }
                           if hasattr(video, "pornstars") and video.pornstars:
-                              item["pornstars"] = [str(p) for p in video.pornstars]
+                              row["pornstars"] = [str(p) for p in video.pornstars]
                           if hasattr(video, "tags") and video.tags:
-                              item["tags"] = [str(t) for t in video.tags]
+                              row["tags"] = [str(t) for t in video.tags]
                           if hasattr(video, "categories") and video.categories:
-                              item["categories"] = [str(c) for c in video.categories]
+                              row["categories"] = [str(c) for c in video.categories]
 
-                          results.append(item)
+                          results.append(row)
                           count += 1
-                          print(f"  [{count}] {item['title'][:80]}")
+                          print(f"  [{count}] {row['title'][:80]}")
                       except Exception as e:
                           print(f"  Skipping one result: {e}")
                           continue
