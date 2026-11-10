@@ -9,13 +9,7 @@
       "url": "https://m.youtube.com/@Eshghe_Abadi",
       "enabled": true,
       "mode": "series",
-      "days": [
-        0,
-        1,
-        2,
-        3,
-        4
-      ],
+      "days": [],
       "start": "21:10",
       "end": "23:59",
       "every_days": 3,
