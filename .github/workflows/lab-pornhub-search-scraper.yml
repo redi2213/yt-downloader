@@ -1,0 +1,57 @@
+name: Pornhub Search Scraper
+run-name: ${{ inputs.run_title || inputs.query }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query (e.g. blonde pov)'
+        required: true
+        type: string
+      max_results:
+        description: 'Maximum number of videos to return'
+        required: false
+        default: '20'
+        type: string
+      sort:
+        description: 'Sort order: mr (most relevant), mv (most viewed), tr (top rated), lg (longest), nd (newest)'
+        required: false
+        default: 'mr'
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so Run again can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.
+# The real definition lives on the `lab` branch (same path) and is what runs when the app
+# dispatches this file with ref=lab. Do not put steps here.
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stub on main. The real workflow runs from the lab branch."
