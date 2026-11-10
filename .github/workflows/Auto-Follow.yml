@@ -9,8 +9,9 @@ run-name: ${{ inputs.run_title || 'Auto follow check' }}${{ inputs.job_id && for
 on:
   schedule:
     - cron: '40 17 * * *'
-    - cron: '40 18 * * *'
-    - cron: '40 19 * * *'
+    - cron: '0 18 * * *'
+    - cron: '15 18 * * *'
+    - cron: '0 19 * * *'
   workflow_dispatch:
     inputs:
       only:
