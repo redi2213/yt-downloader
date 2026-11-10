@@ -22,6 +22,7 @@ import threading
 
 from api.github import releases
 from core import android_downloads, segmented_download
+from core.config import API_BASE
 from core.async_utils import run_in_background
 from services.notify_service import notify
 
@@ -95,17 +96,20 @@ def start_links_download(run_id, links, category, on_text, on_finish=None):
     run_in_background(_run_many, run_id, list(links or []), category, on_text, on_finish)
 
 
-def _run_many(run_id, links, category, on_text, on_finish):
+def _run_many(run_id, links, category, on_text, on_finish, prepared=None):
     folder = android_downloads.folder_label(category)
     saved_count, errors, last_error = 0, 0, ""
     saved_files = []   # [(file name, content uri / path)] for the Open / Share buttons
     try:
         on_text("Looking for the files...")
-        items = []
-        for one in (run_id if isinstance(run_id, (list, tuple)) else [run_id]):
-            items.extend(_release_files(one))
-        if not items:
-            items = [(android_downloads.file_name_from_url(u), u, None) for u in links]
+        if prepared is not None:
+            items = list(prepared)
+        else:
+            items = []
+            for one in (run_id if isinstance(run_id, (list, tuple)) else [run_id]):
+                items.extend(_release_files(one))
+            if not items:
+                items = [(android_downloads.file_name_from_url(u), u, None) for u in links]
         total = len(items)
         if not total:
             on_text("There is nothing to download here.")
@@ -166,6 +170,28 @@ def _run_many(run_id, links, category, on_text, on_finish):
     finally:
         if on_finish:
             on_finish(saved_files)
+
+
+# -- files picked in Release History -------------------------------------------
+def start_items_download(items, on_text, on_finish=None, category="Other"):
+    """Downloads the given Release History items (one or many) into the phone, with the same
+    progress / Downloads manager as every other in-app download."""
+    run_in_background(_run_many, None, [], category, on_text, on_finish, _history_files(items))
+
+
+def _history_files(items):
+    """[(name, url, headers)] of Release History items. A file of the app's own (private) repo
+    needs the API link + token; Arvan and Telegram bot files have a ready public / signed link."""
+    headers = None
+    out = []
+    for it in items:
+        if it.get("asset_id") is not None and not it.get("repo"):
+            if headers is None:
+                headers = releases.asset_download_headers()
+            out.append((it["title"], f"{API_BASE}/releases/assets/{it['asset_id']}", headers))
+        else:
+            out.append((it["title"], it["link"], None))
+    return out
 
 
 # -- sizes -------------------------------------------------------------------
