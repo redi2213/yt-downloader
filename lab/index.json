@@ -28,6 +28,13 @@
       "min_host": 1
     },
     {
+      "id": "links_phone",
+      "title": "Get links only (\u0628\u0627 \u06af\u0648\u0634\u06cc)",
+      "file": "links_phone.py",
+      "description": "The phone reads qualities with yt-dlp (this phone's IP, no GitHub). Fast check of which sites work. Link Lab's Get links only is unchanged.",
+      "min_host": 1
+    },
+    {
       "id": "copy_tools",
       "title": "Copy tools (safe copy to edit)",
       "file": "copy_tools.py",
