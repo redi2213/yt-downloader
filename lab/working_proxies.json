@@ -1,44 +1,32 @@
 [
   {
+    "proxy": "socks5://101.36.104.46:10808",
+    "latency_ms": 1313,
+    "ok": true,
+    "body_snip": "{\n  \"origin\": \"101.36.104.46\"\n}\n"
+  },
+  {
     "proxy": "socks5://101.36.104.239:10808",
-    "latency_ms": 1716,
+    "latency_ms": 1327,
     "ok": true,
     "body_snip": "{\n  \"origin\": \"101.36.104.239\"\n}\n"
   },
   {
-    "proxy": "socks5://103.206.68.241:1080",
-    "latency_ms": 4014,
-    "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.206.68.241\"\n}\n"
-  },
-  {
     "proxy": "socks5://103.118.85.144:1080",
-    "latency_ms": 4927,
+    "latency_ms": 3029,
     "ok": true,
     "body_snip": "{\n  \"origin\": \"103.118.85.147\"\n}\n"
   },
   {
-    "proxy": "socks5://103.136.107.70:1080",
-    "latency_ms": 5609,
+    "proxy": "socks5://103.13.234.12:1080",
+    "latency_ms": 4335,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.136.107.70\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.13.234.12\"\n}\n"
   },
   {
-    "proxy": "socks5://103.197.241.209:1080",
-    "latency_ms": 5817,
+    "proxy": "socks5://103.163.244.106:1080",
+    "latency_ms": 9343,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.197.241.209\"\n}\n"
-  },
-  {
-    "proxy": "socks5://103.100.158.115:10809",
-    "latency_ms": 6298,
-    "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.100.158.115\"\n}\n"
-  },
-  {
-    "proxy": "socks5://103.18.78.157:1080",
-    "latency_ms": 10948,
-    "ok": true,
-    "body_snip": "{\n  \"origin\": \"43.252.237.169\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.163.244.106\"\n}\n"
   }
 ]
