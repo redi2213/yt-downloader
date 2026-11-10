@@ -5,7 +5,7 @@ run-name: Cleanup artifacts
 # Videos and APKs live in Releases, not in artifacts; artifacts here are only small helper files
 # that every workflow already expires after 1 day. This job deletes whatever is still older than
 # `older_than_hours` (old APK artifacts from before the build moved to Releases, docker build records, ...)
-# so a forgotten artifact can never fill the quota again. The newest 3 `ytdownloader-apk` artifacts are kept.
+# so a forgotten artifact can never fill the quota again. Nothing is kept back: APKs live in Releases.
 
 on:
   schedule:
@@ -13,9 +13,9 @@ on:
   workflow_dispatch:
     inputs:
       older_than_hours:
-        description: 'Delete artifacts older than this many hours (default 48)'
+        description: 'Delete artifacts older than this many hours (default 12)'
         required: false
-        default: '48'
+        default: '12'
         type: string
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
       - name: Delete old artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          HOURS: ${{ inputs.older_than_hours || '48' }}
+          HOURS: ${{ inputs.older_than_hours || '12' }}
         run: |
           python3 - <<'PY'
           import json, os, urllib.request
@@ -39,9 +39,9 @@ jobs:
           repo = os.environ["GITHUB_REPOSITORY"]
           token = os.environ["GH_TOKEN"]
           try:
-              hours = float(os.environ.get("HOURS") or 48)
+              hours = float(os.environ.get("HOURS") or 12)
           except ValueError:
-              hours = 48.0
+              hours = 12.0
           cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
 
@@ -66,11 +66,9 @@ jobs:
           def created(a):
               return datetime.strptime(a["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
-          keep = {a["id"] for a in sorted((a for a in arts if a["name"] == "ytdownloader-apk"),
-                                          key=created, reverse=True)[:3]}
           deleted = freed = 0
           for a in arts:
-              if a["id"] in keep or created(a) >= cutoff:
+              if created(a) >= cutoff:
                   continue
               try:
                   api("DELETE", f"actions/artifacts/{a['id']}")
