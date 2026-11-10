@@ -12,6 +12,7 @@ on:
     - cron: '0 18 * * *'
     - cron: '15 18 * * *'
     - cron: '0 19 * * *'
+    - cron: '0 22 * * *'
   workflow_dispatch:
     inputs:
       only:
