@@ -519,6 +519,8 @@ jobs:
           N=$(printf '%04d' "${{ matrix.idx }}")
           mv link.txt "link_$N.txt"
           echo "LINKFILE=link_$N.txt" >> "$GITHUB_ENV"
+          # Also in the log: the collect job reads these lines if the artifact cannot be used.
+          sed "s/^/DIRECTLINK|$N|/" "link_$N.txt"
 
       # Helper copy for the collect job only. The link is already in this job's summary, so a full
       # artifact-storage quota must not fail the run (continue-on-error).
@@ -818,6 +820,9 @@ jobs:
     needs: process
     if: ${{ !cancelled() && needs.process.result != 'skipped' && inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/download-artifact@v4
         continue-on-error: true
@@ -826,10 +831,21 @@ jobs:
           merge-multiple: true
 
       - name: Merge links
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           ls link_*.txt 2>/dev/null | sort | xargs cat > links.txt || true
           if [ ! -s links.txt ]; then
-            echo "::warning::No link files could be collected (artifact storage may be full). Each link is still in its own job's summary."
+            # Fallback (only when the artifacts are missing, e.g. storage quota full): read the
+            # DIRECTLINK| lines the process jobs printed in their logs. No extra time otherwise.
+            echo "::warning::Link artifacts not available - reading the links from the job logs instead."
+            : > raw_links.txt
+            for JID in $(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+                           --jq '.jobs[] | select(.name | startswith("process")) | .id'); do
+              gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JID/logs" 2>/dev/null \
+                | grep -o 'DIRECTLINK|[0-9]*|http[^[:space:]]*' >> raw_links.txt || true
+            done
+            sort -u raw_links.txt | cut -d'|' -f3- > links.txt || true
           fi
           {
             echo "**Links:** $(wc -l < links.txt)"
