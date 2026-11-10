@@ -841,7 +841,7 @@ jobs:
             echo "::warning::Link artifacts not available - reading the links from the job logs instead."
             : > raw_links.txt
             for JID in $(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
-                           --jq '.jobs[] | select(.name | startswith("process")) | .id'); do
+                           --jq '.jobs[] | select(.name | startswith("link ")) | .id'); do
               gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JID/logs" 2>/dev/null \
                 | grep -o 'DIRECTLINK|[0-9]*|http[^[:space:]]*' >> raw_links.txt || true
             done
