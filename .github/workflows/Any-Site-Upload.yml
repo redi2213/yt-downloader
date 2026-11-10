@@ -520,8 +520,11 @@ jobs:
           mv link.txt "link_$N.txt"
           echo "LINKFILE=link_$N.txt" >> "$GITHUB_ENV"
 
+      # Helper copy for the collect job only. The link is already in this job's summary, so a full
+      # artifact-storage quota must not fail the run (continue-on-error).
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.mode == 'direct' && !(inputs.quality == 'check' && inputs.format_id == '') }}
+        continue-on-error: true
         with:
           name: link-${{ matrix.idx }}
           path: ${{ env.LINKFILE }}
@@ -817,6 +820,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: link-*
           merge-multiple: true
@@ -824,6 +828,9 @@ jobs:
       - name: Merge links
         run: |
           ls link_*.txt 2>/dev/null | sort | xargs cat > links.txt || true
+          if [ ! -s links.txt ]; then
+            echo "::warning::No link files could be collected (artifact storage may be full). Each link is still in its own job's summary."
+          fi
           {
             echo "**Links:** $(wc -l < links.txt)"
             echo '```'
@@ -832,6 +839,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: links
           path: links.txt
