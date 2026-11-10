@@ -12,7 +12,9 @@
 
 ---
 
-## ذخیره‌سازی: ریلیز گیت‌هاب و/یا آروان‌کلاد
+## ذخیره‌سازی: ریلیز گیت‌هاب و/یا آروان‌کلاد (حالت قدیمی)
+
+> **وضعیت فعلی:** این «حالت ذخیره‌سازی» غیرفعال است (`api/storage_prefs.get_mode()` همیشه `github` برمی‌گرداند). آروان حالا با ورک‌فلوهای جدا و بخش «Arvan files» کار می‌کند؛ پایین‌تر را ببین.
 
 اپ یک انتخاب سه‌حالته دارد (دکمه‌ی «Storage» در صفحه‌ی اصلی، یا Settings ← Storage): `github` (پیش‌فرض)، `arvan`، `both`.
 انتخاب با دو ورودی `storage` و `arvan_bucket` به هر workflowی که فایل می‌سازد فرستاده می‌شود
@@ -211,3 +213,45 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
   (هم step آپلود artifact و هم job `finalize` شرط داشتند). در حالت پیش‌فرض `github` هیچ‌وقت کیفیت به توضیح ریلیز نمی‌رسید. شرط‌ها برداشته شد؛
   `finalize` در حالت github اگر کیفیتی نبود هنوز چیزی را عوض نمی‌کند.
 - `quality_probe.py`: اگر روی runner `ffprobe` نبود، یک بار `ffmpeg` را با apt نصب می‌کند (فقط وقتی `GITHUB_ACTIONS=true`)، پس برای همه‌ی ورک‌فلوها بدون تغییر YAML کار می‌کند.
+
+---
+
+## به‌روزرسانی‌های آبان ۱۴۰۵ (تا نسخه‌ی ۲٫۴۲)
+
+### آروان‌کلاد (روش جدید، مستقل از حالت ذخیره‌سازی قدیمی)
+- ورک‌فلوها: `arvan-upload.yml` (آپلود فایل‌های ریلیز با asset id)، `arvan-from-link.yml` (دانلود لینک مستقیم و آپلود)، `arvan-manage.yml` (`action=list|delete|rename`). همه با `scripts/arvan_tool.py`؛ کلیدها از Secretهای `ARVAN_ACCESS_KEY/SECRET_KEY/BUCKET/ENDPOINT`، فایل‌ها زیر یک prefix ثابت.
+- لیست کل باکت به‌صورت asset به اسم `arvan-list.json` در ریلیز `arvan-index` می‌آید؛ هر ران manage دوباره آن را می‌نویسد (`services/arvan_service.py`).
+- UI: Release History > «Arvan files» (انتخاب، کپی لینک، تغییر نام، حذف) و «To Arvan» روی فایل‌ها (`screens/arvan.py`، منطق در `screens/arvan_controller.py` که به Navigator اضافه شده: `Navigator(ArvanController)`).
+
+### نگه‌داری فایل‌ها (retention)
+- `scripts/retention_core.py` (مشترک بین اپ و ورک‌فلو، `core/retention.py` فقط واسط است): فایل‌های ریلیزهای `run-*`، `auto-*` و ربات تلگرام (`tg-*`/`url-*`) بعد از **۷ روز** پاک می‌شوند؛ `job-*` فعلاً دست‌نخورده (`JOB_EXPIRES=False`). فایل‌های قدیمی Auto follow و ربات تا `GRACE_UNTIL` مهلت دارند.
+- کاربر می‌تواند تاریخ حذف یک فایل را عقب بیندازد یا «forever» کند؛ در توضیح ریلیز به‌صورت بلوک `<!--ytb-keep:{...}-->` نوشته می‌شود (تاریخ حذف = دیرترین بین تاریخ عادی و تاریخ نوشته‌شده). پیش‌تنظیم‌ها: ۳، ۷، ۱۴، ۳۰ روز. صفحه‌های `show_extend_prompt` و `show_deadlines`.
+- `cleanup-releases.yml` هر روز ساعت ۰۳:۰۰ UTC اجرا می‌شود (ریلیزهای بدون فایل + فایل‌های منقضی؛ APK و بکاپ نگه داشته می‌شوند؛ `dry_run` دارد) با `scripts/cleanup_releases.py`. ورک‌فلوی `standalone-cleanup-all-artifacts.yml` مستقل از اپ است و همه‌ی artifactها را پاک می‌کند.
+
+### یوتیوب
+- **کادر هوشمند** (`screens/youtube_download.py`، `core/youtube_links.py`): نوع لینک (ویدیو / پلی‌لیست / کانال) تعیین می‌کند کدام دکمه‌ها بیایند. برای یک ویدیو «More from this video's channel» (آخرین یا پربازدیدترین ویدیوهای کانال) هم هست.
+- **دانلود دسته‌ای** (`download-batch.yml`، `scripts/batch_download.py`): چند ویدیو در یک ران روی گیت‌هاب، `max_parallel` (۱ تا ۲۰، پیش‌فرض ۶)؛ برای هر ویدیو یک خط `RESULT` چاپ می‌شود که اپ می‌خواند و هر ویدیو ریلیز `run-<id>` خودش را دارد؛ اپ می‌تواند بسته باشد.
+
+### Any site
+- **نسخه‌ی گوشی** (`services/anysite_phone_service.py`): خود گوشی صفحه را با yt-dlp می‌خواند (IP گوشی)، فقط فرمت‌هایی که تک‌فایل و دارای تصویر و صدا هستند پیشنهاد می‌شوند و لینک انتخابی به `upload-file.yml` می‌رود. محدودیت: لینکِ وابسته به IP گوشی ممکن است هنگام دانلود روی گیت‌هاب ۴۰۳ بدهد (`show_anysite_phone_formats`).
+- **پروکسی / v2ray**: Settings > Downloads and storage > «Proxy / v2ray config». کانفیگ به‌صورت Secret با نام `V2RAY_CONFIG` ذخیره می‌شود و قابل خواندن نیست (فقط «saved / not saved»)؛ باکس v2ray در Any site برای همان یک ران جای آن را می‌گیرد. `scripts/xray_setup.py` یک Xray SOCKS5 محلی (`127.0.0.1:10808`) از share link، اشتراک یا JSON می‌سازد و فقط برای خواندن صفحه است؛ اگر نشد فقط هشدار می‌دهد و ادامه می‌دهد.
+- `find-proxies.yml` پروکسی‌های رایگان کارآمد را در `working_proxies.txt` برنچ config نگه می‌دارد.
+
+### Mornye (موسیقی lossless، فقط روی گوشی)
+- `api.zarz.moe` به IP رانرهای گیت‌هاب چالش Cloudflare می‌دهد، پس لینک‌ها از شبکه‌ی خود گوشی گرفته می‌شود (`api/mornye.py`، `services/mornye_link_service.py`): لینک Spotify ← لیست ترک‌ها ← ISRC و Tidal id ← نشست امضاشده (یک بار تأیید مرورگر و چسباندن کد؛ حدود ۲ ساعت) ← لینک مستقیم FLAC.
+- دانلود روی گوشی: `core/mornye_download.py`؛ فایل DASH بدون ffmpeg به FLAC تبدیل می‌شود (`core/fmp4_flac.py`) و تگ و کاور با `core/flac_tags.py` نوشته می‌شود.
+- گزینه‌ی روی گیت‌هاب: `mornye-from-links.yml` + `scripts/mornye_fetch.py` (لینک‌ها از گوشی می‌آید، ورک‌فلو فقط دانلود و انتشار می‌کند). لاگ بدون راز بعد از هر اجرا در `logs/` برنچ config ذخیره می‌شود.
+
+### Lab و پلاگین‌ها
+- پلاگین = فایل پایتون با `def build(host)`. منبع (`core/plugin_loader.py`): `lab` (برنچ `lab`، پوشه‌ی `lab/`، ابزارهای در حال آزمایش)، `config` (برنچ config، پوشه‌ی `plugins/`، ابزارهای نهایی در Download Anything)، `bundled` (پوشه‌ی `plugins_bundled/` داخل APK).
+- کد از طریق GitHub API با توکن خود اپ خوانده می‌شود و آخرین نسخه‌ی سالم روی گوشی می‌ماند. هنگام بالا آمدن اپ هیچ پلاگینی اجرا نمی‌شود، فقط وقتی کاربر بازش کند (پلاگین خراب جلوی باز شدن اپ را نمی‌گیرد).
+- `screens/plugin_host.py` شیء `host` را می‌سازد (show/replace/back، title/text/button/input/choice، status و ...)، `screens/plugin_runner.py` اجرا می‌کند، `screens/lab.py` فهرست `lab/index.json` را نشان می‌دهد. حذف `screens/lab.py` دکمه‌ی Lab را از صفحه‌ی اصلی برمی‌دارد.
+- ورک‌فلوهای Lab: `lab-run.yml` فقط stub ثبت‌نام است (تعریف واقعی روی برنچ `lab` اجرا می‌شود)؛ `lab-download`، `lab-links`، `lab-workflow` (Pinterest)، `lab-find-proxies`، `lab-refresh-configs`. `lab-schedule.yml` روی main است چون زمان‌بندی فقط از main اجرا می‌شود و هر ۱۲ ساعت پروکسی‌ها و هر ۲۴ ساعت کانفیگ‌ها را روی برنچ lab تازه می‌کند (تنظیم در `lab/default_sources.json`). `lab_examples` و `tests` در بیلد APK نمی‌آیند.
+
+### موارد دیگر
+- **اعلان اندروید** (`core/android_notify.py`): با pyjnius ساخته می‌شود؛ لمس آن اپ را روی همان job باز می‌کند (`core/android_share.py` شناسه‌ی job و run را به Navigator می‌دهد). در صورت شکست به plyer برمی‌گردد.
+- **بررسی نسخه‌ی جدید** (`core/version_check.py`، `services/update_check_service.py`): نسخه‌ی اپ با `version.txt` برنچ main مقایسه می‌شود؛ بیلد از برنچ‌های دیگر مثل `2.25-dev.7` است.
+- **اینستاگرام**: ورک‌فلوی `instagram-downloader.yml`.
+- **ظاهر**: صفحه‌ی `show_appearance_date` (نمایش تاریخ). **صفحه‌ی اصلی**: کادر «Paste any link here» + Go.
+- **بیلد**: آیکون و presplash در `assets/`، مجوزهای جدید (`ACCESS_NETWORK_STATE`، `WAKE_LOCK`، `FOREGROUND_SERVICE`، `VIBRATE`، `READ_MEDIA_*`).
+- **Secretها**: `V2RAY_CONFIG` و `PROXY` به لیست قبلی اضافه شدند.
