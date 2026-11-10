@@ -1,50 +1,50 @@
 [
   {
     "proxy": "socks5://101.36.104.239:10808",
-    "latency_ms": 1359,
+    "latency_ms": 1418,
     "ok": true,
     "body_snip": "{\n  \"origin\": \"101.36.104.239\"\n}\n"
   },
   {
-    "proxy": "socks5://103.155.185.26:1088",
-    "latency_ms": 2482,
+    "proxy": "socks5://101.36.104.46:10808",
+    "latency_ms": 1836,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.155.185.68\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"101.36.104.46\"\n}\n"
   },
   {
-    "proxy": "socks5://103.157.78.22:8199",
-    "latency_ms": 3321,
+    "proxy": "socks5://103.189.63.149:53053",
+    "latency_ms": 4610,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.157.78.22\"\n}\n"
-  },
-  {
-    "proxy": "socks5://103.136.106.13:1081",
-    "latency_ms": 3635,
-    "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.136.106.102\"\n}\n"
-  },
-  {
-    "proxy": "socks5://103.151.75.21:2025",
-    "latency_ms": 3944,
-    "ok": true,
-    "body_snip": "{\n  \"origin\": \"45.117.62.31\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.189.63.149\"\n}\n"
   },
   {
     "proxy": "socks5://103.100.158.115:10809",
-    "latency_ms": 5482,
+    "latency_ms": 4652,
     "ok": true,
     "body_snip": "{\n  \"origin\": \"103.100.158.115\"\n}\n"
   },
   {
-    "proxy": "socks5://101.53.238.37:1080",
-    "latency_ms": 7034,
+    "proxy": "socks5://103.182.22.179:9000",
+    "latency_ms": 4815,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"149.40.242.118\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.182.22.179\"\n}\n"
   },
   {
-    "proxy": "socks5://103.146.17.148:1080",
-    "latency_ms": 9172,
+    "proxy": "socks5://103.182.22.198:9000",
+    "latency_ms": 5124,
     "ok": true,
-    "body_snip": "{\n  \"origin\": \"103.112.204.89\"\n}\n"
+    "body_snip": "{\n  \"origin\": \"103.182.22.198\"\n}\n"
+  },
+  {
+    "proxy": "socks5://103.182.22.245:9000",
+    "latency_ms": 5941,
+    "ok": true,
+    "body_snip": "{\n  \"origin\": \"103.182.22.245\"\n}\n"
+  },
+  {
+    "proxy": "socks5://103.239.201.50:58765",
+    "latency_ms": 6674,
+    "ok": true,
+    "body_snip": "{\n  \"origin\": \"103.239.201.50\"\n}\n"
   }
 ]
