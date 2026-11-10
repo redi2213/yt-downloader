@@ -63,7 +63,11 @@ class Navigator(ArvanController):
     # -- the phone's own Back key ---------------------------------------------
     def _content_widgets(self):
         content = self.app.content
-        return list(content) if isinstance(content, list) else list(content.children)
+        widgets = list(content) if isinstance(content, list) else list(content.children)
+        footer = getattr(self.app, "footer", None)    # the fixed bottom bar (its Back button counts)
+        if footer is not None:
+            widgets += list(footer.children)
+        return widgets
 
     def go_back(self):
         """Android's Back key: does what this screen's own Back button does,
@@ -127,6 +131,10 @@ class Navigator(ArvanController):
     def add(self, widget):
         common.fit_height(widget)
         self.app.add_widget_to_content(widget)
+
+    def set_footer(self, widget):
+        """A bar fixed at the bottom of the screen (cleared by the next clear())."""
+        self.app.set_footer(widget)
 
     def set_status_label(self, label):
         self.app.status_label = label
@@ -2368,6 +2376,7 @@ class Navigator(ArvanController):
         self._history_follow = None
         self._history_bot = False
         self._history_apk = False
+        self._history_all = False
         self._history_page = 0
         self.show_live_history()
 
@@ -2376,6 +2385,7 @@ class Navigator(ArvanController):
         self._history_follow = None
         self._history_bot = False
         self._history_apk = True
+        self._history_all = False
         self._history_page = 0
         self.show_live_history()
 
@@ -2384,6 +2394,13 @@ class Navigator(ArvanController):
         self._history_follow = None
         self._history_bot = True
         self._history_apk = False
+        self._history_all = False
+        self._history_page = 0
+        self.show_live_history()
+
+    def toggle_history_all(self):
+        """Release History: every file on one screen (search/filter over all) <-> 20 per page."""
+        self._history_all = not getattr(self, "_history_all", False)
         self._history_page = 0
         self.show_live_history()
 
@@ -2422,6 +2439,8 @@ class Navigator(ArvanController):
             page=getattr(self, "_history_page", 0),
             repo="bot" if getattr(self, "_history_bot", False) else None,
             apk=getattr(self, "_history_apk", False),
+            all_files=bool(getattr(self, "_history_all", False) and not f
+                           and not getattr(self, "_history_bot", False)),
         )
 
     def render_history(self, res):
@@ -2441,7 +2460,8 @@ class Navigator(ArvanController):
             self._history_page = res["page"]
             history_screen.build(
                 self, items, title="APK builds and backups", back=self.show_release_history,
-                page=res["page"], has_next=res["has_next"], apk=True)
+                page=res["page"], has_next=res["has_next"], apk=True,
+                all_files=getattr(self, "_history_all", False), on_toggle_all=self.toggle_history_all)
             return
         if f is None:
             self._history_page = res["page"]   # a page past the end falls back to the last one
@@ -2449,7 +2469,8 @@ class Navigator(ArvanController):
                 self, items, page=res["page"], has_next=res["has_next"],
                 follows=getattr(self, "_follows", None) or [], new=getattr(self, "_follow_new", None) or {},
                 on_follow=self.show_follow_history, on_bot=self.show_bot_history, on_apk=self.show_apk_history,
-                on_deadlines=self.show_deadlines)
+                on_deadlines=self.show_deadlines,
+                all_files=getattr(self, "_history_all", False), on_toggle_all=self.toggle_history_all)
             if box is not None:
                 self._load_follow_buttons(box)
             return

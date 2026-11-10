@@ -8,6 +8,7 @@ upload, playlist, or GitHub logic belongs here - see ``services`` and
 """
 from kivy.app import App
 from kivy.core.window import Window
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
@@ -37,7 +38,13 @@ class YTBridgeApp(App):
         self.nav.show_home()
         # The phone's own Back key (key code 27) goes one screen back.
         Window.bind(on_keyboard=self._on_keyboard)
-        return self.scroll
+        # Fixed bar under the scrolling content (a screen fills it with Navigator.set_footer).
+        self.footer = BoxLayout(orientation="vertical", size_hint_y=None, height=0,
+                                padding=(PAD, dp(6)))
+        root = BoxLayout(orientation="vertical")
+        root.add_widget(self.scroll)
+        root.add_widget(self.footer)
+        return root
 
     def _on_keyboard(self, window, key, *args):
         if key == 27:
@@ -65,6 +72,13 @@ class YTBridgeApp(App):
 
     def clear_content(self):
         self.content.clear_widgets()
+        self.footer.clear_widgets()
+        self.footer.height = 0
+
+    def set_footer(self, widget):
+        self.footer.clear_widgets()
+        self.footer.add_widget(widget)
+        self.footer.height = widget.height + dp(12)
 
     def add_widget_to_content(self, widget):
         self.content.add_widget(widget)

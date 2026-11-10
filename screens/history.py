@@ -80,6 +80,15 @@ def _day_label(item):
     return timeutil.datetime_to_local(dt, "%Y-%m-%d")
 
 
+def _summary(items, all_files):
+    total = sum(it.get("size", 0) for it in items) / (1024 * 1024)
+    size = f"{total / 1024:.1f} GB" if total >= 1024 else f"{total:.0f} MB"
+    soon = sum(1 for it in items if not it.get("forever") and it.get("days_left") is not None
+               and it["days_left"] <= 3)
+    text = f"{len(items)} files  ·  {size}" + ("" if all_files else "  (this page)")
+    return text + (f"  ·  {soon} expire within 3 days" if soon else "")
+
+
 def _deadline_color(item):
     if item.get("forever"):
         return "66dd88"
@@ -115,7 +124,7 @@ def _grid_rows(nav, buttons):
 
 def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False,
           follows=None, new=None, on_follow=None, bot=False, on_bot=None, apk=False, on_apk=None,
-          on_deadlines=None):
+          on_deadlines=None, all_files=False, on_toggle_all=None):
     """``title`` / ``back``: another title and parent screen when this list shows only
     one Auto follow channel's files. ``extra``: (button text, function) shown at the top.
 
@@ -124,8 +133,15 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     on the selection toolbar (copy/share/delete many); nothing destructive is on screen otherwise."""
     nav.clear()
     paged = back is None or bot or apk   # the normal list and the bot's list are paged; one Auto follow channel is not
-    heading = f"{title} - page {page + 1} ({len(items)} files)" if paged else f"{title} ({len(items)} found)"
+    if paged and all_files:
+        heading = f"{title} - all {len(items)} files"
+    elif paged:
+        heading = f"{title} - page {page + 1} ({len(items)} files)"
+    else:
+        heading = f"{title} ({len(items)} found)"
     nav.add(Label(text=heading, size_hint_y=None, height=BTN_H))
+    if items:
+        nav.add(wrapped_label(_summary(items, all_files), halign="center"))
 
     top = []
     if on_deadlines and not bot and not apk and page == 0:
@@ -155,6 +171,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     cards = {}   # item index -> card colour of the cards on screen
     view = []    # item indices shown now (after search / type filter / sort)
     state = {"type": 0, "sort": 0}
+    cap = 40 if all_files else None   # "all files" can be hundreds: draw the first 40 of the matches
     all_btn_ref = []
     info = Label(text="", size_hint_y=None, height=BTN_H)
     toolbar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
@@ -305,7 +322,8 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     def render_list(*_args):
         list_box.clear_widgets()
         cards.clear()
-        view[:] = compute_view()
+        full = compute_view()
+        view[:] = full[:cap] if cap else full
         if not view:
             list_box.add_widget(Label(text="No matching files", size_hint_y=None, height=BTN_H))
         last = None
@@ -319,6 +337,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
                     list_box.add_widget(head)
                     last = group
             list_box.add_widget(make_card(idx, items[idx]))
+        if cap and len(full) > cap:
+            list_box.add_widget(wrapped_label(
+                f"Showing the first {cap} of {len(full)} files - type in the search box to narrow it.",
+                halign="center"))
         update_info()
         if all_btn_ref:
             all_btn_ref[0].text = f"Delete all {len(view)} shown"
@@ -343,6 +365,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         filters = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
         filters.add_widget(type_btn)
         filters.add_widget(sort_btn)
+        if on_toggle_all and not bot:
+            scope_btn = Button(text="Pages" if all_files else "All files")
+            scope_btn.bind(on_press=lambda i: on_toggle_all())
+            filters.add_widget(scope_btn)
         nav.add(filters)
         mode_btn.bind(on_press=toggle_mode)
         nav.add(mode_btn)
@@ -350,17 +376,17 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         render_list()
         nav.add(list_box)
 
+    # Fixed bar at the bottom of the screen: Back (+ Previous / Next), always in reach.
+    footer = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    footer.add_widget(back_button(nav, to=back))
     if paged and (page > 0 or has_next):
-        pager = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        prev_btn = Button(text="< Previous 20", disabled=page == 0)
+        prev_btn = Button(text="< Prev 20", disabled=page == 0)
         prev_btn.bind(on_press=lambda i: nav.show_history_page(page - 1))
         next_btn = Button(text="Next 20 >", disabled=not has_next)
         next_btn.bind(on_press=lambda i: nav.show_history_page(page + 1))
-        pager.add_widget(prev_btn)
-        pager.add_widget(next_btn)
-        nav.add(pager)
-
-    nav.add(back_button(nav, to=back))
+        footer.add_widget(prev_btn)
+        footer.add_widget(next_btn)
+    nav.set_footer(footer)
     return follow_box
 
 
