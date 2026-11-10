@@ -280,8 +280,24 @@ def _h(q: dict) -> int:
     return int(m.group(1)) if m else 0
 
 
+PEEK_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def is_peekvids(url: str) -> bool:
+    return bool(re.search(r"(^|//|\.)peekvids\.com(/|$)", url or "", re.I))
+
+
 def via_ytdlp(url: str, proxy: str | None) -> dict:
     cmd = ["yt-dlp", "--no-warnings", "--socket-timeout", "15", "-J", "--no-download", url]
+    if is_peekvids(url):
+        # PeekVids has no own extractor: Generic + HTML5 with a browser UA and the page as referer
+        url = url.split("?", 1)[0].split("#", 1)[0]
+        cmd = ["yt-dlp", "--no-warnings", "--socket-timeout", "15", "-J", "--no-download",
+               "--no-playlist", "--retries", "3", "--ies", "Generic,HTML5",
+               "--user-agent", PEEK_UA, "--referer", url, url]
     if proxy:
         cmd[1:1] = ["--proxy", proxy]
     try:
