@@ -9,12 +9,12 @@ from kivy.utils import escape_markup
 
 from datetime import datetime
 
-from core import android_actions, timeutil
+from core import android_actions, i18n, timeutil
 from kivy.metrics import dp
 
 from screens.common import (
     BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box,
-    content_width, paint_card, wrapped_label, wrapped_label_height,
+    content_width, fa_text, paint_card, wrapped_label, wrapped_label_height,
 )
 
 _DANGER = (1.0, 0.55, 0.55, 1)   # tint for buttons that delete things
@@ -317,10 +317,16 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         parts, deadline = _meta_parts(item)
         meta_plain = "  ·  ".join(parts + ([deadline] if deadline else []))
         plain = f"{item['title']}\n{meta_plain}"
-        markup = (f"{escape_markup(item['title'])}\n[size=13sp][color=999999]{escape_markup('  ·  '.join(parts))}[/color]"
-                  + (f"  [color={_deadline_color(item)}]{escape_markup(deadline)}[/color]" if deadline else "")
-                  + "[/size]")
         text_w = (inner_width - dp(16)) * 0.78
+        # The card has [color]/[size] markup, which the Persian layer (translate + shape) would
+        # reverse together with the words, so the pieces are translated / shaped HERE and the
+        # card is excluded from that layer (``_ytb_notr``).
+        title_s = fa_text(item["title"], text_w) if i18n.is_fa() else item["title"]
+        parts_s = [fa_text(p) if i18n.is_fa() else p for p in parts]
+        deadline_s = fa_text(i18n.tr(deadline)) if (deadline and i18n.is_fa()) else deadline
+        markup = (f"{escape_markup(title_s)}\n[size=13sp][color=999999]{escape_markup('  ·  '.join(parts_s))}[/color]"
+                  + (f"  [color={_deadline_color(item)}]{escape_markup(deadline_s)}[/color]" if deadline else "")
+                  + "[/size]")
         title_height = max(BTN_H, wrapped_label_height(plain, extra_padding=dp(14), width=text_w))
         row = card_box([title_height])
         cards[idx] = paint_card(row, CARD_ON if selected[idx] else CARD)
@@ -329,6 +335,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
                                on_hold=lambda it=item: nav.show_item_menu(it),
                                text=markup, markup=True, size_hint_x=0.78, halign="left", valign="middle",
                                background_normal="", background_color=(0, 0, 0, 0))
+        title_btn._ytb_notr = True
         title_btn.text_size = (text_w, None)
         line.add_widget(title_btn)
         copy_btn = Button(text="Copy", size_hint_x=0.22)
