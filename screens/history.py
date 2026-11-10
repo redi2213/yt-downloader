@@ -3,6 +3,8 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
+from kivy.utils import escape_markup
 
 from core import android_actions
 from kivy.metrics import dp
@@ -22,17 +24,15 @@ def build_loading(nav):
 
 
 def fill_follow_box(box, follows, new, on_open):
-    """One button per Auto follow channel (their files are no longer behind the channel's own
-    screen). The title names the channel, so it is clear which one it is."""
+    """One compact button per Auto follow channel (their files are no longer behind the
+    channel's own screen)."""
     box.clear_widgets()
     if not follows:
         box.height = 0
         return
-    box.add_widget(Label(text="Auto follow channels", size_hint_y=None, height=32))
     for f in follows:
         badge = f"  [NEW {new[f['id']]}]" if new.get(f.get("id")) else ""
-        btn = Button(text=f"Auto follow channel: {f.get('name', '?')}{badge}\nfiles of this channel",
-                     size_hint_y=None, height=dp(64), halign="center")
+        btn = Button(text=f"Auto follow: {f.get('name', '?')}{badge}", size_hint_y=None, height=BTN_H)
         btn.bind(on_press=lambda i, f=f: on_open(f))
         box.add_widget(btn)
 
@@ -44,38 +44,63 @@ def build_bot_error(nav, message, back=None):
     nav.add(back_button(nav, to=back))
 
 
+def _deadline_color(item):
+    if item.get("forever"):
+        return "66dd88"
+    days = item.get("days_left")
+    if days is None:
+        return "aaaaaa"
+    return "ff6666" if days <= 3 else ("ffcc55" if days <= 7 else "66dd88")
+
+
+def _meta_parts(item):
+    """(size, date, quality, deadline) pieces of the small grey line under a file's title."""
+    size_mb = item.get("size", 0) / (1024 * 1024)
+    parts = [f"{size_mb:.1f} MB"] if size_mb else []
+    parts.append(str(item["date"]).replace("\n", " "))
+    if item.get("quality_label"):
+        parts.append(item["quality_label"])
+    deadline = item.get("deadline_text") if item.get("asset_id") is not None else ""
+    return parts, deadline
+
+
+def _grid_rows(nav, buttons):
+    """Compact buttons, two per row: ``buttons`` = [(text, callback)]."""
+    for i in range(0, len(buttons), 2):
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        for text, fn in buttons[i:i + 2]:
+            btn = Button(text=text)
+            btn.bind(on_press=lambda _i, fn=fn: fn())
+            row.add_widget(btn)
+        if len(buttons[i:i + 2]) == 1:
+            row.add_widget(Widget())
+        nav.add(row)
+
+
 def build(nav, items, title="Release History", back=None, extra=None, page=0, has_next=False,
           follows=None, new=None, on_follow=None, bot=False, on_bot=None, apk=False, on_apk=None,
           on_deadlines=None):
     """``title`` / ``back``: another title and parent screen when this list shows only
-    one Auto follow channel's files. ``extra``: (button text, function) shown at the top."""
+    one Auto follow channel's files. ``extra``: (button text, function) shown at the top.
+
+    Compact list: one small card per file (title, grey size/date line, coloured days left, quick
+    Copy). Tap a card = its menu (copy, share, rename, zip, extend, delete). "Select files" turns
+    on the selection toolbar (copy/share/delete many); nothing destructive is on screen otherwise."""
     nav.clear()
     paged = back is None or bot or apk   # the normal list and the bot's list are paged; one Auto follow channel is not
     heading = f"{title} - page {page + 1} ({len(items)} files)" if paged else f"{title} ({len(items)} found)"
     nav.add(Label(text=heading, size_hint_y=None, height=BTN_H))
 
+    top = []
     if on_deadlines and not bot and not apk and page == 0:
-        dl_btn = Button(text="File deadlines\nwhen each file is deleted", size_hint_y=None,
-                        height=dp(64), halign="center")
-        dl_btn.bind(on_press=lambda i: on_deadlines())
-        nav.add(dl_btn)
-
+        top.append(("File deadlines", on_deadlines))
     if on_bot and not bot and page == 0:
-        bot_btn = Button(text="Telegram bot files\noutputs of the Telegram bot", size_hint_y=None,
-                         height=dp(64), halign="center")
-        bot_btn.bind(on_press=lambda i: on_bot())
-        nav.add(bot_btn)
-
+        top.append(("Telegram bot", on_bot))
     if on_apk and not bot and not apk and page == 0:
-        apk_btn = Button(text="APK builds and backups", size_hint_y=None, height=BTN_H)
-        apk_btn.bind(on_press=lambda i: on_apk())
-        nav.add(apk_btn)
-
+        top.append(("APK and backups", on_apk))
     if paged and not bot and not apk and page == 0 and hasattr(nav, "show_arvan_files"):
-        arvan_btn = Button(text="Arvan files\nall files of the Arvan bucket", size_hint_y=None,
-                           height=dp(64), halign="center")
-        arvan_btn.bind(on_press=lambda i: nav.show_arvan_files())
-        nav.add(arvan_btn)
+        top.append(("Arvan files", nav.show_arvan_files))
+    _grid_rows(nav, top)
 
     follow_box = None
     if paged and not bot and not apk and page == 0:
@@ -90,20 +115,28 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         nav.add(extra_btn)
 
     selected = [False] * len(items)
+    select_mode = [False]
     cards = []   # (card colour, title button) of every item, in display order
     info = Label(text="", size_hint_y=None, height=BTN_H)
+    toolbar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
+    toolbar.bind(minimum_height=toolbar.setter("height"))
+    toolbar.height = 0
+    mode_btn = Button(text="Select files", size_hint_y=None, height=BTN_H)
 
     def selected_items():
         return [it for it, on in zip(items, selected) if on]
 
-    def set_selected(idx, value):
-        selected[idx] = value
-        color, _title = cards[idx]
-        color.rgba = CARD_ON if value else CARD
-        update_info()
-
     def update_info(*_args):
         info.text = f"Selected: {len(selected_items())} of {len(items)}"
+
+    def set_selected(idx, value):
+        selected[idx] = value
+        cards[idx][0].rgba = CARD_ON if value else CARD
+        update_info()
+
+    def set_all(value):
+        for idx in range(len(items)):
+            set_selected(idx, value)
 
     def need_selection():
         sel = selected_items()
@@ -139,85 +172,86 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         else:
             info.text = "Select files kept on GitHub (not Arvan or bot files)"
 
-    def set_all(value):
-        for idx in range(len(items)):
-            set_selected(idx, value)
+    def fill_toolbar():
+        toolbar.clear_widgets()
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        for text, fn in (("Select all", lambda i: set_all(True)), ("Clear", lambda i: set_all(False))):
+            btn = Button(text=text)
+            btn.bind(on_press=fn)
+            row.add_widget(btn)
+        toolbar.add_widget(row)
+        update_info()
+        toolbar.add_widget(info)
+        actions = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        buttons = [("Copy links", copy_selected), ("Share", share_selected)]
+        if not bot and not apk and hasattr(nav, "start_arvan_upload"):
+            buttons.append(("To Arvan", arvan_selected))
+        buttons.append(("Delete", delete_selected))
+        for text, fn in buttons:
+            btn = Button(text=text, background_color=_DANGER) if text == "Delete" else Button(text=text)
+            btn.bind(on_press=fn)
+            actions.add_widget(btn)
+        toolbar.add_widget(actions)
+        all_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None, height=BTN_H,
+                         background_color=_DANGER)
+        all_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm(items))
+        toolbar.add_widget(all_btn)
+
+    def toggle_mode(_inst):
+        select_mode[0] = not select_mode[0]
+        if select_mode[0]:
+            mode_btn.text = "Done selecting"
+            fill_toolbar()
+        else:
+            set_all(False)
+            mode_btn.text = "Select files"
+            toolbar.clear_widgets()
+            toolbar.height = 0
+
+    def on_tap(idx, item):
+        if select_mode[0]:
+            set_selected(idx, not selected[idx])
+        else:
+            nav.show_item_menu(item)
 
     if not items:
         nav.add(Label(text="No files yet" if back else "No downloads yet", size_hint_y=None, height=BTN_H))
     else:
-        select_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        select_all_btn = Button(text="Select all")
-        select_all_btn.bind(on_press=lambda i: set_all(True))
-        clear_btn = Button(text="Clear")
-        clear_btn.bind(on_press=lambda i: set_all(False))
-        select_row.add_widget(select_all_btn)
-        select_row.add_widget(clear_btn)
-        nav.add(select_row)
-
-        update_info()
-        nav.add(info)
-
-        action_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        copy_sel_btn = Button(text="Copy links")
-        copy_sel_btn.bind(on_press=copy_selected)
-        share_sel_btn = Button(text="Share")
-        share_sel_btn.bind(on_press=share_selected)
-        delete_sel_btn = Button(text="Delete selected", background_color=_DANGER)
-        delete_sel_btn.bind(on_press=delete_selected)
-        action_row.add_widget(copy_sel_btn)
-        action_row.add_widget(share_sel_btn)
-        if not bot and not apk and hasattr(nav, "start_arvan_upload"):
-            arvan_sel_btn = Button(text="To Arvan")
-            arvan_sel_btn.bind(on_press=arvan_selected)
-            action_row.add_widget(arvan_sel_btn)
-        action_row.add_widget(delete_sel_btn)
-        nav.add(action_row)
-
-        bulk_delete_btn = Button(text=f"Delete all {len(items)} shown", size_hint_y=None,
-                                 height=BTN_H, background_color=_DANGER)
-        bulk_delete_btn.bind(on_press=lambda i: nav.show_bulk_delete_confirm(items))
-        nav.add(bulk_delete_btn)
+        mode_btn.bind(on_press=toggle_mode)
+        nav.add(mode_btn)
+        nav.add(toolbar)
 
     inner_width = content_width() - 2 * dp(8)
     for idx, item in enumerate(items):
-        size_mb = item.get("size", 0) / (1024 * 1024)
-        size_text = f" ({size_mb:.1f} MB)" if size_mb else ""
-        qlabel = item.get("quality_label", "")
-        quality_text = f"  - {qlabel}" if qlabel else ""
-        title_text = f"{item['date']}\n{item['title']}{size_text}{quality_text}"
-        title_height = wrapped_label_height(title_text, extra_padding=dp(14), width=inner_width - dp(16))
+        parts, deadline = _meta_parts(item)
+        meta_plain = "  ·  ".join(parts + ([deadline] if deadline else []))
+        plain = f"{item['title']}\n{meta_plain}"
+        markup = (f"{escape_markup(item['title'])}\n[size=13sp][color=999999]{escape_markup('  ·  '.join(parts))}[/color]"
+                  + (f"  [color={_deadline_color(item)}]{escape_markup(deadline)}[/color]" if deadline else "")
+                  + "[/size]")
+        text_w = (inner_width - dp(16)) * 0.78
+        title_height = max(BTN_H, wrapped_label_height(plain, extra_padding=dp(14), width=text_w))
 
-        # One card per file: tap the file's text to select it - the whole card
-        # turns green. Link on its own line, then four evenly spaced buttons.
-        has_deadline = bool(item.get("deadline_text")) and item.get("asset_id") is not None
-        row = card_box([title_height, SMALL_BTN_H, BTN_H] + ([BTN_H] if has_deadline else []))
+        row = card_box([title_height])
         color = paint_card(row, CARD)
+        line = BoxLayout(orientation="horizontal", size_hint_y=None, height=title_height, spacing=dp(4))
 
-        title_btn = Button(text=title_text, size_hint_y=None, height=title_height, halign="left",
-                           valign="middle", background_normal="", background_color=(0, 0, 0, 0))
-        title_btn.text_size = (inner_width - dp(16), None)
-        title_btn.bind(on_press=lambda i, n=idx: set_selected(n, not selected[n]))
+        title_btn = Button(text=markup, markup=True, size_hint_x=0.78, halign="left", valign="middle",
+                           background_normal="", background_color=(0, 0, 0, 0))
+        title_btn.text_size = (text_w, None)
+        title_btn.bind(on_press=lambda i, n=idx, it=item: on_tap(n, it))
         cards.append((color, title_btn))
-        row.add_widget(title_btn)
+        line.add_widget(title_btn)
 
-        row.add_widget(TextInput(text=item["link"], readonly=True, multiline=False,
-                                 size_hint_y=None, height=SMALL_BTN_H))
+        copy_btn = Button(text="Copy", size_hint_x=0.22)
 
-        action_buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        copy_btn = Button(text="Copy")
-        copy_btn.bind(on_press=lambda i, l=item["link"]: Clipboard.copy(l))
-        rename_btn = Button(text="Rename")
-        rename_btn.bind(on_press=lambda i, it=item: nav.show_rename_prompt(it))
-        zip_btn = Button(text="Zip")
-        zip_btn.bind(on_press=lambda i, it=item: nav.start_zip_release(it))
-        delete_btn = Button(text="Delete", background_color=_DANGER)
-        delete_btn.bind(on_press=lambda i, it=item: nav.show_delete_confirm(it))
-        for btn in (copy_btn, rename_btn, zip_btn, delete_btn):
-            action_buttons.add_widget(btn)
-        row.add_widget(action_buttons)
-        if has_deadline:
-            row.add_widget(_deadline_button(nav, item, nav.show_live_history))
+        def do_copy(btn, l=item["link"]):
+            Clipboard.copy(l)
+            btn.text = "Copied"
+
+        copy_btn.bind(on_press=do_copy)
+        line.add_widget(copy_btn)
+        row.add_widget(line)
         nav.add(row)
 
     if paged and (page > 0 or has_next):
@@ -232,6 +266,41 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
 
     nav.add(back_button(nav, to=back))
     return follow_box
+
+
+def build_item_menu(nav, item, back, allow_arvan=True):
+    """Everything you can do with ONE file (the compact list opens this when a card is tapped)."""
+    nav.clear()
+    parts, deadline = _meta_parts(item)
+    nav.add(wrapped_label(f"{item['title']}\n" + "  ·  ".join(parts + ([deadline] if deadline else []))))
+    nav.add(TextInput(text=item["link"], readonly=True, multiline=False, size_hint_y=None, height=SMALL_BTN_H))
+
+    def add(text, fn, danger=False):
+        btn = Button(text=text, size_hint_y=None, height=BTN_H)
+        if danger:
+            btn.background_color = _DANGER
+        btn.bind(on_press=lambda i: fn(btn))
+        nav.add(btn)
+
+    def copy(btn):
+        Clipboard.copy(item["link"])
+        btn.text = "Copied"
+
+    def share(btn):
+        if not android_actions.share_text(item["link"]):
+            Clipboard.copy(item["link"])
+            btn.text = "Share not available - copied"
+
+    add("Copy link", copy)
+    add("Share link", share)
+    add("Rename", lambda b: nav.show_rename_prompt(item))
+    add("Zip", lambda b: nav.start_zip_release(item))
+    if (item.get("days_left") is not None or item.get("forever")) and item.get("asset_id") is not None:
+        add("Extend deadline", lambda b: nav.show_extend_prompt([item], nav.show_live_history))
+    if allow_arvan and item.get("asset_id") is not None and not item.get("repo") and hasattr(nav, "start_arvan_upload"):
+        add("Send to Arvan", lambda b: nav.start_arvan_upload([item]))
+    add("Delete", lambda b: nav.show_delete_confirm(item), danger=True)
+    nav.add(back_button(nav, to=back))
 
 
 def _deadline_button(nav, item, back):

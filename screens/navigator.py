@@ -2392,6 +2392,13 @@ class Navigator(ArvanController):
         self._history_page = max(0, page)
         self.show_live_history()
 
+    def show_item_menu(self, item):
+        """Menu of one file of the Release History (copy, share, rename, zip, extend, delete)."""
+        from screens import history as history_screen
+        history_screen.build_item_menu(
+            self, item, self.show_live_history,
+            allow_arvan=not getattr(self, "_history_apk", False))
+
     def show_follow_history(self, f):
         """The same screen (select, copy, share, rename, zip, delete), but only
         the files of one Auto follow channel's release."""
