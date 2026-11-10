@@ -9,7 +9,7 @@ icon.filename = assets/icon.png
 presplash.filename = assets/icon.png
 android.presplash_color = #12203A
 version = 2
-requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper==3.0.1,python-bidi==0.4.2,six,yt-dlp
+requirements = python3,kivy,requests,certifi,plyer,arabic-reshaper,python-bidi==0.4.2,six,yt-dlp
 orientation = portrait
 fullscreen = 0
 
