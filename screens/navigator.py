@@ -2409,8 +2409,14 @@ class Navigator(ArvanController):
         self._history_page = max(0, page)
         self.show_live_history()
 
+    def start_history_download(self, items, on_text):
+        """Release History: download these files into the phone ("Download in app"); ``on_text``
+        gets the progress lines on the main thread. The Downloads manager shows them too."""
+        file_download_service.start_items_download(
+            items, on_text=lambda text: self.schedule(lambda: on_text(text)))
+
     def show_item_menu(self, item):
-        """Menu of one file of the Release History (copy, share, rename, zip, extend, delete)."""
+        """Menu of one file of the Release History (copy, share, download, rename, zip, extend, delete)."""
         from screens import history as history_screen
         history_screen.build_item_menu(
             self, item, self.show_live_history,
