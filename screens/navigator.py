@@ -2584,6 +2584,14 @@ class Navigator(ArvanController):
             on_complete=lambda res: self.schedule(self.show_live_history)
         )
 
+    def start_inline_delete(self, items, on_item, on_done):
+        """Release History: delete these files in parallel WITHOUT leaving the list. ``on_item(item,
+        ok)`` and ``on_done(res)`` run on the main thread."""
+        history_service.start_bulk_delete_releases(
+            items,
+            on_item=lambda it, ok: self.schedule(lambda: on_item(it, ok)),
+            on_complete=lambda res: self.schedule(lambda: on_done(res)))
+
     def do_rename_release(self, item, new_name):
         if not new_name or new_name == item["title"]:
             self.show_live_history()
