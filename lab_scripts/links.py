@@ -10,7 +10,7 @@ import asyncio
 import signal
 import subprocess
 import sys
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from typing import Any
 
 
@@ -409,7 +409,133 @@ def via_ytdlp(url: str, proxy: str | None) -> dict:
     }
 
 
+# ---------------------------------------------------------------- site adapters
+# A site adapter is a small module written with LINKLAB_SITE_GUIDE.md:
+#   SITE_ID = "x"; DOMAINS = ["x.com"]; def extract(url, proxy) -> {"title", "qualities": [...]} or {"error"}
+# Registered sites live in lab_scripts/sites/<id>.py and lab_scripts/sites/index.json (added with
+# Lab > Add workflow > "Add a tested site to Link Lab"). One under test is registered by
+# lab_scripts/site_runner.py. For such a site the adapter is tried first (GitHub IP, then every proxy and
+# config, like any other source); when it finds nothing, yt-dlp is the fallback as before.
+ADAPTERS: list[Any] = []
+
+
+def _adapter_id(mod: Any) -> str:
+    return str(getattr(mod, "SITE_ID", None) or getattr(mod, "__name__", "site"))
+
+
+def register_adapter(mod: Any) -> None:
+    """Adds (or replaces, same SITE_ID) one adapter module."""
+    sid = _adapter_id(mod)
+    ADAPTERS[:] = [a for a in ADAPTERS if _adapter_id(a) != sid] + [mod]
+
+
+def load_adapters(base: str | None = None) -> None:
+    """Loads the sites listed in lab_scripts/sites/index.json. An id that is already registered
+    (the one under test) is kept as it is."""
+    import importlib.util
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    base = base or os.path.join(here, "sites")
+    try:
+        with open(os.path.join(base, "index.json"), encoding="utf-8") as fh:
+            entries = (json.load(fh) or {}).get("sites", [])
+    except Exception:
+        entries = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("enabled") is False or not entry.get("file"):
+            continue
+        sid = str(entry.get("id") or "")
+        if any(_adapter_id(a) == sid for a in ADAPTERS):
+            continue
+        path = os.path.join(base, os.path.basename(str(entry["file"])))
+        try:
+            spec = importlib.util.spec_from_file_location("linklab_site_" + sid, path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            if not callable(getattr(mod, "extract", None)):
+                raise RuntimeError("no extract() function")
+            register_adapter(mod)
+            print(f"Site adapter loaded: {sid}")
+        except Exception as e:
+            print(f"::warning::site adapter {sid} not loaded: {type(e).__name__}: {e}")
+
+
+def find_adapter(url: str) -> Any | None:
+    if not ADAPTERS:
+        return None
+    host = (urlparse(url or "").hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    for mod in ADAPTERS:
+        try:
+            matcher = getattr(mod, "matches", None)
+            if callable(matcher):
+                if matcher(url):
+                    return mod
+                continue
+            for d in getattr(mod, "DOMAINS", None) or []:
+                d = str(d).lower().lstrip(".")
+                if d.startswith("www."):
+                    d = d[4:]
+                if host == d or host.endswith("." + d):
+                    return mod
+        except Exception:
+            continue
+    return None
+
+
+def via_adapter(mod: Any, url: str, proxy: str | None) -> dict:
+    """Runs adapter.extract(url, proxy) and turns the answer into the same dict as via_api / via_ytdlp."""
+    out: dict[str, Any] = {
+        "url": url, "title": None, "max_resolution": None, "m3u8": None, "qualities": [],
+        "error": None, "proxy_used": proxy, "method": "adapter:" + _adapter_id(mod),
+    }
+    try:
+        res = mod.extract(url, proxy)
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"[:300]
+        return out
+    if not isinstance(res, dict):
+        out["error"] = "the adapter returned no dict"
+        return out
+    out["title"] = res.get("title")
+    if res.get("error"):
+        out["error"] = str(res["error"])[:300]
+        return out
+    quals: list[dict] = []
+    for q in res.get("qualities") or []:
+        if not isinstance(q, dict):
+            continue
+        link = str(q.get("link") or q.get("url") or "")
+        if not link.startswith("http"):
+            continue
+        name = str(q.get("quality") or q.get("resolution") or "")
+        if not name and q.get("height"):
+            name = f"{int(q['height'])}p"
+        quals.append({
+            "quality": name or "unknown", "resolution": str(q.get("resolution") or name or ""),
+            "link": link, "ext": str(q.get("ext") or ("m3u8" if ".m3u8" in link else "mp4")),
+        })
+    quals.sort(key=_h, reverse=True)
+    out["qualities"] = quals
+    out["m3u8"] = res.get("m3u8")
+    if quals:
+        out["max_resolution"] = quals[0]["quality"]
+    elif not out["m3u8"]:
+        out["error"] = "the adapter found no quality"
+    return out
+
+
 async def try_one(url: str, proxy: str | None) -> dict:
+    adapter = find_adapter(url)
+    if adapter is not None:
+        label = "adapter:" + _adapter_id(adapter)
+        print(f"  [{label}] ...")
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(None, via_adapter, adapter, url, proxy)
+        if _ok(data):
+            return data
+        print(f"  [{label}] fail: {data.get('error')}")
     beeg = is_beeg(url)
     if beeg or is_xhamster(url):
         label = "beeg_api" if beeg else "api"
@@ -441,7 +567,7 @@ async def try_with_proxies(url: str, proxies: list[str]) -> dict:
 
     # beeg_api / xhamster_api keep proxy settings on a process-wide client, so one at a time.
     # Other sites can race yt-dlp. Configs stay out of the race and run only if those fail.
-    if free and not is_beeg(url) and not is_xhamster(url):
+    if free and not is_beeg(url) and not is_xhamster(url) and find_adapter(url) is None:
         print(f"\n>>> Racing {len(free)} proxies (the first that works wins)")
         loop = asyncio.get_running_loop()
         raced = await loop.run_in_executor(None, race_proxies, url, free)
@@ -662,6 +788,7 @@ async def main() -> None:
         print("No URL")
         return
 
+    load_adapters()
     proxies = load_proxies()
     print(f"Proxies: {len(proxies)}")
     for p in proxies[:10]:
