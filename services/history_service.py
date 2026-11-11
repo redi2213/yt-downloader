@@ -2,6 +2,7 @@
 than local job history - these functions list, delete, rename, and zip
 those releases.
 """
+import threading
 import uuid
 
 from api.github import client, releases, workflows
@@ -80,23 +81,44 @@ def _delete_thread(item, on_complete):
         _emit_complete(on_complete, {"ok": False, "error": f"Delete failed: {str(e)[:60]}"})
 
 
-def start_bulk_delete_releases(items, on_status=None, on_complete=None):
-    run_in_background(_bulk_delete_thread, items, on_status, on_complete)
+_DELETE_WORKERS = 4   # files of different releases are deleted at the same time
 
 
-def _bulk_delete_thread(items, on_status, on_complete):
-    done = 0
-    failed = 0
+def start_bulk_delete_releases(items, on_status=None, on_complete=None, on_item=None):
+    """Deletes the files in parallel. ``on_item(item, ok)`` is called as each one is finished."""
+    run_in_background(_bulk_delete_thread, items, on_status, on_complete, on_item)
+
+
+def _bulk_delete_thread(items, on_status, on_complete, on_item=None):
+    from concurrent.futures import ThreadPoolExecutor
+    lock = threading.Lock()
+    count = {"done": 0, "failed": 0}
+    # Files of ONE release are deleted one after the other: deleting the last file of a release
+    # removes the release itself, which two parallel deletes of the same release would get wrong.
+    groups = {}
     for item in items:
-        try:
-            releases.delete_history_item(item)
-        except Exception:
-            failed += 1
-        done += 1
-        _emit(on_status, f"Deleting {done}/{len(items)}...")
+        groups.setdefault((item.get("repo"), item.get("release_id")), []).append(item)
+
+    def one_group(group):
+        for item in group:
+            ok = True
+            try:
+                releases.delete_history_item(item)
+            except Exception:
+                ok = False
+            with lock:
+                count["done"] += 1
+                count["failed"] += 0 if ok else 1
+                done = count["done"]
+            if on_item:
+                on_item(item, ok)
+            _emit(on_status, f"Deleting {done}/{len(items)}...")
+
+    with ThreadPoolExecutor(max_workers=_DELETE_WORKERS) as pool:
+        list(pool.map(one_group, list(groups.values())))
     from services.notify_service import notify
-    notify("YT Bridge Git", f"Deleted {done - failed}/{len(items)} releases")
-    _emit_complete(on_complete, {"ok": True})
+    notify("YT Bridge Git", f"Deleted {count['done'] - count['failed']}/{len(items)} releases")
+    _emit_complete(on_complete, {"ok": True, "failed": count["failed"]})
 
 
 def start_rename_release(item, new_name, on_complete=None):
