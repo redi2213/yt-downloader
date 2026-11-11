@@ -3,6 +3,7 @@ from kivy.core.clipboard import Clipboard
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.modalview import ModalView
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import escape_markup
@@ -18,6 +19,7 @@ from screens.common import (
 )
 
 _DANGER = (1.0, 0.55, 0.55, 1)   # tint for buttons that delete things
+_BUSY = (0.45, 0.12, 0.12, 1)    # card of a file that is being deleted
 _HOLD_SECONDS = 0.5              # how long a file card is held to open its menu
 
 
@@ -206,6 +208,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     selected = [False] * len(items)
     select_mode = [False]
     cards = {}   # item index -> card colour of the cards on screen
+    rows = {}    # item index -> the card widget on screen
+    removed = set()   # deleted here: never drawn again
+    busy = set()      # being deleted right now
+    deleting = {"total": 0, "done": 0, "failed": 0, "text": ""}
     view = []    # item indices shown now (after search / type filter / sort)
     state = {"type": 0, "sort": 0}
     cap = 40 if all_files else None   # "all files" can be hundreds: draw the first 40 of the matches
@@ -223,7 +229,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         return [items[i] for i in view if selected[i]]
 
     def update_info(*_args):
-        info.text = f"Selected: {len(selected_items())} of {len(view)}"
+        info.text = deleting["text"] or f"Selected: {len(selected_items())} of {len(view)}"
 
     def set_selected(idx, value):
         selected[idx] = value
@@ -252,11 +258,6 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             shared = android_actions.share_text("\n".join(it["link"] for it in sel))
             info.text = (f"Sharing {len(sel)} link(s)" if shared
                          else f"Share not available - copied {len(sel)} link(s)")
-
-    def delete_selected(_inst):
-        sel = need_selection()
-        if sel:
-            nav.show_bulk_delete_confirm(sel, scope="selected")
 
     def arvan_selected(_inst):
         sel = need_selection()
@@ -295,23 +296,118 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             top.append(("To Arvan", arvan_selected))
         bar.add_widget(row_of(top))
         bar.add_widget(row_of([("Copy links", copy_selected), ("Share", share_selected),
-                               ("Download", download_selected), ("Delete", delete_selected)]))
+                               ("Download", download_selected), ("Delete", ask_delete)]))
         return bar
 
+    def detach(widget):
+        if widget.parent is not None:
+            widget.parent.remove_widget(widget)
+
+    def make_del_footer():
+        """Back / Prev / Next with the delete progress line above it."""
+        wrap = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP / 2)
+        wrap.height = dp(34) + BTN_H + GAP / 2
+        detach(info)
+        wrap.add_widget(info)
+        detach(footer_state["nav"])
+        wrap.add_widget(footer_state["nav"])
+        return wrap
+
     def refresh_footer():
-        want = "sel" if selected_items() else "nav"
+        if selected_items():
+            want = "sel"
+        else:
+            want = "del" if deleting["total"] else "nav"
         if want == footer_state["mode"]:
             return
         footer_state["mode"] = want
-        nav.set_footer(make_sel_footer() if want == "sel" else footer_state["nav"])
+        if want == "sel":
+            bar = make_sel_footer()
+        elif want == "del":
+            bar = make_del_footer()
+        else:
+            bar = footer_state["nav"]
+            detach(bar)
+        nav.set_footer(bar)
 
     def changed():
         update_info()
         refresh_footer()
 
     def on_tap(idx, item):
+        if idx in busy:
+            return
         set_selected(idx, not selected[idx])
         changed()
+
+    def on_hold(idx, item):
+        if idx not in busy:
+            nav.show_item_menu(item)
+
+    def show_delete_status():
+        finished = deleting["done"] + deleting["failed"]
+        if finished < deleting["total"]:
+            deleting["text"] = f"Deleting {finished}/{deleting['total']}..."
+        else:
+            deleting["text"] = (f"Deleted {deleting['done']}/{deleting['total']} releases")
+            Clock.schedule_once(lambda dt: end_delete_status(), 4)
+        changed()
+
+    def end_delete_status():
+        if deleting["done"] + deleting["failed"] >= deleting["total"]:
+            deleting.update(total=0, done=0, failed=0, text="")
+            changed()
+
+    def start_delete():
+        idxs = [i for i in view if selected[i] and i not in busy]
+        if not idxs:
+            return
+        by_item = {id(items[i]): i for i in idxs}
+        for i in idxs:
+            selected[i] = False
+            busy.add(i)
+            if i in cards:
+                cards[i].rgba = _BUSY
+        deleting["total"] += len(idxs)
+        show_delete_status()
+
+        def on_item(item, ok):
+            i = by_item.get(id(item))
+            if i is None:
+                return
+            busy.discard(i)
+            if ok:
+                removed.add(i)
+                deleting["done"] += 1
+                row = rows.pop(i, None)
+                if row is not None and row.parent is not None:
+                    row.parent.remove_widget(row)
+            else:
+                deleting["failed"] += 1
+                if i in cards:
+                    cards[i].rgba = CARD
+            show_delete_status()
+
+        nav.start_inline_delete([items[i] for i in idxs], on_item, lambda res: None)
+
+    def ask_delete(_inst):
+        sel = need_selection()
+        if not sel:
+            return
+        box = BoxLayout(orientation="vertical", padding=dp(12), spacing=GAP)
+        box.add_widget(Label(text=f"Delete the {len(sel)} selected release(s)?\nThis cannot be undone."))
+        buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+        no_btn = Button(text="Cancel")
+        yes_btn = Button(text=f"Yes, delete {len(sel)}", background_color=_DANGER)
+        buttons.add_widget(no_btn)
+        buttons.add_widget(yes_btn)
+        box.add_widget(buttons)
+        dialog = ModalView(size_hint=(0.92, None), height=dp(190), background="",
+                           background_color=(0.13, 0.10, 0.09, 1))
+        dialog.add_widget(box)
+        no_btn.bind(on_press=lambda i: dialog.dismiss())
+        yes_btn.bind(on_press=lambda i: (dialog.dismiss(), start_delete()))
+        dialog.open()
 
     def make_card(idx, item):
         parts, deadline = _meta_parts(item)
@@ -332,7 +428,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         cards[idx] = paint_card(row, CARD_ON if selected[idx] else CARD)
         line = BoxLayout(orientation="horizontal", size_hint_y=None, height=title_height, spacing=dp(4))
         title_btn = _PressCard(on_tap=lambda n=idx, it=item: on_tap(n, it),
-                               on_hold=lambda it=item: nav.show_item_menu(it),
+                               on_hold=lambda n=idx, it=item: on_hold(n, it),
                                text=markup, markup=True, size_hint_x=0.78, halign="left", valign="middle",
                                background_normal="", background_color=(0, 0, 0, 0))
         title_btn._ytb_notr = True
@@ -363,7 +459,8 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     def render_list(*_args):
         list_box.clear_widgets()
         cards.clear()
-        full = compute_view()
+        rows.clear()
+        full = [i for i in compute_view() if i not in removed]
         view[:] = full[:cap] if cap else full
         if not view:
             list_box.add_widget(Label(text="No matching files", size_hint_y=None, height=BTN_H))
@@ -377,7 +474,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
                     head.text_size = (inner_width, None)
                     list_box.add_widget(head)
                     last = group
-            list_box.add_widget(make_card(idx, items[idx]))
+            rows[idx] = make_card(idx, items[idx])
+            if idx in busy:
+                cards[idx].rgba = _BUSY
+            list_box.add_widget(rows[idx])
         if cap and len(full) > cap:
             list_box.add_widget(wrapped_label(
                 f"Showing the first {cap} of {len(full)} files - type in the search box to narrow it.",
