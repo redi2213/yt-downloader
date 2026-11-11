@@ -70,6 +70,10 @@ class YTBridgeApp(App):
         android_notify.request_permission()
         android_share.setup(self.nav.handle_shared_text, self.nav.handle_shared_file,
                             self.nav.open_from_notification)
+        try:
+            self.nav.refresh_arvan_in_background()   # quietly brings the Arvan file list up to date
+        except Exception:
+            pass
 
     def clear_content(self):
         self.content.clear_widgets()
