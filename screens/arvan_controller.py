@@ -4,6 +4,41 @@ screens/navigator.py: Navigator(ArvanController). Keeps the screen state in ``_a
 
 class ArvanController:
     # -- the file list of the whole bucket ---------------------------------------
+    def refresh_arvan_in_background(self):
+        """Once per app start: reads the Arvan list quietly (nothing is shown) so Arvan files is
+        already up to date when it is opened."""
+        if getattr(self, "_arvan_bg_started", False):
+            return
+        self._arvan_bg_started = True
+        from services import arvan_service
+        arvan_service.start_background_refresh(
+            on_complete=lambda res: self.schedule(lambda: self._after_arvan_background(res)))
+
+    def _after_arvan_background(self, res):
+        if not res.get("ok") or getattr(self, "_arvan_deleting", 0) or getattr(self, "_arvan_stale", False):
+            return          # (an upload / delete is newer than this list)
+        self._arvan_data = res["data"]
+
+    def show_arvan_item_menu(self, obj):
+        from screens import arvan as arvan_screen
+        arvan_screen.build_item_menu(self, obj)
+
+    def start_arvan_inline_delete(self, objs, on_done):
+        """Deletes without leaving the list; ``on_done(res)`` runs on the main thread."""
+        from services import arvan_service
+        self._arvan_deleting = getattr(self, "_arvan_deleting", 0) + 1
+
+        def finished(res):
+            self._arvan_deleting -= 1
+            if res.get("ok"):
+                self._arvan_data = res["data"]
+                self._arvan_stale = False
+            on_done(res)
+
+        arvan_service.start_delete(
+            [o["key"] for o in objs], on_status=None,
+            on_complete=lambda res: self.schedule(lambda: finished(res)))
+
     def show_arvan_files(self, refresh=False):
         from services import arvan_service
         self.remember(lambda: self.show_arvan_files(False))
