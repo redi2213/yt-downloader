@@ -47,6 +47,23 @@ def start_open(on_status=None, on_complete=None):
     run_in_background(_open_thread, on_status, on_complete)
 
 
+def start_background_refresh(on_complete=None):
+    """Once when the app opens: the saved list at once, then a fresh one from the workflow - both
+    reported through ``on_complete``. Does nothing when Arvan was never used (no saved list)."""
+    run_in_background(_background_thread, on_complete)
+
+
+def _background_thread(on_complete):
+    try:
+        data = read_index()
+    except Exception:
+        return
+    if not data:
+        return
+    _emit(on_complete, {"ok": True, "data": data, "cached": True})
+    _manage_thread("list", {}, None, on_complete)
+
+
 def start_refresh(on_status=None, on_complete=None):
     run_in_background(_manage_thread, "list", {}, on_status, on_complete)
 
