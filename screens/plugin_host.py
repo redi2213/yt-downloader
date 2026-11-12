@@ -10,6 +10,7 @@ Screens and menus
     host.back() / host.home() / host.exit()
     host.title(text)  host.text(text)  host.button(text, fn)  host.row([(text, fn)])
     host.input(hint, text, multiline)  host.choice(options, default, on_change)
+    host.dropdown(options, default, on_change, title)   (a box that opens a popup window)
     host.status()  host.set_status(text)  host.back_button(text="Back")
     host.working(msg)  host.result(msg, link=None, links=None)  host.add(widget)
 
@@ -244,6 +245,58 @@ class Choice:
             self._host._safe(self._on_change, value)
 
 
+class Dropdown:
+    """A box with the picked option; a tap opens a window with every option.
+    Same API as Choice: ``.value``, ``.select(value, notify)``."""
+
+    def __init__(self, host, pairs, default, on_change, title=""):
+        self._host = host
+        self.pairs = pairs
+        self.value = default
+        self._on_change = on_change
+        self._title = title
+        self._btn = Button(text="", size_hint_y=None, height=BTN_H, halign="center", valign="middle")
+        self._btn.bind(on_press=lambda inst: self._open())
+        host.nav.add(self._btn)
+        self._paint()
+
+    def _label_of(self, value):
+        for label, val in self.pairs:
+            if val == value:
+                return str(label)
+        return str(value)
+
+    def _paint(self):
+        self._btn.text = "%s   \u25be" % self._label_of(self.value)
+
+    def _open(self):
+        from kivy.uix.popup import Popup
+        from kivy.uix.scrollview import ScrollView
+        box = BoxLayout(orientation="vertical", spacing=GAP, size_hint_y=None)
+        box.bind(minimum_height=box.setter("height"))
+        popup = Popup(title=self._title or "Choose", size_hint=(0.9, 0.7))
+        for label, value in self.pairs:
+            btn = Button(text=str(label), size_hint_y=None, height=BTN_H)
+            if value == self.value:
+                btn.background_color = _ON
+            btn.bind(on_press=lambda inst, v=value: self._pick(v, popup))
+            box.add_widget(btn)
+        scroll = ScrollView()
+        scroll.add_widget(box)
+        popup.content = scroll
+        popup.open()
+
+    def _pick(self, value, popup):
+        popup.dismiss()
+        self.select(value, notify=True)
+
+    def select(self, value, notify=False):
+        self.value = value
+        self._paint()
+        if notify and self._on_change is not None:
+            self._host._safe(self._on_change, value)
+
+
 class Host:
     api_version = plugin_loader.HOST_API_VERSION
 
@@ -384,6 +437,13 @@ class Host:
         if default is None and pairs:
             default = pairs[0][1]
         return Choice(self, pairs, default, on_change)
+
+    def dropdown(self, options, default=None, on_change=None, title=""):
+        """Like ``choice`` but a box that opens a popup window with the options."""
+        pairs = [(o[0], o[1]) if isinstance(o, (tuple, list)) else (o, o) for o in options]
+        if default is None and pairs:
+            default = pairs[0][1]
+        return Dropdown(self, pairs, default, on_change, title)
 
     def status(self, height=40):
         """Adds the line where ``set_status`` writes."""
