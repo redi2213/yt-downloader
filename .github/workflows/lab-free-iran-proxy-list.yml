@@ -9,11 +9,6 @@ run-name: ${{ inputs.run_title || 'Iran proxies' }} [${{ inputs.job_id }}]${{ in
 on:
   workflow_dispatch:
     inputs:
-      test_proxy:
-        description: 'Test one proxy manually (IP:PORT). Leave empty to collect a list instead.'
-        required: false
-        default: ''
-        type: string
       max_proxies:
         description: 'Maximum number of proxies to keep (default 50)'
         required: false
@@ -26,6 +21,11 @@ on:
         type: string
       only_working:
         description: 'Quick live check (true/false). true is slower but cleaner'
+        required: false
+        default: 'false'
+        type: string
+      check_irancell:
+        description: 'Keep only proxies whose ISP is Irancell (true/false)'
         required: false
         default: 'false'
         type: string
@@ -61,88 +61,21 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Install dependencies
         run: python3 -m pip install --quiet requests
 
-      - name: Test single proxy or collect list
+      - name: Collect and filter Iran proxies
         env:
-          TEST_PROXY: ${{ inputs.test_proxy }}
           MAX_PROXIES: ${{ inputs.max_proxies }}
           PROTOCOL: ${{ inputs.protocol }}
           ONLY_WORKING: ${{ inputs.only_working }}
+          CHECK_IRANCELL: ${{ inputs.check_irancell }}
         run: |
           set -euo pipefail
           mkdir -p out
 
-          if [ -n "$TEST_PROXY" ]; then
-            echo "=== Single proxy test mode: $TEST_PROXY ==="
-            python3 - <<'PY'
-          import os, socket, json, urllib.request
-
-          proxy = os.environ.get("TEST_PROXY", "").strip()
-          if not proxy or ":" not in proxy:
-              print("::error::test_proxy must be in IP:PORT format")
-              raise SystemExit(1)
-
-          ip, port = proxy.split(":", 1)
-          try:
-              port = int(port)
-          except ValueError:
-              print("::error::port must be a number")
-              raise SystemExit(1)
-
-          print(f"Testing proxy {ip}:{port} ...")
-
-          # 1) TCP connectivity check
-          live = False
-          try:
-              s = socket.create_connection((ip, port), timeout=6)
-              s.close()
-              live = True
-              print("TCP connect: OK (proxy is reachable)")
-          except Exception as e:
-              print(f"TCP connect: FAILED ({e})")
-              print("::warning::Proxy is not reachable. It may be dead or blocked.")
-
-          # 2) ISP lookup via ip-api.com (free, no key needed)
-          print("\nLooking up ISP info for the proxy IP ...")
-          try:
-              url = f"http://ip-api.com/json/{ip}?fields=status,country,isp,org,as,mobile,proxy,hosting"
-              req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-              with urllib.request.urlopen(req, timeout=10) as r:
-                  data = json.loads(r.read().decode())
-
-              print(json.dumps(data, indent=2, ensure_ascii=False))
-
-              isp = (data.get("isp") or "").lower()
-              org = (data.get("org") or "").lower()
-              asn = (data.get("as") or "").lower()
-              is_irancell = any("irancell" in x or "mtn" in x or "44244" in x for x in [isp, org, asn])
-
-              if is_irancell:
-                  print("\n>>> RESULT: This IP appears to belong to IRANCELL (Irancell).")
-              else:
-                  print("\n>>> RESULT: This IP does NOT appear to belong to Irancell.")
-                  print("    (Free proxies are almost always datacenter IPs, not mobile carrier IPs.)")
-
-              if not live:
-                  print("\nNote: even if the ISP looks right, the proxy port is not open, so it won't work.")
-
-          except Exception as e:
-              print(f"ISP lookup failed: {e}")
-              print("::warning::Could not determine ISP for this IP.")
-          PY
-
-            # Write a small result file so the app shows something
-            echo "# Single proxy test" > out/proxy_test_result.txt
-            echo "# Proxy: $TEST_PROXY" >> out/proxy_test_result.txt
-            echo "# See the run log for the full ISP / liveness report." >> out/proxy_test_result.txt
-            exit 0
-          fi
-
-          # --- Normal list collection mode ---
           case "$PROTOCOL" in
             http|socks4|socks5|all) ;;
             *) echo "::error::protocol must be one of: http, socks4, socks5, all"; exit 1 ;;
@@ -151,12 +84,16 @@ jobs:
             true|false|1|0|yes|no|True|False) ;;
             *) echo "::error::only_working must be true or false"; exit 1 ;;
           esac
+          case "$CHECK_IRANCELL" in
+            true|false|1|0|yes|no|True|False) ;;
+            *) echo "::error::check_irancell must be true or false"; exit 1 ;;
+          esac
           case "$MAX_PROXIES" in
             ''|*[!0-9]*) echo "::error::max_proxies must be a number"; exit 1 ;;
           esac
 
           python3 - <<'PY'
-          import os, re, urllib.request, concurrent.futures, socket
+          import os, re, json, urllib.request, concurrent.futures, socket, time
 
           try:
               MAX = max(5, min(200, int(os.environ.get("MAX_PROXIES", "50") or "50")))
@@ -166,6 +103,7 @@ jobs:
 
           PROTO = (os.environ.get("PROTOCOL") or "all").strip().lower()
           CHECK = (os.environ.get("ONLY_WORKING") or "false").strip().lower() in ("1", "true", "yes")
+          WANT_IRANCELL = (os.environ.get("CHECK_IRANCELL") or "false").strip().lower() in ("1", "true", "yes")
 
           SOURCES = [
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
@@ -193,28 +131,15 @@ jobs:
                   a, b = int(parts[0]), int(parts[1])
               except ValueError:
                   return False
-              if a == 2 and 144 <= b <= 189: return True
-              if a == 5 and (b in range(200, 255) or b in range(160, 180)): return True
-              if a == 31 and b in range(14, 30): return True
-              if a == 37 and b in range(130, 200): return True
-              if a == 46 and (b in range(100, 120) or b in range(209, 220)): return True
-              if a == 78 and b in range(38, 50): return True
-              if a == 79 and b in range(175, 180): return True
-              if a == 80 and b in range(191, 220): return True
-              if a == 81 and b in range(12, 30): return True
-              if a == 85 and b in range(9, 20): return True
-              if a == 89 and b in range(40, 50): return True
-              if a == 91 and b in range(90, 100): return True
-              if a == 93 and b in range(110, 130): return True
-              if a == 94 and b in range(180, 190): return True
-              if a == 151 and b in range(230, 240): return True
-              if a == 178 and b in range(250, 255): return True
-              if a == 185 and (b in range(88, 130) or b in range(140, 220)): return True
-              if a == 188 and b in range(130, 150): return True
-              if a == 194 and b in range(30, 50): return True
-              if a == 195 and b in range(180, 190): return True
-              if a == 217 and b in range(210, 230): return True
-              return False
+              ranges = [
+                  (2, 144, 189), (5, 200, 255), (5, 160, 180), (31, 14, 30),
+                  (37, 130, 200), (46, 100, 120), (46, 209, 220), (78, 38, 50),
+                  (79, 175, 180), (80, 191, 220), (81, 12, 30), (85, 9, 20),
+                  (89, 40, 50), (91, 90, 100), (93, 110, 130), (94, 180, 190),
+                  (151, 230, 240), (178, 250, 255), (185, 88, 130), (185, 140, 220),
+                  (188, 130, 150), (194, 30, 50), (195, 180, 190), (217, 210, 230),
+              ]
+              return any(a == x and y <= b <= z for x, y, z in ranges)
 
           def source_matches_protocol(src, proto):
               if proto == "all":
@@ -227,6 +152,7 @@ jobs:
                   return "socks5" in src
               return True
 
+          # ---- 1) Gather candidates ----
           candidates = set()
           for src in SOURCES:
               if not source_matches_protocol(src, PROTO):
@@ -240,13 +166,13 @@ jobs:
                   if not m:
                       continue
                   ip, port = m.group(1), m.group(2)
-                  if not is_iran_ip(ip):
-                      continue
-                  candidates.add(f"{ip}:{port}")
+                  if is_iran_ip(ip):
+                      candidates.add(f"{ip}:{port}")
 
           print(f"Found {len(candidates)} candidate Iran proxies from free lists (protocol filter: {PROTO})")
 
-          def quick_check(proxy, timeout=4):
+          # ---- 2) Optional TCP liveness check ----
+          def tcp_alive(proxy, timeout=4):
               ip, port = proxy.split(":")
               try:
                   s = socket.create_connection((ip, int(port)), timeout=timeout)
@@ -255,45 +181,101 @@ jobs:
               except Exception:
                   return False
 
-          final = []
+          working = []
           if CHECK and candidates:
-              print("Live checking (this may take a minute)...")
+              print("Live checking (TCP connect, this may take a minute)...")
               pool = list(candidates)[:300]
-              with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
-                  futs = {ex.submit(quick_check, p): p for p in pool}
+              with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
+                  futs = {ex.submit(tcp_alive, p): p for p in pool}
                   for fut in concurrent.futures.as_completed(futs):
                       p = futs[fut]
                       try:
                           if fut.result():
-                              final.append(p)
-                              if len(final) >= MAX:
-                                  break
+                              working.append(p)
                       except Exception:
                           pass
+              print(f"Live check: {len(working)} proxies responded")
           else:
-              final = sorted(candidates)[:MAX]
+              working = list(candidates)
 
+          # ---- 3) Optional ISP lookup (only Irancell) ----
+          def lookup_isp(ip, timeout=6):
+              """Return dict with isp/org/as for an IP using ip-api.com (free)."""
+              try:
+                  url = f"http://ip-api.com/json/{ip}?fields=status,country,isp,org,as"
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      d = json.loads(r.read().decode())
+                  return d
+              except Exception:
+                  return {}
+
+          def is_irancell(info):
+              if not info:
+                  return False
+              blob = " ".join(str(info.get(k, "")) for k in ("isp", "org", "as")).lower()
+              return ("irancell" in blob) or ("mtn" in blob) or ("44244" in blob)
+
+          results = []   # list of (proxy, isp_label, is_irancell)
+          if WANT_IRANCELL:
+              print("Checking ISP of every proxy for Irancell (this may take a minute)...")
+              # ip-api free tier: ~45 requests per minute. Pace accordingly.
+              seen_ips = {}
+              for p in working:
+                  ip = p.split(":")[0]
+                  info = seen_ips.get(ip)
+                  if info is None:
+                      info = lookup_isp(ip)
+                      seen_ips[ip] = info
+                      time.sleep(1.4)  # stay under the rate limit
+                  label = ""
+                  if info:
+                      label = info.get("isp") or info.get("org") or info.get("as") or ""
+                  results.append((p, label, is_irancell(info)))
+          else:
+              for p in working:
+                  results.append((p, "", False))
+
+          # ---- 4) Build final list ----
+          if WANT_IRANCELL:
+              final = [r for r in results if r[2]]
+              print(f"Irancell matches: {len(final)}")
+          else:
+              final = results[:MAX]
+
+          # If nothing matched, still publish an empty file (so the app shows a file instead of 'Nothing found')
           out_path = "out/iran_proxies.txt"
           with open(out_path, "w", encoding="utf-8") as f:
               f.write("# Free Iran proxies collected on GitHub Actions\n")
               f.write(f"# Count: {len(final)}\n")
               f.write(f"# Protocol filter: {PROTO}\n")
               f.write(f"# Live-checked: {CHECK}\n")
-              f.write("# Format: IP:PORT (one per line)\n")
+              f.write(f"# Irancell-only: {WANT_IRANCELL}\n")
+              f.write("# Format: IP:PORT | ISP (one per line)\n")
               f.write("# Note: free proxies die quickly. Re-run this tool for a fresh list.\n\n")
-              for p in final:
-                  f.write(p + "\n")
+              if WANT_IRANCELL and not final:
+                  f.write("# No Irancell proxies were found in this run.\n")
+                  f.write("# Free proxies are almost always datacenter IPs, not mobile carrier IPs.\n")
+              for p, label, _ in final:
+                  if label:
+                      f.write(f"{p} | {label}\n")
+                  else:
+                      f.write(f"{p}\n")
 
           print(f"Wrote {len(final)} proxies to {out_path}")
-          if not final:
-              print("::warning::No Iran proxies matched right now. Wrote an empty list so the run still publishes a file.")
+          if final:
+              print("Top matches:")
+              for p, label, _ in final[:10]:
+                  print(f"  {p}  {('| ' + label) if label else ''}")
+          else:
+              print("::warning::No proxies matched this run. An empty list was written so the run still publishes a file.")
           PY
 
       - name: Check the output folder
         run: |
           set -euo pipefail
-          if [ ! -f out/iran_proxies.txt ] && [ ! -f out/proxy_test_result.txt ]; then
-            echo "::error::No output file was created"
+          if [ ! -f out/iran_proxies.txt ]; then
+            echo "::error::out/iran_proxies.txt was not created"
             exit 1
           fi
           echo "Files to publish:"
