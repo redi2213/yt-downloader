@@ -187,6 +187,7 @@ jobs:
 
           checked_ips = set()
           alive_pool = set()
+          tested = set()
           
           start_time = time.time()
           max_search_time = 5 * 60  # ۵ دقیقه (300 ثانیه)
@@ -214,7 +215,8 @@ jobs:
                       if is_iran_ip(ip):
                           candidates.add(f"{ip}:{port}")
 
-              new_candidates = candidates - alive_pool - checked_ips
+              new_candidates = candidates - tested
+              tested.update(new_candidates)
               stats["fetched"] += len(new_candidates)
               print(f"Found {len(new_candidates)} new candidates (total checked: {len(checked_ips) + len(alive_pool)})")
 
@@ -241,7 +243,7 @@ jobs:
                               pass
               else:
                   working_this_round = list(new_candidates)
-                  alive_pool.update(working_this_round)
+              alive_pool.update(working_this_round)
 
               print(f"{len(working_this_round)} proxies responded")
               stats["alive"] += len(working_this_round)
@@ -250,6 +252,8 @@ jobs:
               if WANT_IRANCELL and working_this_round:
                   print("Checking ISP for new proxies...")
                   for p in working_this_round:
+                      if time.time() - start_time > max_search_time:
+                          break
                       ip = p.split(":")[0]
                       if ip in checked_ips:
                           continue
@@ -273,7 +277,6 @@ jobs:
                       print(f"\nReached target of {MAX} Irancell proxies!")
                       break
               elif not WANT_IRANCELL:
-                  alive_pool.update(working_this_round)
                   if len(alive_pool) >= MAX:
                       break
 
