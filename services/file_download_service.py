@@ -199,8 +199,14 @@ def format_size(size):
     """33554432 -> '32.0 MB'; None/0 -> '?'."""
     if not size:
         return "?"
+    if size < 1024:
+        return f"{size} B"
     mib = size / (1024 * 1024)
-    return f"{mib / 1024:.2f} GB" if mib >= 1024 else (f"{mib:.1f} MB" if mib >= 1 else f"{size / 1024:.0f} KB")
+    if mib >= 1024:
+        return f"{mib / 1024:.2f} GB"
+    if mib >= 1:
+        return f"{mib:.1f} MB"
+    return f"{size / 1024:.1f} KB" if size < 10 * 1024 else f"{size / 1024:.0f} KB"
 
 
 def _head_size(url):
