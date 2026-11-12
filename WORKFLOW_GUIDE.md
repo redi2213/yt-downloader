@@ -22,7 +22,11 @@
 ## 2. Rules (all of them are checked by the app)
 
 1. **Triggers**: only `workflow_dispatch`. Never `push`, `schedule` or `pull_request` (they would also fire by themselves).
-2. **Inputs**: every input is `type: string` (write booleans as the strings `'true'` / `'false'`). Use `required: true`
+2. **Inputs**: every input is `type: string` (write booleans as the strings `'true'` / `'false'`).
+   *Yes/no input*: end the `description` with `(true/false)` and use `default: 'true'` or `'false'`. *Fixed list*: write the
+   options in the description, like `Protocol: http, socks4, socks5 or all`, with `default: 'all'`. The app then shows a
+   popup list instead of a text box (no typing). Keep the default clean: `'50'`, never a hint like `'50 (Max)'`; the app
+   shows the input name and its description above the box. Use `required: true`
    only when the tool cannot work without it; give every other input a `default`. Short, plain-English `description`
    (it becomes the label in the app). Input names are lowercase snake_case, and every `inputs.x` you use must be declared.
 3. **Standard inputs, copy exactly** (keep them even if the tool does not use them): `job_id`, `run_title`, `rerun`,
@@ -73,6 +77,24 @@
   URL, putting the `tv` player client first in `player_client` is the most stable; cookies (if needed) come from a secret.
 * Network calls: add `--retry 3` / timeouts; never wait forever.
 
+## 3b. Phone-friendly workflows (the app can also run them on the phone, with the phone's own IP)
+
+Lab > the tool > **Run on this phone** runs the `RUN` steps inside the app and skips GitHub-only steps (checkout, publish,
+Notify, anything with an `if:`). It works when:
+
+* The real work is a Python script inside the yml: `python3 - <<'PY'` ... `PY`, with `python3` at the START of its line.
+  Read inputs from `os.environ` (they arrive through `env:`). Do not capture its output with `$(python3 ...)`.
+* Shell is only for small preparation (`mkdir`, `echo`, `grep`, `head`, `tr`, `export VAR`): the phone has a basic `sh`,
+  no `curl`, `wget`, `jq`, `zip`, `git`, `ffmpeg`, `apt`, `sudo`, docker or node. Use Python (`urllib`, `requests`) for HTTP.
+* Libraries must be pure Python (a `py3-none-any` wheel): `requests`, `beautifulsoup4`, `httpx`... The app downloads
+  missing ones after showing their size. Native ones (numpy, lxml, pillow, cryptography) only run on GitHub.
+* Do not run repo files (`python3 lab_scripts/x.py`) in the work step if you want the phone mode; inline the script.
+* Results go to `out/`. Small text results (`.txt`, `.json`, `.csv`, up to 200 KB) are shown in the app with Copy
+  buttons, so for lists write one item per line (for proxies: `IP:PORT | note`).
+* Keep loops bounded (a time limit or a count): the phone has no 6-hour runner.
+
+A workflow that needs a heavy tool is still welcome: just say "Runs on the phone: no (needs ffmpeg)".
+
 ## 4. What to answer with
 
 1. The workflow as ONE code block (```yaml), complete, nothing elided, starting with the tool card comments.
@@ -80,7 +102,8 @@
    Say "no extra files" if there are none.
 3. **Try it with**: two or three realistic example input sets (a value for every input the form asks for).
 4. **Needs**: secrets, external services, known limits (one short line each). Say "nothing" if none.
-5. No long explanation. Do not wrap the workflow in a different format.
+5. **Phone**: one line, `Runs on the phone: yes` or `no (reason)`.
+6. No long explanation. Do not wrap the workflow in a different format.
 
 ## 5. Self-check before you answer (answer only when every box is true)
 
@@ -91,6 +114,8 @@
 - [ ] A failing step prints `::error::...` and exits non-zero; secrets are never printed; temp secret files are removed.
 - [ ] The YAML is valid (indentation with spaces, quotes closed, heredoc `PY` lines indented like the rest of the block).
 - [ ] The tool card (`# app-id` ...) is on top; extra files are listed with their paths.
+- [ ] Yes/no and fixed-list inputs are written as in rule 2 (`(true/false)`, options in the description); defaults carry no hints.
+- [ ] Phone check: the work is inline Python reading `os.environ`, no curl/jq/ffmpeg in it, results in `out/`, loops bounded.
 
 ## 6. When the app reports a problem
 
