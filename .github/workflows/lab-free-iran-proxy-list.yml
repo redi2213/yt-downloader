@@ -12,22 +12,22 @@ on:
       max_proxies:
         description: 'Maximum number of proxies to keep'
         required: false
-        default: '50 (Max)'
+        default: '50'
         type: string
       protocol:
         description: 'Protocol: http, socks4, socks5 or all'
         required: false
-        default: 'all (Protocol)'
+        default: 'all'
         type: string
       only_working:
         description: 'Quick live check (true/false)'
         required: false
-        default: 'true (Live check)'
+        default: 'true'
         type: string
       check_irancell:
         description: 'Find Irancell only? (true/false)'
         required: false
-        default: 'true (Irancell only)'
+        default: 'true'
         type: string
       job_id:
         description: 'Set by the app'
