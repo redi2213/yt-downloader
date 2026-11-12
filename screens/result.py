@@ -1,3 +1,5 @@
+import re
+
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.metrics import dp
@@ -7,10 +9,105 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 from core import android_downloads, android_open
+from core.async_utils import run_in_background
 from screens.common import BTN_H, GAP, wrapped_label, wrapped_label_height
 from services import file_download_service
 
 MAX_OPEN_ROWS = 8   # Open / Share rows shown after a many-file download
+
+
+TEXT_EXTS = (".txt", ".json", ".csv", ".tsv", ".log", ".md", ".yml", ".yaml", ".xml", ".ini", ".conf", ".list")
+MAX_TEXT_BYTES = 200 * 1024   # bigger text files are only downloaded, not shown
+MAX_TEXT_FILES = 3
+_PROXY_LINE = re.compile(r"^\s*(?:\w+://)?(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})\b")
+
+
+def _is_text_name(name):
+    return str(name or "").lower().split("?")[0].endswith(TEXT_EXTS)
+
+
+def _fetch_texts(run_id, links):
+    """[(name, text)] of the small text files of this result. Blocking: call from a thread."""
+    import requests
+    from api.github import releases
+    found = []
+    for one in (run_id if isinstance(run_id, (list, tuple)) else [run_id]):
+        if not one:
+            continue
+        try:
+            assets = releases.get_release_assets(one, attempts=1, delay=0)
+        except Exception:
+            assets = []
+        headers = releases.asset_download_headers() if assets else None
+        for a in assets:
+            name = a.get("name") or ""
+            if not _is_text_name(name) or (a.get("size") or 0) > MAX_TEXT_BYTES:
+                continue
+            try:
+                resp = requests.get(a["api_url"], headers=headers, timeout=20)
+                if resp.status_code == 200:
+                    found.append((name, resp.content[:MAX_TEXT_BYTES].decode("utf-8", "replace")))
+            except Exception:
+                pass
+            if len(found) >= MAX_TEXT_FILES:
+                return found
+    if not found:
+        for url in list(links or [])[:MAX_TEXT_FILES]:
+            if not _is_text_name(url):
+                continue
+            try:
+                resp = requests.get(url, timeout=20)
+                if resp.status_code == 200:
+                    found.append((android_downloads.file_name_from_url(url),
+                                  resp.content[:MAX_TEXT_BYTES].decode("utf-8", "replace")))
+            except Exception:
+                pass
+    return found
+
+
+def _proxy_only(text):
+    """The IP:PORT of every proxy line ('1.2.3.4:80 | ISP' -> '1.2.3.4:80'); '' when it is not a proxy list."""
+    rows = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    hits = [m.group(1) for m in (_PROXY_LINE.match(ln) for ln in rows) if m]
+    return "\n".join(hits) if rows and len(hits) * 2 >= len(rows) else ""
+
+
+def add_text_preview(nav, run_id, links):
+    """Small text files of the result (txt, json, csv, log ...) shown right here with Copy buttons."""
+    if not any(_is_text_name(u) for u in (links or [])):
+        return
+    box = BoxLayout(orientation="vertical", size_hint_y=None, height=0, spacing=GAP)
+    nav.add(box)
+
+    def fill(found):
+        box.clear_widgets()
+        total = 0
+        for name, text in found:
+            shown = text if text.strip() else "(the file is empty)"
+            lines = len([ln for ln in text.splitlines() if ln.strip()])
+            caption = wrapped_label(f"{name} - {lines} line(s)", height=dp(30), halign="center", valign="middle")
+            field = TextInput(text=shown, readonly=True, multiline=True, size_hint_y=None, height=dp(260))
+            copy_all = Button(text="Copy all", size_hint_y=None, height=48)
+            copy_all.bind(on_press=lambda i, t=text: Clipboard.copy(t))
+            parts = [caption, field, copy_all]
+            only = _proxy_only(text)
+            if only:
+                only_btn = Button(text="Copy IP:PORT only", size_hint_y=None, height=48)
+                only_btn.bind(on_press=lambda i, t=only: Clipboard.copy(t))
+                parts.append(only_btn)
+            for w in parts:
+                box.add_widget(w)
+                total += w.height + GAP
+        box.height = max(0, total - GAP)
+
+    def work():
+        try:
+            found = _fetch_texts(run_id, links)
+        except Exception:
+            found = []
+        if found:
+            Clock.schedule_once(lambda dt: fill(found))
+    run_in_background(work)
 
 
 def _short(name, limit=26):
@@ -159,6 +256,9 @@ def build(nav, message, link=None, retry=None, retry_message="Working...", extra
     # "Download in app" - only for results that have files (not for error texts)
     if category and downloadable:
         add_download_in_app(nav, run_id, downloadable, category)
+    # small text files (a proxy list, a json, a log): shown here, with Copy buttons
+    if downloadable and (run_id or category):
+        add_text_preview(nav, run_id, downloadable)
     # Links on Arvan Cloud that are not already the main link (GitHub + Arvan mode)
     shown = set(links or ([link] if link else []))
     arvan_only = [u for u in (arvan_links or []) if u not in shown]
