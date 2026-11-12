@@ -9,6 +9,11 @@ run-name: ${{ inputs.run_title || 'Iran proxies' }} [${{ inputs.job_id }}]${{ in
 on:
   workflow_dispatch:
     inputs:
+      test_proxy:
+        description: 'Test one proxy manually (IP:PORT). Leave empty to collect a list instead.'
+        required: false
+        default: ''
+        type: string
       max_proxies:
         description: 'Maximum number of proxies to keep (default 50)'
         required: false
@@ -58,8 +63,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Collect free Iran proxies
+      - name: Install dependencies
+        run: python3 -m pip install --quiet requests
+
+      - name: Test single proxy or collect list
         env:
+          TEST_PROXY: ${{ inputs.test_proxy }}
           MAX_PROXIES: ${{ inputs.max_proxies }}
           PROTOCOL: ${{ inputs.protocol }}
           ONLY_WORKING: ${{ inputs.only_working }}
@@ -67,6 +76,73 @@ jobs:
           set -euo pipefail
           mkdir -p out
 
+          if [ -n "$TEST_PROXY" ]; then
+            echo "=== Single proxy test mode: $TEST_PROXY ==="
+            python3 - <<'PY'
+          import os, socket, json, urllib.request
+
+          proxy = os.environ.get("TEST_PROXY", "").strip()
+          if not proxy or ":" not in proxy:
+              print("::error::test_proxy must be in IP:PORT format")
+              raise SystemExit(1)
+
+          ip, port = proxy.split(":", 1)
+          try:
+              port = int(port)
+          except ValueError:
+              print("::error::port must be a number")
+              raise SystemExit(1)
+
+          print(f"Testing proxy {ip}:{port} ...")
+
+          # 1) TCP connectivity check
+          live = False
+          try:
+              s = socket.create_connection((ip, port), timeout=6)
+              s.close()
+              live = True
+              print("TCP connect: OK (proxy is reachable)")
+          except Exception as e:
+              print(f"TCP connect: FAILED ({e})")
+              print("::warning::Proxy is not reachable. It may be dead or blocked.")
+
+          # 2) ISP lookup via ip-api.com (free, no key needed)
+          print("\nLooking up ISP info for the proxy IP ...")
+          try:
+              url = f"http://ip-api.com/json/{ip}?fields=status,country,isp,org,as,mobile,proxy,hosting"
+              req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  data = json.loads(r.read().decode())
+
+              print(json.dumps(data, indent=2, ensure_ascii=False))
+
+              isp = (data.get("isp") or "").lower()
+              org = (data.get("org") or "").lower()
+              asn = (data.get("as") or "").lower()
+              is_irancell = any("irancell" in x or "mtn" in x or "44244" in x for x in [isp, org, asn])
+
+              if is_irancell:
+                  print("\n>>> RESULT: This IP appears to belong to IRANCELL (Irancell).")
+              else:
+                  print("\n>>> RESULT: This IP does NOT appear to belong to Irancell.")
+                  print("    (Free proxies are almost always datacenter IPs, not mobile carrier IPs.)")
+
+              if not live:
+                  print("\nNote: even if the ISP looks right, the proxy port is not open, so it won't work.")
+
+          except Exception as e:
+              print(f"ISP lookup failed: {e}")
+              print("::warning::Could not determine ISP for this IP.")
+          PY
+
+            # Write a small result file so the app shows something
+            echo "# Single proxy test" > out/proxy_test_result.txt
+            echo "# Proxy: $TEST_PROXY" >> out/proxy_test_result.txt
+            echo "# See the run log for the full ISP / liveness report." >> out/proxy_test_result.txt
+            exit 0
+          fi
+
+          # --- Normal list collection mode ---
           case "$PROTOCOL" in
             http|socks4|socks5|all) ;;
             *) echo "::error::protocol must be one of: http, socks4, socks5, all"; exit 1 ;;
@@ -98,9 +174,6 @@ jobs:
               "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
               "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks4.txt",
               "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
-              "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=IR&ssl=all&anonymity=all",
-              "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks4&timeout=5000&country=IR",
-              "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=IR",
           ]
 
           def fetch(url, timeout=12):
@@ -212,22 +285,15 @@ jobs:
                   f.write(p + "\n")
 
           print(f"Wrote {len(final)} proxies to {out_path}")
-          for p in final[:10]:
-              print("  ", p)
-          if len(final) > 10:
-              print(f"  ... and {len(final)-10} more")
-
           if not final:
-              # Don't fail: the release is still created, so the app gets a file
-              # (with only the header) instead of showing "Nothing found".
               print("::warning::No Iran proxies matched right now. Wrote an empty list so the run still publishes a file.")
           PY
 
       - name: Check the output folder
         run: |
           set -euo pipefail
-          if [ ! -f out/iran_proxies.txt ]; then
-            echo "::error::out/iran_proxies.txt was not created"
+          if [ ! -f out/iran_proxies.txt ] && [ ! -f out/proxy_test_result.txt ]; then
+            echo "::error::No output file was created"
             exit 1
           fi
           echo "Files to publish:"
