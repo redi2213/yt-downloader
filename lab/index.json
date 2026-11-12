@@ -25,11 +25,14 @@
       "title": "Link Lab (any site, copy of link_downloader)",
       "file": "link_lab.py",
       "description": "Get links / download any site through yt-dlp, with free proxies or v2ray. Get links only also has a this-phone runner (this phone's IP, yt-dlp, no change to lab-links.yml). Uses the lab-links, lab-download and lab-find-proxies workflows; the app's own tools are untouched.",
-      "min_host": 1
+      "min_host": 1,
+      "modules": [
+        "lib/site_phone.py"
+      ]
     },
     {
       "id": "links_phone",
-      "title": "Get links only (\u0628\u0627 \u06af\u0648\u0634\u06cc)",
+      "title": "Get links only (با گوشی)",
       "file": "links_phone.py",
       "description": "The phone reads qualities with yt-dlp (this phone's IP, no GitHub). Fast check of which sites work. Link Lab's Get links only is unchanged.",
       "min_host": 1
@@ -72,7 +75,9 @@
         "lib/wf_core.py",
         "lib/wf_runner.py",
         "lib/promote_core.py",
-        "lib/promote_flow.py"
+        "lib/promote_flow.py",
+        "lib/site_phone.py",
+        "lib/site_flow.py"
       ],
       "description": "Bring a workflow from a GitHub link or pasted .yml into the Lab as a new tool: checks it against what the app needs, one-tap fixes, run, copyable error report.",
       "min_host": 1

@@ -542,6 +542,36 @@ PHRASES += [
 ]
 
 
+LABELS.update({
+    "Copy the guide for AI (Link Lab site)": "کپی راهنما برای هوش مصنوعی (سایت آزمایشگاه لینک)",
+    "Add a tested site to Link Lab": "افزودن سایت تست‌شده به آزمایشگاه لینک",
+    "Add a tested site": "افزودن سایت تست‌شده",
+    "Link Lab sites": "سایت‌های آزمایشگاه لینک",
+    "Sites in Link Lab": "سایت‌های آزمایشگاه لینک",
+    "Add to Link Lab": "افزودن به آزمایشگاه لینک",
+    "Add to Link Lab (this site)": "افزودن این سایت به آزمایشگاه لینک",
+    "Remove from Link Lab": "حذف از آزمایشگاه لینک",
+    "Added": "اضافه شد",
+    "Removing...": "در حال حذف...",
+    "Adding...": "در حال افزودن...",
+    "Run on this phone (fast, no proxy)": "اجرا روی گوشی (سریع، بدون پروکسی)",
+    "On this phone": "روی همین گوشی",
+    "Copy all links": "کپی همه لینک‌ها",
+    "Copy report": "کپی گزارش",
+    "Run again": "اجرای دوباره",
+    "Nothing found": "چیزی پیدا نشد",
+    "Fill in the video link first": "اول لینک ویدیو را وارد کن",
+    "Reading the adapter...": "در حال خواندن آداپتور...",
+    "Looking for tested adapters...": "در حال پیدا کردن آداپتورهای تست‌شده...",
+    "Saving to the lab branch...": "در حال ذخیره در برنچ lab...",
+    "No site added yet.": "هنوز سایتی اضافه نشده.",
+    "Domains, comma separated": "دامنه‌ها، با ویرگول جدا کن",
+    "Type at least one domain (for example mysite.com).": "حداقل یک دامنه بنویس (مثلاً mysite.com).",
+    "The Link Lab sites helper is missing (lib/site_flow.py).": "فایل کمکی سایت‌های آزمایشگاه لینک (lib/site_flow.py) نیست.",
+    "Runs the adapter inside the app with this phone's own network: no proxy, no config, no GitHub run.": "آداپتور داخل خود اپ با اینترنت همین گوشی اجرا می‌شود: بدون پروکسی، بدون کانفیگ، بدون ران گیت‌هاب."
+})
+
+
 def install():
     """Adds the texts above to the app's translation tables. Safe to call again."""
     try:

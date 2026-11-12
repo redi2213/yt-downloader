@@ -25,7 +25,7 @@ from labx import wf_runner as rn
 
 LAB = "lab"
 WF = ".github/workflows"
-LIBS = ["lib/lab_fa.py", "lib/wf_core.py", "lib/wf_runner.py"]
+LIBS = ["lib/lab_fa.py", "lib/wf_core.py", "lib/wf_runner.py", "lib/site_phone.py"]
 MAX_DEPS = 20
 MAX_BYTES = 200000
 
@@ -44,22 +44,35 @@ def build(host):
     host.button("Paste workflow text", lambda: host.show(_paste_screen, None))
     host.button("My imported tools", lambda: host.show(_mine))
     host.button("Copy the guide for AI", lambda: _copy_guide(host))
+    host.button("Copy the guide for AI (Link Lab site)", lambda: _copy_guide(host, "LINKLAB_SITE_GUIDE.md"))
+    host.button("Add a tested site to Link Lab", _link_lab_sites)
     host.status()
     host.back_button("Back")
 
 
-def _copy_guide(host):
-    """Puts the instructions for writing workflows (WORKFLOW_GUIDE.md on the lab branch) on the clipboard."""
+def _link_lab_sites(host):
+    """Link Lab sites: add a tested adapter, list, remove (lib/site_flow.py)."""
+    try:
+        from labx import site_flow
+    except Exception:
+        host.set_status("The Link Lab sites helper is missing (lib/site_flow.py).")
+        return
+    host.show(site_flow.build)
+
+
+def _copy_guide(host, name="WORKFLOW_GUIDE.md"):
+    """Puts the instructions for writing workflows (WORKFLOW_GUIDE.md on the lab branch) on the clipboard.
+    name = LINKLAB_SITE_GUIDE.md: the guide for a Link Lab site adapter."""
     host.set_status("Reading the guide...")
 
     def work():
-        return rn.read_or_none(host, "WORKFLOW_GUIDE.md", LAB)
+        return rn.read_or_none(host, name, LAB)
 
     def done(text, err):
         if err is not None:
             host.set_status("Could not read the guide: " + rn.explain(err)[:120])
         elif not text:
-            host.set_status("WORKFLOW_GUIDE.md is not on the lab branch.")
+            host.set_status(name + " is not on the lab branch.")
         else:
             host.copy(text)
             host.set_status("Guide copied (%d characters). Paste it into the other AI, then describe the tool you want." % len(text))
@@ -526,10 +539,22 @@ def _tool(host, t):
     else:
         host.button("Update: upload a new .yml", lambda: host.show(_upload_screen, t))
         host.button("Update: paste new text", lambda: host.show(_paste_screen, t))
+    if any(str(f if isinstance(f, str) else (f or {}).get("path", "")).startswith("lab_scripts/sites_pending/")
+           for f in imp.get("files", [])):
+        host.button("Add to Link Lab (this site)", lambda: _tool_to_link_lab(host, t))
     host.button("Promote to Download Anything", lambda: _promote(host, t))
     host.button("Remove this tool", lambda: host.show(_remove, t))
     host.status()
     host.back_button()
+
+
+def _tool_to_link_lab(host, t):
+    try:
+        from labx import site_flow
+    except Exception:
+        host.set_status("The Link Lab sites helper is missing (lib/site_flow.py).")
+        return
+    site_flow.confirm_for_tool(host, t)
 
 
 def _promote(host, t):

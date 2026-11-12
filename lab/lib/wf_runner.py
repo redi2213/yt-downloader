@@ -206,8 +206,84 @@ def _main(host, workflow, title, data):
         host.show(_run, workflow, title, values, data["text"])
 
     host.button("Run", run)
+    adapter = _pending_adapter(data["text"])
+    if adapter and _phone_lib() is not None:
+        def phone():
+            link = ""
+            for key in ("url", "urls", "links"):
+                link = (getattr(widgets.get(key), "text", "") or "").strip().split("\n")[0].strip()
+                if link:
+                    break
+            if not link:
+                host.set_status("Fill in the video link first")
+                return
+            host.show(_phone, adapter, title, link)
+        host.button("Run on this phone (fast, no proxy)", phone)
     host.button("Check workflow", lambda: host.show(_check, workflow, title))
     host.button("Report of the last run", lambda: host.show(_last, workflow, title))
+    host.back_button("Back")
+
+
+# ---------------------------------------------------------------- Link Lab site adapter on the phone
+PENDING_DIR = "lab_scripts/sites_pending/"
+
+
+def _pending_adapter(text):
+    """The adapter file a Link Lab site test workflow runs (lab_scripts/sites_pending/<id>.py), or None."""
+    for f in core.referenced_files(text):
+        if f.startswith(PENDING_DIR) and f.endswith(".py"):
+            return f
+    return None
+
+
+def _phone_lib():
+    try:
+        from labx import site_phone
+        return site_phone
+    except Exception:
+        return None
+
+
+def _phone(host, adapter, title, link):
+    host.title("On this phone")
+    host.text("Runs the adapter inside the app with this phone's own network: no proxy, no config, no GitHub run.")
+    host.status()
+    host.set_status("Running...")
+    host.back_button("Back")
+    sp = _phone_lib()
+
+    def work():
+        text = read_or_none(host, adapter, "lab")
+        if text is None:
+            return {"error": adapter + " is not on the lab branch", "rows": [], "title": link, "extractor": "adapter"}
+        return sp.run_code(text, link)
+
+    def done(res, err):
+        if err is not None:
+            res = {"error": explain(err), "rows": [], "title": link, "extractor": "adapter"}
+        host.replace(_phone_result, adapter, title, link, res)
+
+    host.background(work, done=done)
+
+
+def _phone_result(host, adapter, title, link, res):
+    rows = res.get("rows") or []
+    host.title("Done" if rows else "Nothing found")
+    lines = ["%s" % (res.get("title") or link), "Phone run (this phone's network), %s" % res.get("extractor", "adapter")]
+    if res.get("error"):
+        lines.append("Error: %s" % res["error"])
+    for row in rows:
+        lines.append("%s  %s%s" % ("%sp" % row["h"] if row["h"] else "?", "m3u8" if row["hls"] else row["ext"], ""))
+    host.text("\n".join(lines))
+    for row in rows:
+        host.button("Copy %s link" % ("%sp" % row["h"] if row["h"] else "this"), lambda u=row["url"]: host.copy(u))
+    if len(rows) > 1:
+        host.button("Copy all links", lambda: host.copy("\n".join(x["url"] for x in rows)))
+    report = "\n".join(["Link Lab site adapter, run on the phone", "tool: %s" % title, "adapter: %s" % adapter,
+                        "link: %s" % link, "error: %s" % (res.get("error") or "none")]
+                       + ["%s %s" % (x["h"], x["url"]) for x in rows])
+    host.button("Copy report", lambda: host.copy(report))
+    host.button("Run again", lambda: host.replace(_phone, adapter, title, link))
     host.back_button("Back")
 
 
