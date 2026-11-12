@@ -182,15 +182,17 @@ def _main(host, workflow, title, data):
     for name, spec in data["inputs"].items():
         if name in core.APP_SET_INPUTS:
             continue
-        label = "%s%s%s" % (name, " *" if spec["required"] else "", (" - " + spec["description"][:60]) if spec["description"] else "")
-        if spec["options"]:
-            host.text(label)
-            widgets[name] = host.choice(spec["options"], default=spec["default"] or spec["options"][0])
-        elif spec["type"] == "boolean":
-            host.text(label)
-            widgets[name] = host.choice([("true", "true"), ("false", "false")], default=(spec["default"] or "false").lower())
+        title_line = "%s%s" % (name, " *" if spec["required"] else "")
+        if spec["description"]:
+            title_line += "\n" + spec["description"][:90]
+        host.text(title_line)                      # the title always sits above the box
+        kind = core.widget_for(spec)
+        if kind["kind"] == "choice":
+            pick = getattr(host, "dropdown", None) or host.choice      # popup window; old builds: buttons
+            widgets[name] = pick(kind["options"], default=kind["default"])
         else:
-            widgets[name] = host.input(label, text=spec["default"], multiline=("urls" in name or "links" in name))
+            widgets[name] = host.input("", text=core.default_token(spec["default"]),
+                                       multiline=("urls" in name or "links" in name))
     host.status()
 
     def run():
