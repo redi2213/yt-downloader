@@ -205,7 +205,7 @@ def phone_result(host, results):
             host.row([
                 ("Copy " + label, lambda u=row["url"], lab=label: (host.copy(u), host.set_status("Copied " + lab))),
                 ("Download " + label,
-                 lambda p=page, h=row.get("h"): _run_download(host, p, str(h or "best"))),
+                 lambda p=page, h=row.get("h"), lk=row["url"], t=r.get("title") or "": _run_download(host, p, str(h or "best"), lk, t)),
             ])
         extra = len(r.get("rows") or []) - 12
         if extra > 0:
@@ -303,6 +303,13 @@ def _phone_read(host, urls, on_status):
             res["note"] = ("Site adapter: %s. " % (found.get("error") or "no quality")) + (res.get("note") or "")
         out.append(res)
     if on_status:
+        on_status("Reading file sizes...")
+    for res in out:
+        try:
+            _phone_add_sizes(res)
+        except Exception:
+            pass
+    if on_status:
         on_status("Done")
     return out
 
@@ -391,13 +398,95 @@ def _phone_size(n):
     return "%d B" % n if i == 0 else "%.1f %s" % (v, units[i])
 
 
+# ---------------------------------------------------------------- file sizes on the phone
+# yt-dlp gives no size for HLS. Like lab_scripts/links.py: read the playlist, ask 3 segments for
+# byte 0 only (Range) and multiply by the segment count. A few KB of phone data per quality.
+def _phone_http(url, headers=None, timeout=15):
+    import urllib.request
+    h = {"User-Agent": "Mozilla/5.0"}
+    if headers:
+        h.update(headers)
+    return urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout)
+
+
+def _phone_text(url):
+    try:
+        with _phone_http(url) as r:
+            return r.read(2000000).decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
+def _phone_range_size(url):
+    try:
+        with _phone_http(url, {"Range": "bytes=0-0"}) as r:
+            m = re.search(r"/(\d+)\s*$", r.headers.get("Content-Range") or "")
+            if m:
+                return int(m.group(1))
+            n = r.headers.get("Content-Length") or ""
+            if getattr(r, "status", 0) == 200 and n.isdigit():
+                return int(n)
+    except Exception:
+        pass
+    return None
+
+
+def _phone_hls_estimate(url):
+    from urllib.parse import urljoin
+    text = _phone_text(url)
+    if "#EXTM3U" not in text:
+        return None
+    if "#EXT-X-STREAM-INF" in text:
+        lines = text.splitlines()
+        for i, ln in enumerate(lines):
+            if ln.startswith("#EXT-X-STREAM-INF"):
+                for nxt in lines[i + 1:]:
+                    if nxt.strip() and not nxt.startswith("#"):
+                        url = urljoin(url, nxt.strip())
+                        break
+                break
+        text = _phone_text(url)
+        if "#EXTM3U" not in text:
+            return None
+    segs = [urljoin(url, ln.strip()) for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
+    if not segs:
+        return None
+    n = len(segs)
+    sizes = [s for s in (_phone_range_size(segs[i]) for i in sorted({0, n // 3, (2 * n) // 3})) if s]
+    return int(sum(sizes) / len(sizes) * n) if sizes else None
+
+
+def _phone_add_sizes(res):
+    from concurrent.futures import ThreadPoolExecutor
+    rows = [r for r in (res.get("rows") or []) if not r.get("size")]
+    if not rows:
+        return
+
+    def one(row):
+        try:
+            link = row.get("url") or ""
+            if row.get("hls") or ".m3u8" in link:
+                n = _phone_hls_estimate(link)
+                if n:
+                    row["size"] = "~" + _phone_size(n)
+            else:
+                n = _phone_range_size(link)
+                if n:
+                    row["size"] = _phone_size(n)
+        except Exception:
+            pass
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        list(ex.map(one, rows))
+
+
 # ---------------------------------------------------------------- download
-def _run_download(host, url, quality):
-    host.log("download:", quality, url[:200])
-    host.show(download_screen, url, quality)
+def _run_download(host, url, quality, link="", title=""):
+    host.log("download:", quality, url[:200], "(phone link)" if link else "")
+    host.show(download_screen, url, quality, link, title)
 
 
-def download_screen(host, url, quality):
+def download_screen(host, url, quality, link="", title=""):
     # NOT host.run_action: that always starts the workflow on main, where lab-download.yml
     # is only an empty stub. host.gh.dispatch starts it from the lab branch (the real one).
     label = quality if str(quality) == "best" else "%sp" % quality
@@ -407,6 +496,12 @@ def download_screen(host, url, quality):
     host.status()
     host.set_status("Starting...")
     inputs = {"url": url, "quality": str(quality), "proxy": S["proxy"], "v2ray_config": S["v2ray"]}
+    # The link this phone already found goes to GitHub, so the run skips its own (slow) extract step.
+    # Links tied to an IP (data=1.2.3.4) would not work from GitHub, so those are not sent.
+    if link and link.startswith("http") and len(link) < 60000 and not re.search(r"data=\d+\.\d+\.\d+\.\d+", link):
+        inputs["direct_link"] = link
+        inputs["direct_title"] = (title or "")[:200]
+        host.text("Using the link found on this phone: GitHub skips the extract step.")
 
     def work():
         run_id = host.gh.dispatch("lab-download.yml", inputs)
