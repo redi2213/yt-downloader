@@ -172,6 +172,30 @@
         "fixes": [],
         "added": "2026-11-12T13:20:22Z"
       }
+    },
+    {
+      "id": "lab_site_suj_mobi",
+      "title": "Lab Site Suj.mobi [imported]",
+      "file": "wf_lab_site_suj_mobi.py",
+      "modules": [
+        "lib/lab_fa.py",
+        "lib/wf_core.py",
+        "lib/wf_runner.py",
+        "lib/site_phone.py"
+      ],
+      "description": "Imported workflow lab-site-suj-mobi.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "meta": {},
+      "imported": {
+        "workflow": "lab-site-suj-mobi.yml",
+        "source": "uploaded from the phone",
+        "files": [
+          ".github/workflows/lab-site-suj-mobi.yml",
+          "lab/wf_lab_site_suj_mobi.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-12T23:05:55Z"
+      }
     }
   ]
 }
