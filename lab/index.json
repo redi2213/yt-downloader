@@ -144,6 +144,34 @@
         "fixes": [],
         "added": "2026-11-10T11:39:14Z"
       }
+    },
+    {
+      "id": "iran_proxy_list",
+      "title": "Free Iran Proxy List [imported]",
+      "file": "wf_iran_proxy_list.py",
+      "modules": [
+        "lib/lab_fa.py",
+        "lib/wf_core.py",
+        "lib/wf_runner.py",
+        "lib/site_phone.py"
+      ],
+      "description": "Imported workflow lab-free-iran-proxy-list.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
+      "min_host": 1,
+      "meta": {
+        "id": "iran_proxy_list",
+        "title": "Free Iran Proxy List",
+        "group": "network"
+      },
+      "imported": {
+        "workflow": "lab-free-iran-proxy-list.yml",
+        "source": "pasted text",
+        "files": [
+          ".github/workflows/lab-free-iran-proxy-list.yml",
+          "lab/wf_iran_proxy_list.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-12T08:11:23Z"
+      }
     }
   ]
 }

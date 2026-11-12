@@ -1,0 +1,298 @@
+# app-id: iran_proxy_list
+# app-title: Free Iran Proxy List
+# app-group: network
+# app-domains:
+# app-secrets:
+name: Free Iran Proxy List
+run-name: ${{ inputs.run_title || 'Iran proxies' }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_proxies:
+        description: 'Maximum number of proxies to keep (default 50)'
+        required: false
+        default: '50'
+        type: string
+      protocol:
+        description: 'Preferred protocol: http, socks4, socks5 or all'
+        required: false
+        default: 'all'
+        type: string
+      only_working:
+        description: 'Quick live check (true/false). true is slower but cleaner'
+        required: false
+        default: 'false'
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so Run again can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the file: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Collect free Iran proxies
+        env:
+          MAX_PROXIES: ${{ inputs.max_proxies }}
+          PROTOCOL: ${{ inputs.protocol }}
+          ONLY_WORKING: ${{ inputs.only_working }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+
+          case "$PROTOCOL" in
+            http|socks4|socks5|all) ;;
+            *) echo "::error::protocol must be one of: http, socks4, socks5, all"; exit 1 ;;
+          esac
+          case "$ONLY_WORKING" in
+            true|false|1|0|yes|no|True|False) ;;
+            *) echo "::error::only_working must be true or false"; exit 1 ;;
+          esac
+          case "$MAX_PROXIES" in
+            ''|*[!0-9]*) echo "::error::max_proxies must be a number"; exit 1 ;;
+          esac
+
+          python3 - <<'PY'
+          import os, re, urllib.request, concurrent.futures, socket
+
+          try:
+              MAX = max(5, min(200, int(os.environ.get("MAX_PROXIES", "50") or "50")))
+          except ValueError:
+              print("::error::max_proxies is not a valid number")
+              raise SystemExit(1)
+
+          PROTO = (os.environ.get("PROTOCOL") or "all").strip().lower()
+          CHECK = (os.environ.get("ONLY_WORKING") or "false").strip().lower() in ("1", "true", "yes")
+
+          SOURCES = [
+              "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+              "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
+              "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
+              "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+              "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks4.txt",
+              "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
+              "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=IR&ssl=all&anonymity=all",
+              "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks4&timeout=5000&country=IR",
+              "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=IR",
+          ]
+
+          def fetch(url, timeout=12):
+              try:
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.read().decode("utf-8", errors="ignore")
+              except Exception as e:
+                  print(f"skip source {url}: {e}")
+                  return ""
+
+          def is_iran_ip(ip):
+              parts = ip.split(".")
+              if len(parts) != 4:
+                  return False
+              try:
+                  a, b = int(parts[0]), int(parts[1])
+              except ValueError:
+                  return False
+              if a == 2 and 144 <= b <= 189: return True
+              if a == 5 and (b in range(200, 255) or b in range(160, 180)): return True
+              if a == 31 and b in range(14, 30): return True
+              if a == 37 and b in range(130, 200): return True
+              if a == 46 and (b in range(100, 120) or b in range(209, 220)): return True
+              if a == 78 and b in range(38, 50): return True
+              if a == 79 and b in range(175, 180): return True
+              if a == 80 and b in range(191, 220): return True
+              if a == 81 and b in range(12, 30): return True
+              if a == 85 and b in range(9, 20): return True
+              if a == 89 and b in range(40, 50): return True
+              if a == 91 and b in range(90, 100): return True
+              if a == 93 and b in range(110, 130): return True
+              if a == 94 and b in range(180, 190): return True
+              if a == 151 and b in range(230, 240): return True
+              if a == 178 and b in range(250, 255): return True
+              if a == 185 and (b in range(88, 130) or b in range(140, 220)): return True
+              if a == 188 and b in range(130, 150): return True
+              if a == 194 and b in range(30, 50): return True
+              if a == 195 and b in range(180, 190): return True
+              if a == 217 and b in range(210, 230): return True
+              return False
+
+          def source_matches_protocol(src, proto):
+              if proto == "all":
+                  return True
+              if proto == "http":
+                  return "http" in src and "socks" not in src
+              if proto == "socks4":
+                  return "socks4" in src
+              if proto == "socks5":
+                  return "socks5" in src
+              return True
+
+          candidates = set()
+          for src in SOURCES:
+              if not source_matches_protocol(src, PROTO):
+                  continue
+              text = fetch(src)
+              for line in text.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  m = re.match(r"^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})$", line)
+                  if not m:
+                      continue
+                  ip, port = m.group(1), m.group(2)
+                  if not is_iran_ip(ip):
+                      continue
+                  candidates.add(f"{ip}:{port}")
+
+          print(f"Found {len(candidates)} candidate Iran proxies from free lists (protocol filter: {PROTO})")
+
+          def quick_check(proxy, timeout=4):
+              ip, port = proxy.split(":")
+              try:
+                  s = socket.create_connection((ip, int(port)), timeout=timeout)
+                  s.close()
+                  return True
+              except Exception:
+                  return False
+
+          final = []
+          if CHECK and candidates:
+              print("Live checking (this may take a minute)...")
+              pool = list(candidates)[:300]
+              with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
+                  futs = {ex.submit(quick_check, p): p for p in pool}
+                  for fut in concurrent.futures.as_completed(futs):
+                      p = futs[fut]
+                      try:
+                          if fut.result():
+                              final.append(p)
+                              if len(final) >= MAX:
+                                  break
+                      except Exception:
+                          pass
+          else:
+              final = sorted(candidates)[:MAX]
+
+          out_path = "out/iran_proxies.txt"
+          with open(out_path, "w", encoding="utf-8") as f:
+              f.write("# Free Iran proxies collected on GitHub Actions\n")
+              f.write(f"# Count: {len(final)}\n")
+              f.write(f"# Protocol filter: {PROTO}\n")
+              f.write(f"# Live-checked: {CHECK}\n")
+              f.write("# Format: IP:PORT (one per line)\n")
+              f.write("# Note: free proxies die quickly. Re-run this tool for a fresh list.\n\n")
+              for p in final:
+                  f.write(p + "\n")
+
+          print(f"Wrote {len(final)} proxies to {out_path}")
+          for p in final[:10]:
+              print("  ", p)
+          if len(final) > 10:
+              print(f"  ... and {len(final)-10} more")
+
+          if not final:
+              # Don't fail: the release is still created, so the app gets a file
+              # (with only the header) instead of showing "Nothing found".
+              print("::warning::No Iran proxies matched right now. Wrote an empty list so the run still publishes a file.")
+          PY
+
+      - name: Check the output folder
+        run: |
+          set -euo pipefail
+          if [ ! -f out/iran_proxies.txt ]; then
+            echo "::error::out/iran_proxies.txt was not created"
+            exit 1
+          fi
+          echo "Files to publish:"
+          ls -la out
+
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: _repo
+          sparse-checkout: scripts
+
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "Iran Proxy List run-${{ github.run_id }}"
+
+      - name: Notify (ntfy)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: Free Iran Proxy List
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then echo "No ntfy.json on the config branch: no notification."; exit 0; fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then echo "ntfy topic is not set: no notification."; exit 0; fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
+              -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi
