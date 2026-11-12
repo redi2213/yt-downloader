@@ -330,7 +330,8 @@ def _phone_one(yt_dlp, opts, url):
         note = (note + " " if note else "") + "Picture and sound come as separate streams."
     return {"url": url, "title": info.get("title") or url,
             "extractor": info.get("extractor") or info.get("extractor_key") or "",
-            "note": note.strip(), "rows": rows, "video_heights": video_heights}
+            "note": note.strip(), "rows": rows, "video_heights": video_heights,
+            "duration": info.get("duration")}
 
 
 def _phone_formats(info):
@@ -352,7 +353,7 @@ def _phone_formats(info):
             both.append({"h": h, "ext": "mp4" if "m3u8" in proto else (f.get("ext") or "mp4"),
                          "hls": "m3u8" in proto,
                          "size": _phone_size(f.get("filesize") or f.get("filesize_approx")),
-                         "url": link.split("#")[0], "_bytes": _phone_bytes(f)})
+                         "url": link.split("#")[0], "_bytes": _phone_bytes(f), "_tbr": f.get("tbr")})
         elif v and h:
             video.append(h)
     groups = {}
@@ -400,20 +401,39 @@ def _phone_size(n):
 
 # ---------------------------------------------------------------- file sizes on the phone
 # yt-dlp gives no size for HLS. Like lab_scripts/links.py: read the playlist, ask 3 segments for
-# byte 0 only (Range) and multiply by the segment count. A few KB of phone data per quality.
+# byte 0 only (Range) and multiply by the segment count (a few KB of phone data per quality).
+# The requests go through yt-dlp's own network code (same certificates and headers as the read).
+# If that fails, the bitrate yt-dlp reported x duration is used. A note says why when no size is found.
+_NET = {"ydl": None, "err": "", "referer": ""}
+
+
 def _phone_http(url, headers=None, timeout=15):
-    import urllib.request
     h = {"User-Agent": "Mozilla/5.0"}
+    if _NET["referer"]:
+        h["Referer"] = _NET["referer"]
     if headers:
         h.update(headers)
-    return urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout)
+    try:
+        from yt_dlp.networking import Request
+        if _NET["ydl"] is None:
+            import yt_dlp
+            _NET["ydl"] = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": timeout})
+        return _NET["ydl"].urlopen(Request(url, headers=h))
+    except ImportError:
+        import urllib.request
+        return urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout)
+
+
+def _phone_err(e):
+    _NET["err"] = ("%s: %s" % (type(e).__name__, e)).strip()[:110]
 
 
 def _phone_text(url):
     try:
         with _phone_http(url) as r:
             return r.read(2000000).decode("utf-8", "replace")
-    except Exception:
+    except Exception as e:
+        _phone_err(e)
         return ""
 
 
@@ -426,8 +446,8 @@ def _phone_range_size(url):
             n = r.headers.get("Content-Length") or ""
             if getattr(r, "status", 0) == 200 and n.isdigit():
                 return int(n)
-    except Exception:
-        pass
+    except Exception as e:
+        _phone_err(e)
     return None
 
 
@@ -458,11 +478,15 @@ def _phone_hls_estimate(url):
 
 def _phone_add_sizes(res):
     from concurrent.futures import ThreadPoolExecutor
-    rows = [r for r in (res.get("rows") or []) if not r.get("size")]
+    rows = res.get("rows") or []
     if not rows:
         return
+    _NET["err"] = ""
+    _NET["referer"] = res.get("url") or ""
 
     def one(row):
+        if row.get("size"):
+            return
         try:
             link = row.get("url") or ""
             if row.get("hls") or ".m3u8" in link:
@@ -473,11 +497,22 @@ def _phone_add_sizes(res):
                 n = _phone_range_size(link)
                 if n:
                     row["size"] = _phone_size(n)
-        except Exception:
-            pass
+        except Exception as e:
+            _phone_err(e)
 
     with ThreadPoolExecutor(max_workers=4) as ex:
         list(ex.map(one, rows))
+    dur = res.get("duration") or 0
+    for row in rows:
+        tbr = row.pop("_tbr", None)
+        if not row.get("size") and tbr and dur:
+            try:
+                row["size"] = "~" + _phone_size(int(float(tbr) * 1000 / 8 * float(dur))) + " (bitrate)"
+            except Exception:
+                pass
+    if any(not r.get("size") for r in rows):
+        why = _NET["err"] or "no size in the playlist"
+        res["note"] = ((res.get("note") or "") + " Size not found for some qualities (%s)." % why).strip()
 
 
 # ---------------------------------------------------------------- download
