@@ -23,8 +23,9 @@ FIXES = {
     "set_run_name": "set run-name so the app finds its run",
     "add_permissions": "add permissions: contents: write",
     "fix_tag": "use the tag run-${{ github.run_id }}",
+    "polish_inputs": "clean input defaults like '50 (Max)' to '50' (the form shows the title above the box)",
 }
-_FIX_ORDER = ["add_dispatch", "add_inputs", "dispatch_only", "set_run_name", "add_permissions", "fix_tag"]
+_FIX_ORDER = ["add_dispatch", "add_inputs", "dispatch_only", "set_run_name", "add_permissions", "fix_tag", "polish_inputs"]
 
 
 def _f(level, fid, msg, fix=None):
@@ -433,6 +434,9 @@ def check(text, ctx=None):
     njobs = len(re.findall(r"(?m)^  [A-Za-z_][\w\-]*:\s*$", text[text.find("jobs:"):])) if "jobs" in top else 0
     if njobs > 1:
         out.append(_f("info", "jobs", "%d jobs: the app's progress view follows the first job." % njobs))
+    if polishable(text):
+        out.append(_f("info", "polish", "Some input defaults carry a title hint like '50 (Max)'; the form now shows titles itself.",
+                      "polish_inputs"))
     return out
 
 
@@ -442,6 +446,94 @@ def fixable(findings):
         if f["fix"] and f["fix"] not in ids:
             ids.append(f["fix"])
     return [i for i in _FIX_ORDER if i in ids]
+
+
+# ---------------------------------------------------------------- smart input widgets
+_OPT_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,24}$")
+_DEF_HINT_RE = re.compile(r"^(?P<tok>-?\d+|true|false|[A-Za-z0-9_.\-]+)\s+\((?P<hint>[A-Za-z][^()]{0,30})\)$", re.I)
+
+
+def _split_options(segment):
+    parts = [p.strip() for p in re.split(r"\s*(?:,|/|\||\bor\b)\s*", segment or "") if p.strip()]
+    if 2 <= len(parts) <= 10 and all(_OPT_RE.match(p) for p in parts):
+        return parts
+    return []
+
+
+def options_from_description(desc):
+    """'Quick check (true/false)' -> ['true','false'];  'Protocol: http, socks4 or all' -> [...]; else []."""
+    desc = (desc or "").strip()
+    for m in re.finditer(r"\(([^()]*)\)", desc):
+        opts = _split_options(m.group(1))
+        if opts:
+            return opts
+    seg = re.sub(r"\([^()]*\)", "", desc)
+    if ":" in seg:
+        opts = _split_options(seg.rsplit(":", 1)[1])
+        if opts:
+            return opts
+    return []
+
+
+def default_token(default):
+    """'true (Live check)' -> 'true';  '50 (Max)' -> '50';  'all' -> 'all'."""
+    d = str(default or "").strip().strip("'\"")
+    m = _DEF_HINT_RE.match(d)
+    return m.group("tok") if m else d
+
+
+def widget_for(spec):
+    """How the app shows one workflow input: {'kind': 'choice', 'options': [...], 'default': str} or {'kind': 'text'}."""
+    default = default_token(spec.get("default"))
+    opts = list(spec.get("options") or [])
+    if not opts and (spec.get("type") or "") == "boolean":
+        opts = ["true", "false"]
+    if not opts and (spec.get("type") or "string") in ("string", ""):
+        guess = options_from_description(spec.get("description"))
+        if guess:
+            low = [o.lower() for o in guess]
+            if default == "" or default.lower() in low:
+                opts = guess
+    if not opts:
+        return {"kind": "text"}
+    low = [o.lower() for o in opts]
+    if default.lower() in low:
+        default = opts[low.index(default.lower())]
+    else:
+        default = "false" if "false" in low else opts[0]
+    return {"kind": "choice", "options": opts, "default": default}
+
+
+def _fix_polish(text):
+    """default: '50 (Max)' -> default: '50' inside the on: section (title hints no longer needed).
+    Only when the token is a number / true / false, or one of the options named in the description."""
+    cut = text.find("\njobs:")
+    head, tail = (text, "") if cut < 0 else (text[:cut], text[cut:])
+    lines = head.split("\n")
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s+)default:\s*(.*?)\s*$", line)
+        if not m:
+            continue
+        raw = m.group(2).strip().strip("'\"")
+        hm = _DEF_HINT_RE.match(raw)
+        if not hm:
+            continue
+        tok = hm.group("tok")
+        if not (re.fullmatch(r"-?\d+", tok) or tok.lower() in ("true", "false")):
+            desc = ""
+            for k in range(i - 1, max(-1, i - 7), -1):
+                dm = re.match(r"^\s*description:\s*(.*)$", lines[k])
+                if dm:
+                    desc = dm.group(1).strip().strip("'\"")
+                    break
+            if tok.lower() not in [o.lower() for o in options_from_description(desc)]:
+                continue
+        lines[i] = "%sdefault: '%s'" % (m.group(1), tok)
+    return "\n".join(lines) + tail
+
+
+def polishable(text):
+    return _fix_polish(text) != text
 
 
 # ---------------------------------------------------------------- fixes
@@ -599,6 +691,8 @@ def apply_fixes(text, ids, hint="Workflow"):
                 new = _fix_run_name(cur, hint)
             elif fid == "add_permissions":
                 new = _fix_permissions(cur)
+            elif fid == "polish_inputs":
+                new = _fix_polish(cur)
             else:
                 new = _fix_tag(cur)
         except ValueError as e:
