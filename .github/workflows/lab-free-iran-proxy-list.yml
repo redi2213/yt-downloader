@@ -104,21 +104,32 @@ jobs:
           WANT_IRANCELL = os.environ.get("CHECK_IRANCELL", "true").lower() in ("1", "true", "yes")
 
           SOURCES = [
+              # --- منابع عمومی و پرسرعت ---
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
               "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
               "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks4.txt",
               "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/socks5.txt",
+              "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/http.txt",
+              "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks4.txt",
+              "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks5.txt",
+              "https://raw.githubusercontent.com/Ian-Lusule/Proxies/main/proxies/all_proxies.txt",
+              # --- منابع متمرکز بر ایران ---
+              "https://raw.githubusercontent.com/sakha1370/OpenRay/main/output_iran/iran_top100_checked.txt",
+              "https://proxyspace.pro/country/ir/all.txt",
           ]
 
-          def fetch(url, timeout=12):
+          # آمار کلی برای لاگ
+          stats = {"fetched": 0, "alive": 0, "irancell_checked": 0, "irancell_found": 0}
+          found_irancell = []
+
+          def fetch(url, timeout=15):
               try:
                   req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                   with urllib.request.urlopen(req, timeout=timeout) as r:
                       return r.read().decode("utf-8", errors="ignore")
-              except Exception as e:
-                  print(f"skip source {url}: {e}")
+              except Exception:
                   return ""
 
           def is_iran_ip(ip):
@@ -150,26 +161,7 @@ jobs:
                   return "socks5" in src
               return True
 
-          print("Gathering candidates...")
-          candidates = set()
-          for src in SOURCES:
-              if not source_matches_protocol(src, PROTO):
-                  continue
-              text = fetch(src)
-              for line in text.splitlines():
-                  line = line.strip()
-                  if not line or line.startswith("#"):
-                      continue
-                  m = re.match(r"^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})$", line)
-                  if not m:
-                      continue
-                  ip, port = m.group(1), m.group(2)
-                  if is_iran_ip(ip):
-                      candidates.add(f"{ip}:{port}")
-
-          print(f"Found {len(candidates)} candidate Iran proxies")
-
-          def tcp_alive(proxy, timeout=4):
+          def tcp_alive(proxy, timeout=5):
               ip, port = proxy.split(":")
               try:
                   s = socket.create_connection((ip, int(port)), timeout=timeout)
@@ -177,23 +169,6 @@ jobs:
                   return True
               except Exception:
                   return False
-
-          working = []
-          if CHECK and candidates:
-              print("Live checking (TCP connect)...")
-              pool = list(candidates)[:300]
-              with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
-                  futs = {ex.submit(tcp_alive, p): p for p in pool}
-                  for fut in concurrent.futures.as_completed(futs):
-                      p = futs[fut]
-                      try:
-                          if fut.result():
-                              working.append(p)
-                      except Exception:
-                          pass
-              print(f"Live check: {len(working)} proxies responded")
-          else:
-              working = list(candidates)
 
           def lookup_isp(ip, timeout=6):
               try:
@@ -210,61 +185,143 @@ jobs:
               blob = " ".join(str(info.get(k, "")) for k in ("isp", "org", "as")).lower()
               return ("irancell" in blob) or ("mtn" in blob) or ("44244" in blob)
 
-          results = []
-          irancell_found = []
+          checked_ips = set()
+          alive_pool = set()
           
-          if WANT_IRANCELL and working:
-              print("Checking ISP of every proxy for Irancell (pacing ip-api rate limit)...")
-              seen_ips = {}
-              for p in working:
-                  ip = p.split(":")[0]
-                  info = seen_ips.get(ip)
-                  if info is None:
-                      info = lookup_isp(ip)
-                      seen_ips[ip] = info
-                      time.sleep(1.4)  # Stay under the rate limit
-                  label = ""
-                  if info:
-                      label = info.get("isp") or info.get("org") or info.get("as") or ""
-                  results.append((p, label, is_irancell(info)))
-                  if is_irancell(info):
-                      irancell_found.append((p, label, True))
-          else:
-              for p in working:
-                  results.append((p, "", False))
+          start_time = time.time()
+          max_search_time = 5 * 60  # ۵ دقیقه (300 ثانیه)
+          round_num = 0
 
+          # حلقه اصلی
+          while True:
+              round_num += 1
+              print(f"\n--- Round {round_num} ---")
+              
+              # ۱. جمع‌آوری کاندیدها
+              candidates = set()
+              for src in SOURCES:
+                  if not source_matches_protocol(src, PROTO):
+                      continue
+                  text = fetch(src)
+                  for line in text.splitlines():
+                      line = line.strip()
+                      if not line or line.startswith("#"):
+                          continue
+                      m = re.match(r"^(?:socks5://|socks4://|http://)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})$", line)
+                      if not m:
+                          continue
+                      ip, port = m.group(1), m.group(2)
+                      if is_iran_ip(ip):
+                          candidates.add(f"{ip}:{port}")
+
+              new_candidates = candidates - alive_pool - checked_ips
+              stats["fetched"] += len(new_candidates)
+              print(f"Found {len(new_candidates)} new candidates (total checked: {len(checked_ips) + len(alive_pool)})")
+
+              if not new_candidates:
+                  print("No new candidates found.")
+                  if time.time() - start_time > max_search_time:
+                      print("::warning::Reached 5-minute time limit. Stopping.")
+                      break
+                  time.sleep(5)
+                  continue
+
+              # ۲. تست زنده بودن
+              if CHECK:
+                  print("Checking TCP liveness...")
+                  working_this_round = []
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=50) as ex:
+                      futs = {ex.submit(tcp_alive, p): p for p in new_candidates}
+                      for fut in concurrent.futures.as_completed(futs):
+                          p = futs[fut]
+                          try:
+                              if fut.result():
+                                  working_this_round.append(p)
+                          except Exception:
+                              pass
+              else:
+                  working_this_round = list(new_candidates)
+                  alive_pool.update(working_this_round)
+
+              print(f"{len(working_this_round)} proxies responded")
+              stats["alive"] += len(working_this_round)
+
+              # ۳. چک کردن ISP
+              if WANT_IRANCELL and working_this_round:
+                  print("Checking ISP for new proxies...")
+                  for p in working_this_round:
+                      ip = p.split(":")[0]
+                      if ip in checked_ips:
+                          continue
+                      
+                      info = lookup_isp(ip)
+                      checked_ips.add(ip)
+                      stats["irancell_checked"] += 1
+                      
+                      if is_irancell(info):
+                          label = info.get("isp") or info.get("org") or info.get("as") or "Irancell"
+                          found_irancell.append((p, label))
+                          stats["irancell_found"] += 1
+                          print(f"  [+] FOUND IRANCELL: {p} | {label}")
+                          if len(found_irancell) >= MAX:
+                              break
+                      
+                      time.sleep(1.4)
+                  
+                  # اگر به تعداد کافی ایرانسل رسیدیم
+                  if len(found_irancell) >= MAX:
+                      print(f"\nReached target of {MAX} Irancell proxies!")
+                      break
+              elif not WANT_IRANCELL:
+                  alive_pool.update(working_this_round)
+                  if len(alive_pool) >= MAX:
+                      break
+
+              # چک کردن محدودیت زمانی
+              if time.time() - start_time > max_search_time:
+                  print("::warning::Reached 5-minute time limit. Stopping.")
+                  break
+              
+              if WANT_IRANCELL and len(found_irancell) < MAX:
+                  print("Target not reached yet. Waiting 10s before next round...")
+                  time.sleep(10)
+
+          # --- نوشتن فایل خروجی ---
           out_path = "out/iran_proxies.txt"
           with open(out_path, "w", encoding="utf-8") as f:
               f.write("# Free Iran proxies (auto-checked)\n")
               f.write(f"# Max requested: {MAX}\n")
               f.write(f"# Protocol: {PROTO}\n")
               f.write(f"# Live check: {CHECK}\n")
-              f.write(f"# Irancell-only: {WANT_IRANCELL}\n\n")
+              f.write(f"# Irancell-only: {WANT_IRANCELL}\n")
+              f.write(f"# Total Irancell found: {len(found_irancell)}\n\n")
 
               if WANT_IRANCELL:
-                  if irancell_found:
-                      f.write(f"### Found {len(irancell_found)} Irancell Proxies:\n")
-                      for p, label, _ in irancell_found:
+                  if found_irancell:
+                      f.write(f"### Found {len(found_irancell)} Irancell Proxies:\n")
+                      for p, label in found_irancell:
                           f.write(f"{p} | {label}\n")
                   else:
-                      f.write("### WARNING: No Irancell proxies were found.\n")
+                      f.write("### WARNING: No Irancell proxies found within 5 minutes.\n")
                       f.write("### Here are the general working proxies instead:\n")
-                      for p, label, _ in results[:MAX]:
-                          f.write(f"{p} | {label}\n" if label else f"{p}\n")
+                      # اگر ایرانسل پیدا نکردیم، از استخر زنده‌ها بنویس
+                      for p in list(alive_pool)[:MAX]:
+                          f.write(f"{p}\n")
               else:
-                  final = results[:MAX]
+                  final = list(alive_pool)[:MAX]
                   if final:
                       f.write(f"### Found {len(final)} Proxies:\n")
-                      for p, label, _ in final:
-                          f.write(f"{p} | {label}\n" if label else f"{p}\n")
+                      for p in final:
+                          f.write(f"{p}\n")
                   else:
                       f.write("### No proxies found in this run.\n")
 
-          print(f"Wrote file to {out_path}")
-          if WANT_IRANCELL:
-              print(f"Result: {len(irancell_found)} Irancell proxies found.")
-          else:
-              print(f"Result: {len(results[:MAX])} general proxies found.")
+          print(f"\n=== Final Stats ===")
+          print(f"Candidates fetched: {stats['fetched']}")
+          print(f"Alive proxies: {stats['alive']}")
+          print(f"IPs checked for ISP: {stats['irancell_checked']}")
+          print(f"Irancell proxies found: {stats['irancell_found']}")
+          print(f"File written to: {out_path}")
           PY
 
       - name: Check the output folder
