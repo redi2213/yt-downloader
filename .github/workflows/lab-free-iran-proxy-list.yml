@@ -24,6 +24,11 @@ on:
         required: false
         default: 'true'
         type: string
+      show_isp:
+        description: 'Show the ISP of each final proxy? (true/false)'
+        required: false
+        default: 'false'
+        type: string
       job_id:
         description: 'Set by the app'
         required: false
