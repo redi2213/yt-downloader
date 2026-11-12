@@ -36,6 +36,16 @@ on:
         description: "Optional Xray config for the extract step only"
         required: false
         type: string
+      direct_link:
+        description: "Link already found on the phone (set by the app): skips the extract steps"
+        required: false
+        default: ''
+        type: string
+      direct_title:
+        description: "Video title for the file name when direct_link is used (set by the app)"
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -70,6 +80,7 @@ jobs:
         env:
           PIP_TIMEOUT: "30"
           PIP_RETRIES: "5"
+          DIRECT_LINK: ${{ inputs.direct_link }}
         run: |
           set -e
           # apt can stall on a bad mirror: every try has a time limit, then it tries again
@@ -85,23 +96,27 @@ jobs:
           fi
           pip install -U pip setuptools wheel
           pip install curl_cffi requests PySocks
-          pip uninstall -y xhamster_api unofficial-api-for-xhamster 2>/dev/null || true
-          pip install -U unofficial-api-for-xhamster
-          pip install -U unofficial-api-for-beeg || echo "beeg api install failed (Beeg falls back to yt-dlp)"
+          if [ -z "$DIRECT_LINK" ]; then
+            pip uninstall -y xhamster_api unofficial-api-for-xhamster 2>/dev/null || true
+            pip install -U unofficial-api-for-xhamster
+            pip install -U unofficial-api-for-beeg || echo "beeg api install failed (Beeg falls back to yt-dlp)"
+          fi
           pip install -U yt-dlp
           yt-dlp --version
           ffmpeg -version | head -1
 
       - name: Setup Xray (optional, extract only)
+        if: ${{ inputs.direct_link == '' }}
         env:
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
         run: python3 lab_scripts/xray_setup.py || true
 
       - name: Default configs (auto-refreshed list; skipped when you set a proxy or config)
-        if: ${{ inputs.v2ray_config == '' && inputs.proxy == '' }}
+        if: ${{ inputs.direct_link == '' && inputs.v2ray_config == '' && inputs.proxy == '' }}
         run: python3 lab_scripts/xray_default.py || true
 
       - name: Prepare proxies for extract
+        if: ${{ inputs.direct_link == '' }}
         env:
           PROXY_IN: ${{ inputs.proxy }}
         run: |
@@ -114,11 +129,36 @@ jobs:
           cat working_proxies.txt 2>/dev/null || true
 
       - name: Extract links
+        if: ${{ inputs.direct_link == '' }}
         env:
           URL: ${{ inputs.url }}
           PROXY: ${{ inputs.proxy }}
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
         run: python lab_scripts/links.py
+
+      - name: Use the link the phone already found
+        if: ${{ inputs.direct_link != '' }}
+        env:
+          DIRECT_LINK: ${{ inputs.direct_link }}
+          DIRECT_TITLE: ${{ inputs.direct_title }}
+          PAGE: ${{ inputs.url }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          link = os.environ["DIRECT_LINK"].strip()
+          page = (os.environ.get("PAGE") or "").strip().splitlines()[0]
+          item = {
+              "url": page,
+              "title": os.environ.get("DIRECT_TITLE") or "video",
+              "m3u8": link if ".m3u8" in link else "",
+              "qualities": [{"quality": "", "link": link, "ext": "m3u8" if ".m3u8" in link else "mp4"}],
+              "error": None,
+              "proxy_used": None,
+              "method": "phone",
+          }
+          json.dump([item], open("xh_links.json", "w"), ensure_ascii=False)
+          print("Using the phone's link:", link[:160])
+          PY
 
       - name: Download HLS + GitHub Release
         env:
