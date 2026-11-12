@@ -44,6 +44,7 @@ def build(host):
     host.button("Paste workflow text", lambda: host.show(_paste_screen, None))
     host.button("My imported tools", lambda: host.show(_mine))
     host.button("Copy the guide for AI", lambda: _copy_guide(host))
+    host.button("Write a prompt for my idea (copy)", lambda: host.show(_idea_screen))
     host.button("Copy the guide for AI (Link Lab site)", lambda: _copy_guide(host, "LINKLAB_SITE_GUIDE.md"))
     host.button("Add a tested site to Link Lab", _link_lab_sites)
     host.status()
@@ -78,6 +79,57 @@ def _copy_guide(host, name="WORKFLOW_GUIDE.md"):
             host.set_status("Guide copied (%d characters). Paste it into the other AI, then describe the tool you want." % len(text))
 
     host.background(work, done=done)
+
+
+# =============================================================== a ready prompt for any idea
+def _idea_screen(host):
+    """The person describes a tool; the app copies one prompt = the guide + the idea, ready for any AI."""
+    host.title("Prompt for my idea")
+    host.text("Describe the tool you want (what goes in, what comes out). The app copies one message with all the "
+              "workflow rules plus your idea: paste it into any AI, then bring the answer back with Paste workflow text.")
+    idea = host.input("For example: find free Iranian proxies and keep only Irancell ones", text="", multiline=True,
+                      height=170)
+    host.text("Where should it run?")
+    where_opts = [("GitHub", "github"), ("Phone-friendly (can run on the phone too)", "phone")]
+    pick = getattr(host, "dropdown", None) or host.choice
+    where = pick(where_opts, default="phone")
+    host.status()
+
+    def go():
+        text = (idea.text or "").strip()
+        if not text:
+            host.set_status("Write the idea first.")
+            return
+        host.set_status("Reading the guide...")
+
+        def work():
+            return rn.read_or_none(host, "WORKFLOW_GUIDE.md", LAB)
+
+        def done(guide, err):
+            if err is not None:
+                host.set_status("Could not read the guide: " + rn.explain(err)[:120])
+                return
+            if not guide:
+                host.set_status("WORKFLOW_GUIDE.md is not on the lab branch.")
+                return
+            host.copy(_ai_prompt(guide, text, where.value))
+            host.set_status("Prompt copied. Paste it into the AI.")
+        host.background(work, done=done)
+
+    host.button("Copy the prompt", go)
+    host.back_button()
+
+
+def _ai_prompt(guide, idea, where):
+    lines = ["Below are the rules for workflows of my app, then my request. Follow every rule.", "", guide.strip(), "",
+             "---", "MY REQUEST:", idea.strip(), ""]
+    if where == "phone":
+        lines.append("Make it phone-friendly (section 3b): inline Python reading os.environ, results in out/, "
+                     "pure-Python libraries only, bounded loops.")
+    else:
+        lines.append("It runs on GitHub only; you may use any tool the runner has.")
+    lines.append("Answer in the format of section 4, and run the self-check of section 5 before answering.")
+    return "\n".join(lines)
 
 
 # =============================================================== source: link
