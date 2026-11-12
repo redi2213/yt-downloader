@@ -29,6 +29,11 @@ on:
         required: false
         default: 'true'
         type: string
+      show_isp:
+        description: 'Show the ISP of each final proxy? (true/false)'
+        required: false
+        default: 'false'
+        type: string
       job_id:
         description: 'Set by the app'
         required: false
@@ -72,6 +77,7 @@ jobs:
           PROTOCOL_RAW: ${{ inputs.protocol }}
           ONLY_WORKING_RAW: ${{ inputs.only_working }}
           CHECK_IRANCELL_RAW: ${{ inputs.check_irancell }}
+          SHOW_ISP_RAW: ${{ inputs.show_isp }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -88,8 +94,11 @@ jobs:
           CHECK_IRANCELL=$(echo "$CHECK_IRANCELL_RAW" | grep -ioE 'true|false' | head -n1 | tr '[:upper:]' '[:lower:]' || echo "true")
           [ -z "$CHECK_IRANCELL" ] && CHECK_IRANCELL="true"
 
-          export MAX_PROXIES PROTOCOL ONLY_WORKING CHECK_IRANCELL
-          echo "Settings: MAX=$MAX_PROXIES, PROTOCOL=$PROTOCOL, LIVE_CHECK=$ONLY_WORKING, IRANCELL_ONLY=$CHECK_IRANCELL"
+          SHOW_ISP=$(echo "$SHOW_ISP_RAW" | grep -ioE 'true|false' | head -n1 | tr '[:upper:]' '[:lower:]' || echo "false")
+          [ -z "$SHOW_ISP" ] && SHOW_ISP="false"
+
+          export MAX_PROXIES PROTOCOL ONLY_WORKING CHECK_IRANCELL SHOW_ISP
+          echo "Settings: MAX=$MAX_PROXIES, PROTOCOL=$PROTOCOL, LIVE_CHECK=$ONLY_WORKING, IRANCELL_ONLY=$CHECK_IRANCELL, SHOW_ISP=$SHOW_ISP"
 
           python3 - <<'PY'
           import os, re, json, urllib.request, concurrent.futures, socket, time
@@ -102,9 +111,10 @@ jobs:
           PROTO = os.environ.get("PROTOCOL", "all").lower()
           CHECK = os.environ.get("ONLY_WORKING", "true").lower() in ("1", "true", "yes")
           WANT_IRANCELL = os.environ.get("CHECK_IRANCELL", "true").lower() in ("1", "true", "yes")
+          SHOW_ISP = os.environ.get("SHOW_ISP", "false").lower() in ("1", "true", "yes")
 
           SOURCES = [
-              # --- منابع عمومی و پرسرعت ---
+              # --- General fast sources ---
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
               "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
@@ -115,12 +125,12 @@ jobs:
               "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks4.txt",
               "https://raw.githubusercontent.com/komutan234/Proxy-List-Free/main/proxies/socks5.txt",
               "https://raw.githubusercontent.com/Ian-Lusule/Proxies/main/proxies/all_proxies.txt",
-              # --- منابع متمرکز بر ایران ---
+              # --- Iran-focused sources ---
               "https://raw.githubusercontent.com/sakha1370/OpenRay/main/output_iran/iran_top100_checked.txt",
               "https://proxyspace.pro/country/ir/all.txt",
           ]
 
-          # آمار کلی برای لاگ
+          # Overall stats for the log
           stats = {"fetched": 0, "alive": 0, "irancell_checked": 0, "irancell_found": 0}
           found_irancell = []
 
@@ -185,20 +195,55 @@ jobs:
               blob = " ".join(str(info.get(k, "")) for k in ("isp", "org", "as")).lower()
               return ("irancell" in blob) or ("mtn" in blob) or ("44244" in blob)
 
+          # ISP cache: one lookup per IP, shared by all stages
+          isp_cache = {}
+
+          def get_isp_label(ip):
+              """Return a readable ISP name for an IP (cached, rate-limit friendly)."""
+              if ip not in isp_cache:
+                  info = lookup_isp(ip)
+                  time.sleep(1.4)  # ip-api free tier: ~45 requests/minute
+                  isp_cache[ip] = info
+              info = isp_cache[ip]
+              if not info or info.get("status") == "fail":
+                  return "Unknown ISP"
+              isp = info.get("isp") or ""
+              org = info.get("org") or ""
+              asn = info.get("as") or ""
+              label = isp or org or asn or "Unknown ISP"
+              # If org is different from isp, show it too (helps with resellers)
+              if org and isp and org.lower() != isp.lower():
+                  label = f"{isp} ({org})"
+              if asn:
+                  asn_code = asn.split(" ")[0]
+                  label = f"{label} [{asn_code}]"
+              return label
+
+          def annotate(proxies):
+              """Add ISP name next to each proxy if SHOW_ISP is on."""
+              if not SHOW_ISP:
+                  return [p for p in proxies]
+              out = []
+              for p in proxies:
+                  ip = p.split(":")[0]
+                  out.append(f"{p} | {get_isp_label(ip)}")
+              return out
+
           checked_ips = set()
-          alive_pool = set()
+          alive_pool = []          # keeps insertion order, no duplicates
+          alive_seen = set()
           tested = set()
-          
+
           start_time = time.time()
-          max_search_time = 5 * 60  # ۵ دقیقه (300 ثانیه)
+          max_search_time = 5 * 60  # 5 minutes
           round_num = 0
 
-          # حلقه اصلی
+          # Main loop
           while True:
               round_num += 1
               print(f"\n--- Round {round_num} ---")
-              
-              # ۱. جمع‌آوری کاندیدها
+
+              # 1. Collect candidates
               candidates = set()
               for src in SOURCES:
                   if not source_matches_protocol(src, PROTO):
@@ -228,7 +273,7 @@ jobs:
                   time.sleep(5)
                   continue
 
-              # ۲. تست زنده بودن
+              # 2. Live test
               if CHECK:
                   print("Checking TCP liveness...")
                   working_this_round = []
@@ -243,12 +288,15 @@ jobs:
                               pass
               else:
                   working_this_round = list(new_candidates)
-              alive_pool.update(working_this_round)
+              for p in working_this_round:
+                  if p not in alive_seen:
+                      alive_seen.add(p)
+                      alive_pool.append(p)
 
               print(f"{len(working_this_round)} proxies responded")
               stats["alive"] += len(working_this_round)
 
-              # ۳. چک کردن ISP
+              # 3. ISP check (Irancell mode)
               if WANT_IRANCELL and working_this_round:
                   print("Checking ISP for new proxies...")
                   for p in working_this_round:
@@ -257,11 +305,12 @@ jobs:
                       ip = p.split(":")[0]
                       if ip in checked_ips:
                           continue
-                      
+
                       info = lookup_isp(ip)
+                      isp_cache[ip] = info
                       checked_ips.add(ip)
                       stats["irancell_checked"] += 1
-                      
+
                       if is_irancell(info):
                           label = info.get("isp") or info.get("org") or info.get("as") or "Irancell"
                           found_irancell.append((p, label))
@@ -269,10 +318,10 @@ jobs:
                           print(f"  [+] FOUND IRANCELL: {p} | {label}")
                           if len(found_irancell) >= MAX:
                               break
-                      
+
                       time.sleep(1.4)
-                  
-                  # اگر به تعداد کافی ایرانسل رسیدیم
+
+                  # Reached the target number of Irancell proxies
                   if len(found_irancell) >= MAX:
                       print(f"\nReached target of {MAX} Irancell proxies!")
                       break
@@ -280,16 +329,26 @@ jobs:
                   if len(alive_pool) >= MAX:
                       break
 
-              # چک کردن محدودیت زمانی
+              # Time limit check
               if time.time() - start_time > max_search_time:
                   print("::warning::Reached 5-minute time limit. Stopping.")
                   break
-              
+
               if WANT_IRANCELL and len(found_irancell) < MAX:
                   print("Target not reached yet. Waiting 10s before next round...")
                   time.sleep(10)
 
-          # --- نوشتن فایل خروجی ---
+          # --- Prepare final lists (with ISP names if requested) ---
+          final_general = alive_pool[:MAX]
+          if SHOW_ISP and final_general and not (WANT_IRANCELL and found_irancell):
+              print(f"\nLooking up ISP for {len(final_general)} final proxies...")
+              final_general_lines = annotate(final_general)
+              for line in final_general_lines:
+                  print(f"  {line}")
+          else:
+              final_general_lines = final_general
+
+          # --- Write the output file ---
           out_path = "out/iran_proxies.txt"
           with open(out_path, "w", encoding="utf-8") as f:
               f.write("# Free Iran proxies (auto-checked)\n")
@@ -297,6 +356,7 @@ jobs:
               f.write(f"# Protocol: {PROTO}\n")
               f.write(f"# Live check: {CHECK}\n")
               f.write(f"# Irancell-only: {WANT_IRANCELL}\n")
+              f.write(f"# ISP lookup: {SHOW_ISP}\n")
               f.write(f"# Total Irancell found: {len(found_irancell)}\n\n")
 
               if WANT_IRANCELL:
@@ -307,22 +367,21 @@ jobs:
                   else:
                       f.write("### WARNING: No Irancell proxies found within 5 minutes.\n")
                       f.write("### Here are the general working proxies instead:\n")
-                      # اگر ایرانسل پیدا نکردیم، از استخر زنده‌ها بنویس
-                      for p in list(alive_pool)[:MAX]:
-                          f.write(f"{p}\n")
+                      # No Irancell found, so list the general alive proxies
+                      for line in final_general_lines:
+                          f.write(f"{line}\n")
               else:
-                  final = list(alive_pool)[:MAX]
-                  if final:
-                      f.write(f"### Found {len(final)} Proxies:\n")
-                      for p in final:
-                          f.write(f"{p}\n")
+                  if final_general_lines:
+                      f.write(f"### Found {len(final_general_lines)} Proxies:\n")
+                      for line in final_general_lines:
+                          f.write(f"{line}\n")
                   else:
                       f.write("### No proxies found in this run.\n")
 
           print(f"\n=== Final Stats ===")
           print(f"Candidates fetched: {stats['fetched']}")
           print(f"Alive proxies: {stats['alive']}")
-          print(f"IPs checked for ISP: {stats['irancell_checked']}")
+          print(f"IPs checked for ISP: {len(isp_cache)}")
           print(f"Irancell proxies found: {stats['irancell_found']}")
           print(f"File written to: {out_path}")
           PY
