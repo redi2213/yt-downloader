@@ -10,7 +10,9 @@ Also holds the small GitHub helpers (one commit per branch) that Add workflow us
 Helper modules are imported as ``from labx import wf_core``.
 """
 import base64
+import os
 import re
+import sys
 import time
 
 from labx import wf_core as core
@@ -195,19 +197,34 @@ def _main(host, workflow, title, data):
                                        multiline=("urls" in name or "links" in name))
     host.status()
 
-    def run():
+    def collect():
         values = {}
         for name, w in widgets.items():
             v = w.value if hasattr(w, "value") else w.text.strip()
             if v == "" and data["inputs"][name]["required"]:
                 host.set_status("Fill in %s" % name)
-                return
+                return None
             if v == "":
                 continue
             values[name] = v
-        host.show(_run, workflow, title, values, data["text"])
+        return values
+
+    def run():
+        values = collect()
+        if values is not None:
+            host.show(_run, workflow, title, values, data["text"])
+
+    def run_phone_wf():
+        values = collect()
+        if values is not None:
+            host.show(_phone_workflow, workflow, title, values, data["text"])
 
     host.button("Run", run)
+    try:
+        if analyze(data["text"])["can"]:
+            host.button("Run on this phone (Python steps only)", run_phone_wf)
+    except Exception as e:
+        host.log("phone check failed:", repr(e))
     adapter = _pending_adapter(data["text"])
     if adapter and _phone_lib() is not None:
         def phone():
@@ -223,6 +240,597 @@ def _main(host, workflow, title, data):
         host.button("Run on this phone (fast, no proxy)", phone)
     host.button("Check workflow", lambda: host.show(_check, workflow, title))
     host.button("Report of the last run", lambda: host.show(_last, workflow, title))
+    host.back_button("Back")
+
+
+# ============================================================ run a workflow on this phone
+# The Python / shell steps of the workflow run inside the app with the phone's own network.
+# GitHub-only steps (checkout, publish to a release, notifications) are skipped.
+_SKIP_RE = re.compile(r"storage_publish|gh release|gh api|ntfy|softprops|git push|api\.github\.com|upload-artifact", re.I)
+_BLOCK_RE = re.compile(r"\b(apt-get|apt|sudo|docker|ffmpeg|ffprobe|node|npm|npx|java|cargo|curl|wget|jq|unzip|zip|git|chromium|playwright)\b")
+_PY_FILE_RE = re.compile(r"(?m)^\s*python3?\s+(?!-\s*<<)(?!-m\s+pip)\S")
+_HEREDOC_RE = re.compile(r"(?ms)^python3?\s+-\s*<<-?\s*['\"]?(\w+)['\"]?[ \t]*\n(.*?)\n\1[ \t]*$")
+_IMPORT_NAMES = {"beautifulsoup4": "bs4", "pyyaml": "yaml", "pillow": "PIL", "python-dateutil": "dateutil",
+                 "opencv-python": "cv2", "scikit-learn": "sklearn", "pycryptodome": "Crypto", "pysocks": "socks",
+                 "attrs": "attr", "typing-extensions": "typing_extensions"}
+PHONE_KEEP_RUNS = 3
+
+
+def _unq(v):
+    v = (v or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        return v[1:-1]
+    return v
+
+
+def _indent_of(line):
+    return len(line) - len(line.lstrip())
+
+
+def _parse_step(lines, step_indent):
+    key_indent = step_indent + 2
+    ls = list(lines)
+    ls[0] = " " * (step_indent + 2) + ls[0].lstrip()[2:]
+    step = {"name": "", "run": "", "env": {}, "uses": "", "if": ""}
+    i = 0
+    while i < len(ls):
+        line = ls[i]
+        if not line.strip() or _indent_of(line) != key_indent:
+            i += 1
+            continue
+        m = re.match(r"^\s*([A-Za-z_-]+):\s*(.*)$", line)
+        if not m:
+            i += 1
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if key in ("run", "env") and (key == "env" or val[:1] in ("|", ">")):
+            j = i + 1
+            block = []
+            while j < len(ls) and (not ls[j].strip() or _indent_of(ls[j]) > key_indent):
+                block.append(ls[j])
+                j += 1
+            if key == "run":
+                nonempty = [b for b in block if b.strip()]
+                cut = min((_indent_of(b) for b in nonempty), default=0)
+                step["run"] = "\n".join(b[cut:] if b.strip() else "" for b in block).rstrip() + "\n"
+            else:
+                for b in block:
+                    em = re.match(r"^\s+([A-Za-z_]\w*):\s*(.*)$", b)
+                    if em:
+                        step["env"][em.group(1)] = _unq(em.group(2))
+            i = j
+            continue
+        if key == "run":
+            step["run"] = _unq(val) + "\n"
+        elif key == "name":
+            step["name"] = _unq(val)
+        elif key == "uses":
+            step["uses"] = _unq(val)
+        elif key == "if":
+            step["if"] = _unq(val)
+        i += 1
+    return step
+
+
+def steps_of(text):
+    """The steps of the first job, read from the YAML text (no YAML library needed)."""
+    lines = text.split("\n")
+    si = next((i for i, l in enumerate(lines) if re.match(r"^\s+steps:\s*$", l)), None)
+    if si is None:
+        return []
+    base = _indent_of(lines[si])
+    groups, step_indent = [], None
+    for l in lines[si + 1:]:
+        if not l.strip() or l.lstrip().startswith("#"):
+            if groups:
+                groups[-1].append(l)
+            continue
+        ind = _indent_of(l)
+        if ind <= base:
+            break
+        if step_indent is None:
+            step_indent = ind
+        if ind == step_indent and l.lstrip().startswith("- "):
+            groups.append([l])
+        elif groups:
+            groups[-1].append(l)
+    return [_parse_step(g, step_indent) for g in groups]
+
+
+def _pip_packages(run):
+    pk = []
+    for m in re.finditer(r"pip3?\s+install\s+([^\n|&;]*)", run or ""):
+        for tok in m.group(1).split():
+            tok = tok.strip("'\"")
+            if tok.startswith("-") or "$" in tok or tok.endswith((".txt", ".whl")) or "/" in tok:
+                continue
+            name = re.split(r"[=<>!~\[;]", tok)[0].strip()
+            if name and name not in pk:
+                pk.append(name)
+    return pk
+
+
+def _importable(pkg):
+    import importlib.util
+    name = _IMPORT_NAMES.get(pkg.lower(), re.sub(r"[-.]+", "_", pkg.lower()))
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+
+def classify_step(step):
+    """-> (mode, why): mode is run | libs | skip | blocked."""
+    run = step.get("run") or ""
+    cond = (step.get("if") or "").strip()
+    if step.get("uses"):
+        return "skip", "a GitHub action (%s)" % step["uses"].split("@")[0]
+    if not run.strip():
+        return "skip", "nothing to run"
+    if cond and cond not in ("always()", "success()"):
+        return "skip", "has a condition (not evaluated on the phone)"
+    if _SKIP_RE.search(run):
+        return "skip", "publishes or notifies through GitHub"
+    lines = [l for l in run.splitlines() if l.strip() and not l.strip().startswith("#")]
+    if lines and all(re.search(r"pip3?\s+install", l) for l in lines):
+        return "libs", "installs libraries"
+    heredoc = _HEREDOC_RE.search(run)
+    scrubbed = run if not heredoc else run[:heredoc.start()] + run[heredoc.end():]
+    m = _BLOCK_RE.search(scrubbed)
+    if m:
+        return "blocked", "needs the tool '%s', which a phone does not have" % m.group(1)
+    if _PY_FILE_RE.search(scrubbed):
+        return "blocked", "runs a script file of the repo"
+    if re.search(r"(?m)^\S.*\bpython3?\s+-\s*<<", scrubbed):
+        return "blocked", "uses the result of an inline Python script inside a shell command"
+    return "run", "runs on this phone"
+
+
+def analyze(text):
+    """{steps:[{name, mode, why}], packages:[...], missing:[...], blocked:[why], can: bool}"""
+    out = {"steps": [], "packages": [], "missing": [], "blocked": [], "can": False}
+    steps = steps_of(text)
+    for n, st in enumerate(steps, 1):
+        mode, why = classify_step(st)
+        name = st.get("name") or ("step %d" % n)
+        out["steps"].append({"name": name, "mode": mode, "why": why})
+        if mode in ("run", "libs"):
+            for p in _pip_packages(st.get("run")):
+                if p not in out["packages"]:
+                    out["packages"].append(p)
+        if mode == "blocked":
+            out["blocked"].append("%s: %s" % (name, why))
+    out["missing"] = [p for p in out["packages"] if not _importable(p)]
+    out["can"] = bool(steps) and not out["blocked"] and any(s["mode"] == "run" for s in out["steps"])
+    return out
+
+
+# ---- libraries: pure-Python wheels from PyPI, downloaded on demand into the app's own folder
+def _pypi_json(name):
+    import requests
+    r = requests.get("https://pypi.org/pypi/%s/json" % name, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+def _pure_wheel(data):
+    for f in data.get("urls") or []:
+        if f.get("packagetype") == "bdist_wheel" and re.search(r"-(?:py2\.)?py3-none-any\.whl$", f.get("filename", "")):
+            return f
+    return None
+
+
+def _requirements(data):
+    names = []
+    for req in (data.get("info") or {}).get("requires_dist") or []:
+        base, _, marker = req.partition(";")
+        if "extra" in marker or re.search(r"win32|Windows|python_version\s*<|implementation_name", marker):
+            continue
+        m = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", base)
+        if m:
+            names.append(m.group(1))
+    return names
+
+
+def plan_libs(packages, depth=3):
+    """What has to be downloaded for these packages. Needs the network.
+    -> {items:[{name, version, filename, url, size, sha256}], problems:[text], total:bytes}"""
+    plan = {"items": [], "problems": [], "total": 0}
+    seen = set()
+
+    def visit(name, level):
+        key = re.sub(r"[-_.]+", "-", name.lower())
+        if key in seen or _importable(name):
+            return
+        seen.add(key)
+        try:
+            data = _pypi_json(name)
+        except Exception as e:
+            plan["problems"].append("%s: not found on PyPI (%s)" % (name, str(e)[:60]))
+            return
+        f = _pure_wheel(data)
+        if not f:
+            plan["problems"].append("%s: has native code (no pure-Python build), so it cannot run on a phone" % name)
+            return
+        plan["items"].append({"name": name, "version": (data.get("info") or {}).get("version", ""),
+                              "filename": f["filename"], "url": f["url"], "size": f.get("size") or 0,
+                              "sha256": (f.get("digests") or {}).get("sha256", "")})
+        plan["total"] += f.get("size") or 0
+        if level < depth:
+            for dep in _requirements(data):
+                visit(dep, level + 1)
+
+    for p in packages:
+        visit(p, 0)
+    return plan
+
+
+def _libdir(base):
+    d = os.path.join(base, "phone_libs")
+    os.makedirs(d, exist_ok=True)
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    return d
+
+
+def install_libs(plan, base, on_log):
+    import hashlib
+    import importlib
+    import requests
+    import zipfile
+    import io as _io
+    target = _libdir(base)
+    for it in plan["items"]:
+        on_log("Downloading %s %s ..." % (it["name"], it["version"]))
+        r = requests.get(it["url"], timeout=90)
+        r.raise_for_status()
+        if it["sha256"] and hashlib.sha256(r.content).hexdigest() != it["sha256"]:
+            raise RuntimeError("%s: the download is damaged (checksum)" % it["name"])
+        with zipfile.ZipFile(_io.BytesIO(r.content)) as z:
+            for member in z.namelist():
+                if member.startswith("/") or ".." in member.split("/"):
+                    raise RuntimeError("%s: unsafe file name inside the package" % it["name"])
+            z.extractall(target)
+    importlib.invalidate_caches()
+
+
+# ---- running the steps
+def _atom(p, values, defaults):
+    p = p.strip()
+    if p[:1] in ("'", '"'):
+        return p.strip("'\"")
+    m = re.fullmatch(r"inputs\.(\w+)", p)
+    if m:
+        return values.get(m.group(1), defaults.get(m.group(1), ""))
+    m = re.fullmatch(r"github\.(\w+)", p)
+    if m:
+        return {"run_id": "phone", "run_number": "1", "repository": "phone/local", "actor": "phone"}.get(m.group(1), "")
+    return ""
+
+
+def resolve(value, values, defaults):
+    """${{ inputs.x }}, ${{ github.run_id }}, ${{ inputs.a || 'b' }}; anything fancier becomes ''."""
+    def one(m):
+        for part in m.group(1).split("||"):
+            v = _atom(part, values, defaults)
+            if v not in (None, ""):
+                return str(v)
+        return ""
+    return re.sub(r"\$\{\{(.*?)\}\}", one, value or "", flags=re.S)
+
+
+class _Tee:
+    def __init__(self, on_log):
+        self.on_log = on_log
+        self.buf = ""
+
+    def write(self, s):
+        self.buf += s
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            self.on_log(line)
+        return len(s)
+
+    def flush(self):
+        if self.buf:
+            self.on_log(self.buf)
+            self.buf = ""
+
+    def isatty(self):
+        return False
+
+
+def _shell(script, env, cwd, on_log, state, want_env=False):
+    """Runs shell lines with the phone's own sh. -> the exported variables when want_env."""
+    import subprocess
+    sh = "/system/bin/sh" if os.path.exists("/system/bin/sh") else "sh"
+    if "ANDROID_ROOT" in env or os.path.exists("/system/bin/sh"):
+        script = re.sub(r"(?m)^\s*set\s+-o\s+pipefail\s*$", "true", script)
+        script = re.sub(r"(?m)^(\s*set\s+-[A-Za-z]*?)o\s+pipefail\b", r"\1", script)
+    if want_env:
+        script += "\nprintf '\\n__ENV_START__\\n'\nenv\n"
+    try:
+        p = subprocess.Popen([sh, "-c", script], cwd=cwd, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, errors="replace")
+    except FileNotFoundError:
+        raise RuntimeError("this phone has no shell to run the shell lines of the step")
+    state["proc"] = p
+    seen_env, exported = False, {}
+    for line in p.stdout:
+        line = line.rstrip("\n")
+        if want_env and line == "__ENV_START__":
+            seen_env = True
+            continue
+        if seen_env:
+            if "=" in line and re.match(r"^[A-Za-z_]\w*=", line):
+                k, v = line.split("=", 1)
+                exported[k] = v
+        else:
+            on_log(line)
+    p.wait()
+    state["proc"] = None
+    if state.get("cancel"):
+        raise KeyboardInterrupt()
+    if p.returncode != 0:
+        raise RuntimeError("a shell line failed (exit code %s)" % p.returncode)
+    return exported
+
+
+def _python(body, env, cwd, on_log, state):
+    """Runs the inline Python of a step inside the app (same phone, same network)."""
+    saved = {k: os.environ.get(k) for k in env}
+    old_cwd, old_out, old_err = os.getcwd(), sys.stdout, sys.stderr
+    tee = _Tee(on_log)
+    state["tid"] = __import__("threading").get_ident()
+    try:
+        for k, v in env.items():
+            if os.environ.get(k) != v:
+                os.environ[k] = v
+        os.chdir(cwd)
+        sys.stdout = sys.stderr = tee
+        exec(compile(body, "<workflow step>", "exec"), {"__name__": "__main__"})
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            raise RuntimeError("the script stopped with exit code %s" % e.code)
+    finally:
+        tee.flush()
+        sys.stdout, sys.stderr = old_out, old_err
+        os.chdir(old_cwd)
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        state["tid"] = None
+
+
+def cancel_phone(state):
+    """Stops the run: kills the shell, or raises KeyboardInterrupt inside the Python step."""
+    state["cancel"] = True
+    p = state.get("proc")
+    if p is not None:
+        try:
+            p.kill()
+        except Exception:
+            pass
+    tid = state.get("tid")
+    if tid:
+        import ctypes
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), ctypes.py_object(KeyboardInterrupt))
+
+
+def _collect(workdir):
+    out = []
+    folder = os.path.join(workdir, "out")
+    if os.path.isdir(folder):
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name)
+            if os.path.isfile(path):
+                out.append({"name": name, "path": path, "size": os.path.getsize(path)})
+    return out
+
+
+def phone_run(text, values, base, on_log, state):
+    """Runs the workflow's steps on this phone. Blocking: call from a thread.
+    -> {ok, error, files:[{name, path, size}], workdir}"""
+    import shutil
+    runs = os.path.join(base, "phone_runs")
+    os.makedirs(runs, exist_ok=True)
+    for old in sorted(os.listdir(runs))[:-PHONE_KEEP_RUNS]:
+        shutil.rmtree(os.path.join(runs, old), ignore_errors=True)
+    workdir = os.path.join(runs, time.strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(workdir, exist_ok=True)
+    _libdir(base)
+    defaults = {n: core.default_token(s.get("default")) for n, s in core.declared_inputs(text).items()}
+    gh_env_file = os.path.join(workdir, ".github_env")
+    base_env = dict(os.environ)
+    base_env.update({"CI": "true", "GITHUB_WORKSPACE": workdir, "RUNNER_TEMP": workdir, "GITHUB_RUN_ID": "phone",
+                     "GITHUB_ENV": gh_env_file, "GITHUB_OUTPUT": os.path.join(workdir, ".github_output"),
+                     "GITHUB_STEP_SUMMARY": os.path.join(workdir, ".github_summary"),
+                     "PYTHONUNBUFFERED": "1"})
+    carried = {}
+    result = {"ok": False, "error": "", "files": [], "workdir": workdir}
+    try:
+        for n, st in enumerate(steps_of(text), 1):
+            if state.get("cancel"):
+                raise KeyboardInterrupt()
+            mode, why = classify_step(st)
+            name = st.get("name") or ("step %d" % n)
+            if mode != "run":
+                on_log("-- %s: skipped (%s)" % (name, why))
+                continue
+            on_log("== %s" % name)
+            env = dict(base_env)
+            env.update(carried)
+            for k, v in (st.get("env") or {}).items():
+                env[k] = resolve(v, values, defaults)
+            run = resolve(st["run"], values, defaults) if "${{" in st["run"] else st["run"]
+            m = _HEREDOC_RE.search(run)
+            if m:
+                pre, body, post = run[:m.start()], m.group(2), run[m.end():]
+                if pre.strip():
+                    env.update(_shell(pre, env, workdir, on_log, state, want_env=True))
+                _python(body, env, workdir, on_log, state)
+                if post.strip():
+                    _shell(post, env, workdir, on_log, state)
+            else:
+                _shell(run, env, workdir, on_log, state)
+            if os.path.exists(gh_env_file):
+                for line in open(gh_env_file, errors="replace").read().splitlines():
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        carried[k] = v
+        result["ok"] = True
+    except KeyboardInterrupt:
+        result["error"] = "Stopped."
+    except Exception as e:
+        result["error"] = str(e)[:300] or e.__class__.__name__
+        on_log("!! " + result["error"])
+    result["files"] = _collect(workdir)
+    return result
+
+
+# ---- screens
+def _phone_base(host):
+    import tempfile
+    path = getattr(getattr(host, "store", None), "_path", None)
+    return os.path.dirname(path) if isinstance(path, str) and path else tempfile.gettempdir()
+
+
+def _size_text(n):
+    return "%d B" % n if n < 1024 else ("%.1f KB" % (n / 1024.0) if n < 1048576 else "%.1f MB" % (n / 1048576.0))
+
+
+def _phone_workflow(host, workflow, title, values, text):
+    a = analyze(text)
+    host.title("Run on this phone")
+    lines = []
+    for s in a["steps"]:
+        mark = {"run": "RUN ", "libs": "LIBS", "skip": "skip", "blocked": "NO  "}[s["mode"]]
+        lines.append("[%s] %s - %s" % (mark, s["name"], s["why"]))
+    host.text("\n".join(lines))
+    if a["blocked"]:
+        host.text("This workflow cannot run on a phone:\n" + "\n".join(a["blocked"]) + "\nUse Run (GitHub).")
+        host.back_button("Back")
+        return
+    if a["missing"]:
+        host.text("Needs libraries that are not in the app: %s. They are checked on PyPI when you press Run "
+                  "and the size is shown before anything is downloaded." % ", ".join(a["missing"]))
+    host.status()
+
+    def go():
+        if a["missing"]:
+            host.show(_phone_libs, workflow, title, values, text, a)
+        else:
+            host.show(_phone_running, workflow, title, values, text)
+    host.button("Run on this phone", go)
+    host.back_button("Back")
+
+
+def _phone_libs(host, workflow, title, values, text, a):
+    host.title("Libraries")
+    host.text("Checking PyPI for: %s ..." % ", ".join(a["missing"]))
+    host.status()
+    host.back_button("Back")
+
+    def work():
+        return plan_libs(a["missing"])
+
+    def done(plan, err):
+        if err is not None:
+            host.set_status("Could not check PyPI: %s" % str(err)[:80])
+            return
+        host.replace(_phone_libs_ask, workflow, title, values, text, plan)
+    host.background(work, done=done)
+
+
+def _phone_libs_ask(host, workflow, title, values, text, plan):
+    host.title("Libraries")
+    if plan["problems"]:
+        host.text("Cannot run on a phone:\n" + "\n".join(plan["problems"]) + "\nUse Run (GitHub).")
+        host.back_button("Back")
+        return
+    names = "\n".join("%s %s - %s" % (i["name"], i["version"], _size_text(i["size"])) for i in plan["items"])
+    host.text("Download these libraries into the app (%s total)?\n\n%s" % (_size_text(plan["total"]), names))
+    host.button("Download and run", lambda: host.replace(_phone_running, workflow, title, values, text, plan))
+    host.back_button("Back")
+
+
+def _phone_running(host, workflow, title, values, text, plan=None):
+    host.title("Running on this phone")
+    host.text("The workflow's steps run inside the app with this phone's network. Stop cancels it.")
+    host.status()
+    host.set_status("Starting...")
+    log = host.input("", text="", multiline=True, height=320, paste=False)
+    log.readonly = True
+    state = {"lines": [], "cancel": False, "proc": None, "tid": None, "n": 0}
+
+    def on_log(line):
+        state["lines"].append(line)
+        if len(state["lines"]) > 600:
+            del state["lines"][:100]
+
+    def refresh():
+        if state["n"] != len(state["lines"]):
+            state["n"] = len(state["lines"])
+            log.text = "\n".join(state["lines"][-120:])
+            host.set_status("Running... (%d lines)" % state["n"])
+    host.every(1.0, refresh)
+    host.button("Stop", lambda: cancel_phone(state))
+
+    def work():
+        base = _phone_base(host)
+        if plan and plan["items"]:
+            install_libs(plan, base, on_log)
+        res = phone_run(text, values, base, on_log, state)
+        res["log"] = list(state["lines"])
+        return res
+
+    def done(res, err):
+        if err is not None:
+            res = {"ok": False, "error": str(err)[:200], "files": [], "log": list(state["lines"]), "workdir": ""}
+        host.replace(_phone_result, workflow, title, res)
+    host.background(work, done=done)
+
+
+_PROXY_LINE = re.compile(r"^\s*(?:\w+://)?(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})\b")
+
+
+def _proxy_only(text):
+    rows = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    hits = [m.group(1) for m in (_PROXY_LINE.match(ln) for ln in rows) if m]
+    return "\n".join(hits) if rows and len(hits) * 2 >= len(rows) else ""
+
+
+_TEXT_EXT = (".txt", ".json", ".csv", ".tsv", ".log", ".md", ".yml", ".yaml", ".xml", ".ini", ".list")
+
+
+def _phone_result(host, workflow, title, res):
+    host.title("Done on this phone" if res.get("ok") else "Not finished")
+    if res.get("error"):
+        host.text(res["error"])
+    files = res.get("files") or []
+    if not files and res.get("ok"):
+        host.text("The workflow finished but put no file in out/.")
+    for f in files[:3]:
+        if f["name"].lower().endswith(_TEXT_EXT) and f["size"] <= 200 * 1024:
+            try:
+                content = open(f["path"], encoding="utf-8", errors="replace").read()
+            except OSError:
+                content = ""
+            lines = len([ln for ln in content.splitlines() if ln.strip()])
+            host.text("%s - %d line(s), %s" % (f["name"], lines, _size_text(f["size"])))
+            box = host.input("", text=content or "(empty file)", multiline=True, height=320, paste=False)
+            box.readonly = True
+            host.button("Copy all", lambda c=content: host.copy(c))
+            only = _proxy_only(content)
+            if only:
+                host.button("Copy IP:PORT only", lambda c=only: host.copy(c))
+        else:
+            host.text("%s - %s\nSaved on the phone: %s" % (f["name"], _size_text(f["size"]), f["path"]))
+    log_text = "\n".join(res.get("log") or [])
+    if log_text:
+        host.button("Copy log", lambda: host.copy(log_text))
     host.back_button("Back")
 
 
