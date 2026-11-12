@@ -180,7 +180,7 @@ def phone_screen(host):
     urls = [ln.strip() for ln in S["urls"].splitlines() if ln.strip()]
 
     def work():
-        return _phone_read(urls, lambda msg: host.set_status(msg))
+        return _phone_read(host, urls, lambda msg: host.set_status(msg))
 
     def done(res, err):
         if err is not None:
@@ -258,18 +258,50 @@ def _phone_label(row):
 _PHONE_SKIP = ("dash", "ism", "f4m", "rtmp", "mhtml")
 
 
-def _phone_read(urls, on_status):
+def _phone_read(host, urls, on_status):
+    """Reads each link on this phone. A site added to Link Lab (Add workflow > Add a tested site) is read
+    by its adapter first (this phone's network); everything else, and an adapter that finds nothing, goes
+    through yt-dlp as before."""
+    try:
+        from labx import site_phone
+    except Exception:
+        site_phone = None
+    entries = []
+    if site_phone is not None:
+        try:
+            entries = site_phone.load_index(host)
+        except Exception:
+            entries = []
     try:
         import yt_dlp
-    except Exception as e:
-        raise RuntimeError("yt-dlp is not inside this build") from e
+    except Exception:
+        yt_dlp = None
+    if yt_dlp is None and not entries:
+        raise RuntimeError("yt-dlp is not inside this build")
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
             "socket_timeout": 30, "retries": 2}
     out = []
     for n, url in enumerate(urls, 1):
         if on_status:
             on_status("Reading link %d of %d on this phone..." % (n, len(urls)))
-        out.append(_phone_one(yt_dlp, opts, url))
+        found = None
+        if entries:
+            try:
+                found = site_phone.try_registered(host, url, entries)
+            except Exception:
+                found = None
+        if found is not None:
+            found.setdefault("video_heights", [])
+            if found.get("rows") or yt_dlp is None:
+                out.append(found)
+                continue
+        if yt_dlp is None:
+            out.append({"url": url, "title": url, "error": "yt-dlp is not inside this build"})
+            continue
+        res = _phone_one(yt_dlp, opts, url)
+        if found is not None and not res.get("rows"):
+            res["note"] = ("Site adapter: %s. " % (found.get("error") or "no quality")) + (res.get("note") or "")
+        out.append(res)
     if on_status:
         on_status("Done")
     return out
