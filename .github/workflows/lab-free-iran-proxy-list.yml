@@ -29,8 +29,18 @@ on:
         required: false
         default: 'true'
         type: string
+      countries:
+        description: 'Countries: IR, ALL, POPULAR, or codes like IR,TR,AE,US,DE (ignored if Irancell-only is true)'
+        required: false
+        default: 'IR'
+        type: string
       show_isp:
         description: 'Show the ISP of each final proxy? (true/false)'
+        required: false
+        default: 'false'
+        type: string
+      ping_check:
+        description: 'Ping (TCP connect time) the final proxies and sort by speed? (true/false)'
         required: false
         default: 'false'
         type: string
@@ -78,6 +88,8 @@ jobs:
           ONLY_WORKING_RAW: ${{ inputs.only_working }}
           CHECK_IRANCELL_RAW: ${{ inputs.check_irancell }}
           SHOW_ISP_RAW: ${{ inputs.show_isp }}
+          PING_RAW: ${{ inputs.ping_check }}
+          COUNTRIES_RAW: ${{ inputs.countries }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -97,11 +109,18 @@ jobs:
           SHOW_ISP=$(echo "$SHOW_ISP_RAW" | grep -ioE 'true|false' | head -n1 | tr '[:upper:]' '[:lower:]' || echo "false")
           [ -z "$SHOW_ISP" ] && SHOW_ISP="false"
 
-          export MAX_PROXIES PROTOCOL ONLY_WORKING CHECK_IRANCELL SHOW_ISP
-          echo "Settings: MAX=$MAX_PROXIES, PROTOCOL=$PROTOCOL, LIVE_CHECK=$ONLY_WORKING, IRANCELL_ONLY=$CHECK_IRANCELL, SHOW_ISP=$SHOW_ISP"
+          PING_CHECK=$(echo "$PING_RAW" | grep -ioE 'true|false' | head -n1 | tr '[:upper:]' '[:lower:]' || echo "false")
+          [ -z "$PING_CHECK" ] && PING_CHECK="false"
+
+          export MAX_PROXIES PROTOCOL ONLY_WORKING CHECK_IRANCELL SHOW_ISP PING_CHECK
+          echo "Settings: MAX=$MAX_PROXIES, PROTOCOL=$PROTOCOL, LIVE_CHECK=$ONLY_WORKING, IRANCELL_ONLY=$CHECK_IRANCELL, COUNTRIES=${COUNTRIES_RAW:-IR}, SHOW_ISP=$SHOW_ISP, PING=$PING_CHECK"
 
           python3 - <<'PY'
-          import os, re, json, urllib.request, concurrent.futures, socket, time
+          import os, re, json, random, urllib.request, urllib.error, concurrent.futures, socket, time
+
+          def env_bool(name, default):
+              v = os.environ.get(name, str(default)).strip().lower()
+              return v in ("1", "true", "yes")
 
           try:
               MAX = max(5, min(200, int(os.environ.get("MAX_PROXIES", "50"))))
@@ -109,9 +128,47 @@ jobs:
               MAX = 50
 
           PROTO = os.environ.get("PROTOCOL", "all").lower()
-          CHECK = os.environ.get("ONLY_WORKING", "true").lower() in ("1", "true", "yes")
-          WANT_IRANCELL = os.environ.get("CHECK_IRANCELL", "true").lower() in ("1", "true", "yes")
-          SHOW_ISP = os.environ.get("SHOW_ISP", "false").lower() in ("1", "true", "yes")
+          CHECK = env_bool("ONLY_WORKING", True)
+          WANT_IRANCELL = env_bool("CHECK_IRANCELL", True)
+          SHOW_ISP = env_bool("SHOW_ISP", False)
+          PING = env_bool("PING_CHECK", False)
+
+          # ---------------- Country selection ----------------
+          POPULAR = ["IR", "US", "DE", "NL", "GB", "FR", "TR", "AE", "CA", "RU", "SG", "JP"]
+          ALIASES = {
+              "IRAN": "IR", "USA": "US", "AMERICA": "US", "GERMANY": "DE", "NETHERLANDS": "NL",
+              "HOLLAND": "NL", "UK": "GB", "BRITAIN": "GB", "ENGLAND": "GB", "FRANCE": "FR",
+              "TURKEY": "TR", "TURKIYE": "TR", "UAE": "AE", "EMIRATES": "AE", "CANADA": "CA",
+              "RUSSIA": "RU", "SINGAPORE": "SG", "JAPAN": "JP", "INDIA": "IN", "CHINA": "CN",
+          }
+
+          def parse_countries(raw):
+              """Return a set of 2-letter codes, or None for 'all countries'."""
+              tokens = [t for t in re.split(r"[,\s;|\u060c]+", (raw or "").strip().upper()) if t]
+              if not tokens:
+                  return {"IR"}
+              out = set()
+              for t in tokens:
+                  key = re.sub(r"[^A-Z]", "", t)
+                  if key == "ALL":
+                      return None
+                  if key == "POPULAR":
+                      out.update(POPULAR)
+                      continue
+                  key = ALIASES.get(key, key)
+                  if re.fullmatch(r"[A-Z]{2}", key):
+                      out.add(key)
+                  else:
+                      print(f"::warning::Unknown country '{t}' ignored")
+              return out or {"IR"}
+
+          COUNTRIES = parse_countries(os.environ.get("COUNTRIES_RAW", "IR"))
+          if WANT_IRANCELL and COUNTRIES != {"IR"}:
+              print("Irancell-only mode is on: country filter forced to IR.")
+              COUNTRIES = {"IR"}
+          SPECIFIC = COUNTRIES is not None
+          IRAN_ONLY = COUNTRIES == {"IR"}
+          COUNTRIES_TXT = "ALL" if COUNTRIES is None else ",".join(sorted(COUNTRIES))
 
           SOURCES = [
               # --- General fast sources ---
@@ -130,9 +187,7 @@ jobs:
               "https://proxyspace.pro/country/ir/all.txt",
           ]
 
-          # Overall stats for the log
-          stats = {"fetched": 0, "alive": 0, "irancell_checked": 0, "irancell_found": 0}
-          found_irancell = []
+          stats = {"fetched": 0, "country_match": 0, "alive": 0, "irancell_found": 0}
 
           def fetch(url, timeout=15):
               try:
@@ -143,6 +198,7 @@ jobs:
                   return ""
 
           def is_iran_ip(ip):
+              """Rough pre-filter only (saves lookups). The real check is the country lookup."""
               parts = ip.split(".")
               if len(parts) != 4:
                   return False
@@ -172,7 +228,7 @@ jobs:
               return True
 
           def tcp_alive(proxy, timeout=5):
-              ip, port = proxy.split(":")
+              ip, port = proxy.rsplit(":", 1)
               try:
                   s = socket.create_connection((ip, int(port)), timeout=timeout)
                   s.close()
@@ -180,14 +236,94 @@ jobs:
               except Exception:
                   return False
 
-          def lookup_isp(ip, timeout=6):
-              try:
-                  url = f"http://ip-api.com/json/{ip}?fields=status,country,isp,org,as"
-                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                  with urllib.request.urlopen(req, timeout=timeout) as r:
-                      return json.loads(r.read().decode())
-              except Exception:
-                  return {}
+          def tcp_ping(proxy, tries=3, timeout=3.0):
+              """TCP connect time to the proxy, measured from the GitHub runner."""
+              ip, port = proxy.rsplit(":", 1)
+              times = []
+              for _ in range(tries):
+                  t0 = time.perf_counter()
+                  try:
+                      s = socket.create_connection((ip, int(port)), timeout=timeout)
+                      s.close()
+                      times.append((time.perf_counter() - t0) * 1000.0)
+                  except Exception:
+                      pass
+              if not times:
+                  return None
+              return {"avg": sum(times) / len(times), "min": min(times), "ok": len(times), "tries": tries}
+
+          # ---------------- Geo / ISP lookup (ip-api batch, 100 IPs per request) ----------------
+          GEO_FIELDS = "status,message,country,countryCode,isp,org,as,query"
+          geo_cache = {}
+
+          def batch_lookup(ips, deadline=None):
+              need, seen = [], set()
+              for ip in ips:
+                  if ip not in geo_cache and ip not in seen:
+                      seen.add(ip)
+                      need.append(ip)
+              for i in range(0, len(need), 100):
+                  if deadline and time.time() > deadline:
+                      print("::warning::Time limit reached during country lookup.")
+                      break
+                  part = need[i:i + 100]
+                  body = json.dumps(part).encode()
+                  data = None
+                  for _attempt in range(2):
+                      try:
+                          req = urllib.request.Request(
+                              f"http://ip-api.com/batch?fields={GEO_FIELDS}", data=body,
+                              headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+                          with urllib.request.urlopen(req, timeout=20) as r:
+                              data = json.loads(r.read().decode())
+                          break
+                      except urllib.error.HTTPError as e:
+                          if e.code == 429:
+                              try:
+                                  wait = int(e.headers.get("X-Ttl", "60"))
+                              except Exception:
+                                  wait = 60
+                              print(f"  ip-api rate limit, waiting {min(wait + 1, 70)}s")
+                              time.sleep(min(wait + 1, 70))
+                          else:
+                              break
+                      except Exception:
+                          break
+                  if data:
+                      for d in data:
+                          q = d.get("query")
+                          if q:
+                              geo_cache[q] = d
+                  if i + 100 < len(need):
+                      time.sleep(4.3)  # ip-api free tier: 15 batch requests/minute
+
+          def clean(s):
+              return re.sub(r"\s+", " ", str(s or "")).strip()
+
+          def geo_of(ip):
+              return geo_cache.get(ip) or {}
+
+          def country_code(ip):
+              return clean(geo_of(ip).get("countryCode")).upper()
+
+          def country_label(ip):
+              info = geo_of(ip)
+              cc = clean(info.get("countryCode")).upper()
+              name = clean(info.get("country"))
+              if not cc and not name:
+                  return "Unknown country"
+              return f"{cc} {name}".strip()
+
+          def isp_label(info):
+              if not info or info.get("status") == "fail":
+                  return "Unknown ISP"
+              isp, org, asn = clean(info.get("isp")), clean(info.get("org")), clean(info.get("as"))
+              label = isp or org or asn or "Unknown ISP"
+              if org and isp and org.lower() != isp.lower():
+                  label = f"{isp} ({org})"
+              if asn:
+                  label = f"{label} [{asn.split(' ')[0]}]"
+              return label
 
           def is_irancell(info):
               if not info:
@@ -195,194 +331,170 @@ jobs:
               blob = " ".join(str(info.get(k, "")) for k in ("isp", "org", "as")).lower()
               return ("irancell" in blob) or ("mtn" in blob) or ("44244" in blob)
 
-          # ISP cache: one lookup per IP, shared by all stages
-          isp_cache = {}
-
-          def get_isp_label(ip):
-              """Return a readable ISP name for an IP (cached, rate-limit friendly)."""
-              if ip not in isp_cache:
-                  info = lookup_isp(ip)
-                  time.sleep(1.4)  # ip-api free tier: ~45 requests/minute
-                  isp_cache[ip] = info
-              info = isp_cache[ip]
-              if not info or info.get("status") == "fail":
-                  return "Unknown ISP"
-              isp = info.get("isp") or ""
-              org = info.get("org") or ""
-              asn = info.get("as") or ""
-              label = isp or org or asn or "Unknown ISP"
-              # If org is different from isp, show it too (helps with resellers)
-              if org and isp and org.lower() != isp.lower():
-                  label = f"{isp} ({org})"
-              if asn:
-                  asn_code = asn.split(" ")[0]
-                  label = f"{label} [{asn_code}]"
-              return label
-
-          def annotate(proxies):
-              """Add ISP name next to each proxy if SHOW_ISP is on."""
-              if not SHOW_ISP:
-                  return [p for p in proxies]
-              out = []
-              for p in proxies:
-                  ip = p.split(":")[0]
-                  out.append(f"{p} | {get_isp_label(ip)}")
-              return out
-
-          checked_ips = set()
-          alive_pool = []          # keeps insertion order, no duplicates
-          alive_seen = set()
-          tested = set()
-
+          # ---------------- Collect candidates (once) ----------------
           start_time = time.time()
-          max_search_time = 5 * 60  # 5 minutes
+          max_search_time = 5 * 60
+          deadline = start_time + max_search_time
+
+          cands = set()
+          for src in SOURCES:
+              if not source_matches_protocol(src, PROTO):
+                  continue
+              text = fetch(src)
+              for line in text.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  m = re.match(r"^(?:socks5://|socks4://|http://)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})$", line)
+                  if not m:
+                      continue
+                  ip, port = m.group(1), m.group(2)
+                  if IRAN_ONLY and not is_iran_ip(ip):
+                      continue
+                  cands.add(f"{ip}:{port}")
+
+          candidates = list(cands)
+          random.shuffle(candidates)
+          stats["fetched"] = len(candidates)
+          print(f"Countries: {COUNTRIES_TXT} | candidates collected: {len(candidates)}")
+
+          alive_pool = []
+          irancell_pool = []
+          CHUNK = 500 if SPECIFIC else 200
+          pos = 0
           round_num = 0
 
-          # Main loop
-          while True:
+          while pos < len(candidates):
+              if time.time() > deadline:
+                  print("::warning::Reached 5-minute time limit. Stopping.")
+                  break
               round_num += 1
-              print(f"\n--- Round {round_num} ---")
+              chunk = candidates[pos:pos + CHUNK]
+              pos += CHUNK
+              print(f"\n--- Round {round_num}: {len(chunk)} candidates ---")
 
-              # 1. Collect candidates
-              candidates = set()
-              for src in SOURCES:
-                  if not source_matches_protocol(src, PROTO):
+              # 1. Country filter (real lookup)
+              if SPECIFIC:
+                  batch_lookup([p.split(":")[0] for p in chunk], deadline)
+                  chunk = [p for p in chunk if country_code(p.split(":")[0]) in COUNTRIES]
+                  stats["country_match"] += len(chunk)
+                  print(f"{len(chunk)} match countries: {COUNTRIES_TXT}")
+                  if not chunk:
                       continue
-                  text = fetch(src)
-                  for line in text.splitlines():
-                      line = line.strip()
-                      if not line or line.startswith("#"):
-                          continue
-                      m = re.match(r"^(?:socks5://|socks4://|http://)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{2,5})$", line)
-                      if not m:
-                          continue
-                      ip, port = m.group(1), m.group(2)
-                      if is_iran_ip(ip):
-                          candidates.add(f"{ip}:{port}")
 
-              new_candidates = candidates - tested
-              tested.update(new_candidates)
-              stats["fetched"] += len(new_candidates)
-              print(f"Found {len(new_candidates)} new candidates (total checked: {len(checked_ips) + len(alive_pool)})")
-
-              if not new_candidates:
-                  print("No new candidates found.")
-                  if time.time() - start_time > max_search_time:
-                      print("::warning::Reached 5-minute time limit. Stopping.")
-                      break
-                  time.sleep(5)
-                  continue
-
-              # 2. Live test
+              # 2. Live test (TCP connect)
               if CHECK:
                   print("Checking TCP liveness...")
-                  working_this_round = []
-                  with concurrent.futures.ThreadPoolExecutor(max_workers=50) as ex:
-                      futs = {ex.submit(tcp_alive, p): p for p in new_candidates}
+                  alive = []
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=100) as ex:
+                      futs = {ex.submit(tcp_alive, p): p for p in chunk}
                       for fut in concurrent.futures.as_completed(futs):
-                          p = futs[fut]
                           try:
                               if fut.result():
-                                  working_this_round.append(p)
+                                  alive.append(futs[fut])
                           except Exception:
                               pass
               else:
-                  working_this_round = list(new_candidates)
-              for p in working_this_round:
-                  if p not in alive_seen:
-                      alive_seen.add(p)
-                      alive_pool.append(p)
+                  alive = list(chunk)
+              print(f"{len(alive)} proxies responded")
+              stats["alive"] += len(alive)
+              alive_pool.extend(alive)
 
-              print(f"{len(working_this_round)} proxies responded")
-              stats["alive"] += len(working_this_round)
-
-              # 3. ISP check (Irancell mode)
-              if WANT_IRANCELL and working_this_round:
-                  print("Checking ISP for new proxies...")
-                  for p in working_this_round:
-                      if time.time() - start_time > max_search_time:
-                          break
-                      ip = p.split(":")[0]
-                      if ip in checked_ips:
-                          continue
-
-                      info = lookup_isp(ip)
-                      isp_cache[ip] = info
-                      checked_ips.add(ip)
-                      stats["irancell_checked"] += 1
-
+              # 3. Irancell filter
+              if WANT_IRANCELL:
+                  for p in alive:
+                      info = geo_of(p.split(":")[0])
                       if is_irancell(info):
-                          label = info.get("isp") or info.get("org") or info.get("as") or "Irancell"
-                          found_irancell.append((p, label))
+                          irancell_pool.append(p)
                           stats["irancell_found"] += 1
-                          print(f"  [+] FOUND IRANCELL: {p} | {label}")
-                          if len(found_irancell) >= MAX:
-                              break
-
-                      time.sleep(1.4)
-
-                  # Reached the target number of Irancell proxies
-                  if len(found_irancell) >= MAX:
+                          print(f"  [+] FOUND IRANCELL: {p} | {isp_label(info)}")
+                  if len(irancell_pool) >= MAX:
                       print(f"\nReached target of {MAX} Irancell proxies!")
                       break
-              elif not WANT_IRANCELL:
-                  if len(alive_pool) >= MAX:
-                      break
-
-              # Time limit check
-              if time.time() - start_time > max_search_time:
-                  print("::warning::Reached 5-minute time limit. Stopping.")
+              elif len(alive_pool) >= MAX:
                   break
 
-              if WANT_IRANCELL and len(found_irancell) < MAX:
-                  print("Target not reached yet. Waiting 10s before next round...")
-                  time.sleep(10)
-
-          # --- Prepare final lists (with ISP names if requested) ---
-          final_general = alive_pool[:MAX]
-          if SHOW_ISP and final_general and not (WANT_IRANCELL and found_irancell):
-              print(f"\nLooking up ISP for {len(final_general)} final proxies...")
-              final_general_lines = annotate(final_general)
-              for line in final_general_lines:
-                  print(f"  {line}")
+          # ---------------- Final list ----------------
+          warning = None
+          if WANT_IRANCELL and irancell_pool:
+              final = irancell_pool[:MAX]
+          elif WANT_IRANCELL:
+              final = alive_pool[:MAX]
+              warning = "No Irancell proxies found within 5 minutes."
           else:
-              final_general_lines = final_general
+              final = alive_pool[:MAX]
 
-          # --- Write the output file ---
+          # Country/ISP info for the final list (needed when country=all)
+          if final:
+              batch_lookup([p.split(":")[0] for p in final])
+
+          pings = {}
+          if PING and final:
+              print(f"\nPinging {len(final)} proxies (TCP connect, 3 tries each)...")
+              with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
+                  for p, r in zip(final, ex.map(tcp_ping, final)):
+                      pings[p] = r
+              final.sort(key=lambda p: (pings.get(p) is None, pings[p]["avg"] if pings.get(p) else 0))
+
+          show_isp_col = SHOW_ISP or (WANT_IRANCELL and bool(irancell_pool))
+
+          def fmt(p):
+              ip = p.split(":")[0]
+              parts = [p, country_label(ip)]
+              if show_isp_col:
+                  parts.append(isp_label(geo_of(ip)))
+              if PING:
+                  r = pings.get(p)
+                  if r:
+                      t = f"{r['avg']:.0f} ms"
+                      if r["ok"] < r["tries"]:
+                          t += f" ({r['ok']}/{r['tries']} ok)"
+                      parts.append(t)
+                  else:
+                      parts.append("no response")
+              return " | ".join(parts)
+
+          lines = [fmt(p) for p in final]
+          for l in lines:
+              print(f"  {l}")
+
+          # ---------------- Write the output file ----------------
           out_path = "out/iran_proxies.txt"
           with open(out_path, "w", encoding="utf-8") as f:
               f.write("# Free Iran proxies (auto-checked)\n")
               f.write(f"# Max requested: {MAX}\n")
               f.write(f"# Protocol: {PROTO}\n")
               f.write(f"# Live check: {CHECK}\n")
+              f.write(f"# Countries: {COUNTRIES_TXT}\n")
               f.write(f"# Irancell-only: {WANT_IRANCELL}\n")
               f.write(f"# ISP lookup: {SHOW_ISP}\n")
-              f.write(f"# Total Irancell found: {len(found_irancell)}\n\n")
+              f.write(f"# Ping check: {PING}\n")
+              f.write(f"# Total Irancell found: {len(irancell_pool)}\n\n")
 
-              if WANT_IRANCELL:
-                  if found_irancell:
-                      f.write(f"### Found {len(found_irancell)} Irancell Proxies:\n")
-                      for p, label in found_irancell:
-                          f.write(f"{p} | {label}\n")
-                  else:
-                      f.write("### WARNING: No Irancell proxies found within 5 minutes.\n")
-                      f.write("### Here are the general working proxies instead:\n")
-                      # No Irancell found, so list the general alive proxies
-                      for line in final_general_lines:
-                          f.write(f"{line}\n")
+              if WANT_IRANCELL and irancell_pool:
+                  f.write(f"### Found {len(lines)} Irancell Proxies:\n")
+              elif WANT_IRANCELL:
+                  f.write(f"### WARNING: {warning}\n")
+                  f.write("### Here are the general working proxies instead:\n")
+              elif lines:
+                  f.write(f"### Found {len(lines)} Proxies:\n")
               else:
-                  if final_general_lines:
-                      f.write(f"### Found {len(final_general_lines)} Proxies:\n")
-                      for line in final_general_lines:
-                          f.write(f"{line}\n")
-                  else:
-                      f.write("### No proxies found in this run.\n")
+                  f.write("### No proxies found in this run.\n")
+              for l in lines:
+                  f.write(f"{l}\n")
 
-          print(f"\n=== Final Stats ===")
+          by_country = {}
+          for p in final:
+              cc = country_code(p.split(":")[0]) or "??"
+              by_country[cc] = by_country.get(cc, 0) + 1
+
+          print("\n=== Final Stats ===")
           print(f"Candidates fetched: {stats['fetched']}")
+          print(f"Matched requested countries: {stats['country_match']}")
           print(f"Alive proxies: {stats['alive']}")
-          print(f"IPs checked for ISP: {len(isp_cache)}")
+          print(f"IPs with geo/ISP info: {len(geo_cache)}")
           print(f"Irancell proxies found: {stats['irancell_found']}")
+          print(f"Final list by country: {by_country}")
           print(f"File written to: {out_path}")
           PY
 
