@@ -1,0 +1,45 @@
+name: Lab Site Suj.mobi
+run-name: ${{ inputs.run_title || 'Lab site sujmobi' }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app: the other inputs packed into the run name so "Run again" can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      url:
+        description: "Video page URL of the site (several links: one per line)"
+        required: false
+        type: string
+      proxy:
+        description: "Optional single proxy override (socks5://... or http://...)"
+        required: false
+        type: string
+      v2ray_config:
+        description: "Xray/V2Ray config (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.
+# The real definition lives on the `lab` branch (same path) and is what runs when the app
+# dispatches this file with ref=lab. Do not put steps here.
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stub on main. The real workflow runs from the lab branch."
