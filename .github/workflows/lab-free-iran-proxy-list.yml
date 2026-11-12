@@ -4,6 +4,11 @@ run-name: ${{ inputs.run_title || 'Iran proxies' }} [${{ inputs.job_id }}]${{ in
 on:
   workflow_dispatch:
     inputs:
+      test_proxy:
+        description: 'Test one proxy manually (IP:PORT). Leave empty to collect a list instead.'
+        required: false
+        default: ''
+        type: string
       max_proxies:
         description: 'Maximum number of proxies to keep (default 50)'
         required: false
