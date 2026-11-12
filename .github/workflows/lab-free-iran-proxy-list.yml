@@ -30,7 +30,7 @@ on:
         default: 'true'
         type: string
       countries:
-        description: 'Countries: IR, ALL, POPULAR, or codes like IR,TR,AE,US,DE (ignored if Irancell-only is true)'
+        description: 'Country: IR, POPULAR, ALL, US, DE, NL, GB, FR, TR, AE, CA, RU, SG or JP'
         required: false
         default: 'IR'
         type: string
