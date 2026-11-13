@@ -4,6 +4,13 @@ texts that are put together from pieces (``f"Last check: {when}"``): every known
 in the text is replaced and the rest (names, numbers) stays as it is."""
 
 MORE_EXACT = {
+    # --- update 7: direct link + Lab tools in the share list
+    "Direct link (one per line)": "لینک مستقیم (هر خط یک لینک)",
+    "Download link": "دانلود لینک",
+    "Paste a link that starts with http:// or https://": "لینکی بگذار که با http:// یا https:// شروع شود",
+    "Download started": "دانلود شروع شد",
+    "Lab tools": "ابزارهای آزمایشگاه",
+    "Loading Lab tools...": "در حال بارگیری ابزارهای آزمایشگاه...",
     # --- Lab screen
     "Lab - test tools": "آزمایشگاه - ابزارهای در حال آزمایش",
     "Loading the tool list...": "در حال بارگیری فهرست ابزارها...",
