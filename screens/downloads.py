@@ -1,9 +1,15 @@
 """Downloads: what "Download in app" is saving now (Pause / Resume / Stop) and the files that
 are saved on the phone (Open / Share / Delete), with a search box and a type filter.
 
+At the top there is a "Direct link" box: paste one or more links (one per line) and press
+Download - every link goes through the same download manager (segments, Pause / Resume / Stop).
+
 The live part is updated in place once a second (core/download_manager.py), so a button is never
 rebuilt under the finger.
 """
+import re
+from urllib.parse import unquote
+
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -11,13 +17,17 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
 from api import downloads_history
-from core import android_open, download_manager as dm, file_types
+from core import android_downloads, android_open, download_manager as dm, file_types, segmented_download
+from core.async_utils import run_in_background
+from core.links import split_links
 from screens.common import (BTN_H, CARD, GAP, SMALL_BTN_H, back_button, card_box, content_width,
-                            paint_card, wrapped_label_height)
+                            paint_card, paste_row, wrapped_label_height)
 
 _DANGER = (1.0, 0.55, 0.55, 1)
 PAGE = 30
-_state = {"kind": "All", "query": "", "shown": PAGE}
+_state = {"kind": "All", "query": "", "shown": PAGE, "link": ""}
+
+_CD_NAME = re.compile(r"filename\*\s*=\s*[^']*''([^;]+)|filename\s*=\s*\"?([^\";]+)\"?", re.IGNORECASE)
 
 
 def _set(widget, text):
@@ -57,10 +67,65 @@ def _task_text(t):
     return f"{t.name}\n{line}"
 
 
+def _name_for(url):
+    """File name for a direct link: a ``#name=`` in the link, else the server's Content-Disposition,
+    else the last part of the path."""
+    if "#name=" in url or "&name=" in url.split("#", 1)[-1]:
+        return android_downloads.file_name_from_url(url)
+    try:
+        import requests
+        r = requests.head(url, allow_redirects=True, timeout=10)
+        m = _CD_NAME.search(r.headers.get("Content-Disposition", ""))
+        if m:
+            wanted = unquote((m.group(1) or m.group(2) or "").strip())
+            if wanted:
+                return android_downloads.safe_file_name(wanted)
+    except Exception:
+        pass
+    return android_downloads.file_name_from_url(url)
+
+
+def _download_link(url):
+    """Runs in a background thread. The task shows up in the live list; a failure stays there
+    with its message, so nothing more is needed here."""
+    try:
+        android_downloads.download_to_downloads(url, name=_name_for(url), category="Other")
+    except segmented_download.Cancelled:
+        pass
+    except Exception:
+        pass
+
+
 def build(nav):
     nav.clear()
     nav.add(Label(text="Downloads", size_hint_y=None, height=44))
     info = Label(text="", size_hint_y=None, height=32, color=(1, 0.75, 0.4, 1))
+
+    # -- direct link box -------------------------------------------------------------------------
+    link_input = TextInput(text=_state["link"], hint_text="Direct link (one per line)", multiline=True,
+                           size_hint_y=None, height=BTN_H * 1.6)
+    nav.add(link_input)
+    nav.add(paste_row(link_input, append=True))
+    link_btn = Button(text="Download link", size_hint_y=None, height=BTN_H)
+    nav.add(link_btn)
+
+    def on_link_text(_i, value):
+        _state["link"] = value
+
+    link_input.bind(text=on_link_text)
+
+    def start_links(_i):
+        links = split_links(link_input.text)
+        if not links:
+            say("Paste a link that starts with http:// or https://")
+            return
+        for url in links:
+            run_in_background(_download_link, url)
+        link_input.text = ""
+        _state["link"] = ""
+        say("Download started")
+
+    link_btn.bind(on_press=start_links)
 
     search = TextInput(text=_state["query"], hint_text="Search downloads", multiline=False,
                        size_hint_y=None, height=BTN_H)
