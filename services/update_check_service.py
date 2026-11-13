@@ -26,3 +26,29 @@ def _work(on_done):
         on_done({"ok": False, "error": "GitHub token invalid or expired. Update it and retry."})
     except Exception as e:
         on_done({"ok": False, "error": f"Network error: {str(e)[:60]}"})
+
+
+def find_apk(version, on_done):
+    """Looks for the APK of ``version`` (YT-Bridge-<version>.apk) in the releases.
+    ``on_done({"ok", "found", "name", "api_url", "size"})`` from a background thread."""
+    run_in_background(_find_apk, version, on_done)
+
+
+def _find_apk(version, on_done):
+    want = f"YT-Bridge-{str(version).strip()}.apk"
+    try:
+        headers = dict(auth_headers())
+        for page in (1, 2, 3):
+            r = client.get(f"{API_BASE}/releases", params={"per_page": 30, "page": page}, headers=headers)
+            releases = r.json()
+            if not releases:
+                break
+            for rel in releases:
+                for asset in rel.get("assets", []):
+                    if asset.get("name") == want:
+                        on_done({"ok": True, "found": True, "name": want, "api_url": asset["url"],
+                                 "size": asset.get("size") or 0})
+                        return
+        on_done({"ok": True, "found": False})
+    except Exception as e:
+        on_done({"ok": False, "error": f"Network error: {str(e)[:60]}"})
