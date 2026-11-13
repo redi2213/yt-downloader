@@ -25,7 +25,7 @@ def describe(res):
         return res.get("error") or "Could not check for updates."
     cur, latest, state = res["current"], res["latest"], res["state"]
     if state == "newer":
-        return f"Version {latest} is on GitHub (you have {cur}). Build the new APK from Settings > App tools."
+        return f"Version {latest} is on GitHub (you have {cur})."
     if state == "same":
         return f"You have the latest version ({cur})."
     if state == "older":
