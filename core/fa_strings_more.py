@@ -651,3 +651,17 @@ PHRASES.extend([
     ("Imported workflow", "ورک‌فلوی واردشده"),
     ("Run, Check and a copyable error report inside; edit the workflow on the lab branch.", "اجرا، بررسی و گزارش خطای قابل‌کپی داخلش هست؛ ورک‌فلو را روی برنچ lab ویرایش کن."),
 ])
+
+MORE_EXACT.update({
+    # --- update 8: About screen, update download
+    "Looking for the APK...": "در حال جستجوی APK...",
+    "The update is downloaded. Press Install.": "به‌روزرسانی دانلود شد. نصب را بزن.",
+    "Download update": "دانلود به‌روزرسانی",
+    "The APK of this version is not ready yet.": "APK این نسخه هنوز آماده نیست.",
+})
+MORE_PATTERNS.extend([
+    (r"Version (.+) is on GitHub \(you have (.+)\)\.", "نسخه‌ی {0} روی گیت‌هاب است (شما {1} دارید)."),
+    (r"Download update \((.+)\)", "دانلود به‌روزرسانی ({0})"),
+    (r"Downloading the update\.\.\. (\d+)%", "در حال دانلود به‌روزرسانی... {0}٪"),
+    (r"Download failed: (.+)", "دانلود ناموفق بود: {0}"),
+])
