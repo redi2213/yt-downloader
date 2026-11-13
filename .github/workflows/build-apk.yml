@@ -6,6 +6,23 @@ on:
   # saves a fresh one to the `build-cache` Release, and does not publish an APK or bump the version.
   schedule:
     - cron: '30 20 * * 4'
+  # Builds by itself when the app's code changes on main. Changes that never reach the APK
+  # (workflows, docs, scripts that only run on GitHub, version.txt) do not start a build, so
+  # the version does not go up for nothing. Put [skip ci] in a commit message to skip a push.
+  push:
+    branches: [main]
+    paths:
+      - 'main.py'
+      - 'core/**'
+      - 'api/**'
+      - 'screens/**'
+      - 'services/**'
+      - 'assets/**'
+      - 'plugins_bundled/**'
+      - 'scripts/__init__.py'
+      - 'scripts/aparat_core.py'
+      - 'buildozer.spec'
+      - 'intent_filters.xml'
   workflow_dispatch:
     inputs:
       job_id:
@@ -31,6 +48,11 @@ on:
 
 permissions:
   contents: write
+
+# Pushes queue behind each other (never cancel a build that is running).
+concurrency:
+  group: build-apk-${{ github.event_name }}
+  cancel-in-progress: false
 
 jobs:
   build:
