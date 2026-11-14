@@ -53,11 +53,21 @@ class Navigator(ArvanController):
         # must happen for the user while they are away is started from a worker thread (see
         # _auto_after_finish), never from a scheduled callback.
         self.app_active = True
+        # In-app browser (screens/browser.py): the native WebView wrapper, what it found on the page,
+        # and the Back-key hook of the browser screen.
+        from core.browser_media import Session
+        self.browser = None
+        self.browser_session = Session()
+        self.browser_list_token = None
+        self.back_hook = None
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):
         self.stop_progress_timer()
         self.on_home = False
+        self.back_hook = None
+        if getattr(self, "browser", None) is not None:
+            self.browser.hide()      # the native WebView must never stay on top of another screen
         self.app.clear_content()
 
     # -- the phone's own Back key ---------------------------------------------
@@ -75,6 +85,9 @@ class Navigator(ArvanController):
         that is Cancel (nothing gets deleted). It never presses a job's Cancel:
         a running job keeps running. Returns True when handled; False on the
         home screen, where the app should close."""
+        hook = getattr(self, "back_hook", None)
+        if hook is not None and hook():
+            return True
         if getattr(self, "on_home", False):
             return False
 
@@ -2363,6 +2376,67 @@ class Navigator(ArvanController):
             topic, lambda res: show("Sent: it should arrive in the ntfy app." if res.get("ok") else res["error"]))
 
     # -- job history ------------------------------------------------------
+    # -- in-app browser -------------------------------------------------------------------
+    def show_browser(self, url=None):
+        from screens import browser as browser_screen
+        self.remember(self.show_browser)
+        browser_screen.build(self, url)
+
+    def show_browser_list(self):
+        from screens import browser as browser_screen
+        self.remember(self.show_browser_list)
+        browser_screen.build_list(self)
+
+    def browser_download(self, entries):
+        """The chosen rows of the browser list.
+        * video / audio files: the app's own download manager on the phone (with the Referer / cookies the
+          page used); when that fails the link goes to GitHub (Any site) instead
+        * HLS / DASH streams: GitHub (Any site)
+        * YouTube qualities: GitHub (the normal YouTube download with that quality)"""
+        from core.async_utils import run_in_background
+        direct = [e for e in entries if e["kind"] in ("video", "audio")]
+        streams = [e["url"] for e in entries if e["kind"] in ("hls", "dash")]
+        youtube = [e for e in entries if e["kind"] == "ytdlp"]
+        for e in direct:
+            run_in_background(self._browser_phone_download, e)
+        for e in youtube:
+            job = download_service.create_download_job(self.job_manager, e["url"])
+            download_service.run_download_job(
+                self.job_manager, job, e["format_id"], bool(e.get("audio")),
+                on_status=lambda text: None, on_complete=lambda job: None)
+        if streams:
+            self._browser_github(streams)
+        if direct:
+            self.show_downloads()
+        else:
+            self.show_running_jobs()
+
+    def _browser_phone_download(self, entry):
+        from core import segmented_download
+        try:
+            android_downloads.download_to_downloads(
+                entry["url"], name=entry["name"], headers=entry.get("headers") or None, category="Browser")
+        except segmented_download.Cancelled:
+            return
+        except Exception:
+            self._browser_github([entry["url"]])     # the phone could not do it: GitHub tries
+
+    def _browser_github(self, urls):
+        action = {"id": "browser_any_site", "title": "Browser", "workflow": "Any-Site-Upload.yml",
+                  "fields": [{"key": "urls", "type": "text"}],
+                  "workflow_inputs": {"mode": "release", "urls": "{urls}", "quality": "highest"}}
+        job = generic_action_service.create_action_job(self.job_manager, action, {"urls": "\n".join(urls)})
+        generic_action_service.run_action_job(
+            self.job_manager, job, on_status=lambda text: None, on_complete=lambda job: None)
+
+    def browser_send_page(self, page):
+        """\"Try this page on GitHub\": the page link itself goes to Any site (yt-dlp finds the video)."""
+        if not page:
+            self.set_status("Open a page first")
+            return
+        self._browser_github([page])
+        self.show_running_jobs()
+
     def show_job_history(self, origin="status"):
         """Recent jobs. ``origin`` ("status" or "running") is the screen it
         was opened from - Back returns there."""

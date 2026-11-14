@@ -255,3 +255,16 @@ google-play-download، aparat-download، telegram-download. اگر فایل work
 - **ظاهر**: صفحه‌ی `show_appearance_date` (نمایش تاریخ). **صفحه‌ی اصلی**: کادر «Paste any link here» + Go.
 - **بیلد**: آیکون و presplash در `assets/`، مجوزهای جدید (`ACCESS_NETWORK_STATE`، `WAKE_LOCK`، `FOREGROUND_SERVICE`، `VIBRATE`، `READ_MEDIA_*`).
 - **Secretها**: `V2RAY_CONFIG` و `PROXY` به لیست قبلی اضافه شدند.
+
+
+---
+
+## مرورگر داخلی (نسخه‌ی پایه)
+
+- **دکمه‌ی «Browser»** در منوی اصلی (`screens/browser.py`، `Navigator.show_browser`). نوار آدرس/عقب/جلو/Reload/Close با Kivy؛ خود صفحه یک **WebView واقعی اندروید** است که روی صفحه می‌نشیند.
+- pyjnius نمی‌تواند `WebViewClient` را ارث‌بری کند، پس کلاس جاوای `java/org/redi2213/ytbridge/BrowserHelper.java` (با `android.add_src = java` در `buildozer.spec`) WebView، نشانگر گرد بالا راست و شنود `shouldInterceptRequest` را نگه می‌دارد. پایتون (`core/android_browser.py`) هر نیم ثانیه `poll()` می‌زند.
+- **تشخیص**: درخواست‌های mp4/webm/mkv/mov/m3u8/mpd/mp3/m4a/… (با Referer، User-Agent و کوکی همان لحظه) + اسکن صفحه (`<video>`, `<source>`, `og:video`) بعد از لود و ۲٫۵ ثانیه بعد. blob: نادیده گرفته می‌شود. `core/browser_media.py` (`Session`) داده را نگه می‌دارد (بدون Kivy، قابل تست).
+- **نشانگر**: عدد فایل‌ها، یا «YT» در صفحه‌ی ویدیوی یوتیوب. لمس = لیست (حجم از Range، کیفیت از نام فایل؛ برای m3u8 مستر، یک ردیف برای هر کیفیت با bandwidth).
+- **یوتیوب**: yt-dlp روی گوشی (`phone_youtube_service.list_qualities`) **فقط بعد از لمس نشانگر** اجرا می‌شود.
+- **دانلود** (`Navigator.browser_download`): فایل مستقیم → مدیر دانلود خود برنامه (`Download/Yt-bridge/Browser`) با هدرهای ثبت‌شده؛ اگر روی گوشی خطا داد → GitHub (Any site). HLS/DASH → GitHub (Any site). یوتیوب → دانلود عادی یوتیوب روی GitHub با همان کیفیت. دکمه‌ی «Try this page on GitHub» لینک صفحه را به Any site می‌دهد.
+- **محدودیت‌های نسخه‌ی پایه**: فقط HTTPS (cleartext فعال نشده)؛ دانلود HLS/DASH/یوتیوب روی خود گوشی هنوز نیست (نیاز به ادغام صدا/تصویر)؛ هدر Referer/کوکی برای دانلودهای GitHub فرستاده نمی‌شود؛ ویدیوهای `blob:` (MSE) قابل دانلود نیستند. Back گوشی ابتدا در تاریخچه‌ی WebView عقب می‌رود (`Navigator.back_hook`).

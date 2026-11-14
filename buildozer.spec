@@ -27,6 +27,10 @@ android.sdk_path = /usr/local/lib/android/sdk
 android.manifest.intent_filters = intent_filters.xml
 android.manifest.launch_mode = singleTask
 
+# The in-app browser's native half (java/org/redi2213/ytbridge/BrowserHelper.java): pyjnius cannot
+# subclass WebViewClient, so a small Java class is compiled into the APK.
+android.add_src = java
+
 [buildozer]
 log_level = 2
 warn_on_root = 1

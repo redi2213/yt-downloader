@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlsplit
 import requests
 
 ROOT_FOLDER = "Yt-bridge"
-CATEGORIES = ("APK", "Backup", "YouTube", "Aparat", "Telegram", "Filimo", "Mornye", "Any-site", "Drive", "Auto", "Logs", "Other")
+CATEGORIES = ("APK", "Backup", "YouTube", "Aparat", "Telegram", "Filimo", "Mornye", "Any-site", "Drive", "Auto", "Browser", "Logs", "Other")
 
 # workflow file -> subfolder of Download/Yt-bridge
 _WORKFLOW_CATEGORY = {

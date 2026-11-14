@@ -665,3 +665,22 @@ MORE_PATTERNS.extend([
     (r"Downloading the update\.\.\. (\d+)%", "در حال دانلود به‌روزرسانی... {0}٪"),
     (r"Download failed: (.+)", "دانلود ناموفق بود: {0}"),
 ])
+
+
+MORE_EXACT.update({
+    "Browser": "مرورگر",
+    "Search or type a link": "جستجو یا نوشتن لینک",
+    "Go": "برو",
+    "Reload": "بارگذاری دوباره",
+    "Close": "بستن",
+    "Videos on this page": "ویدیوهای این صفحه",
+    "Back to browser": "بازگشت به مرورگر",
+    "Select all": "انتخاب همه",
+    "Try this page on GitHub (Any site)": "امتحان این صفحه روی GitHub (هر سایت)",
+    "Reading the qualities on this phone...": "در حال خواندن کیفیت‌ها روی همین گوشی...",
+    "Tap the files you want first": "اول فایل‌های دلخواه را لمس کن",
+    "No video found yet. Start playing the video on the page, then tap the badge again.":
+        "هنوز ویدیویی پیدا نشد. ویدیو را در صفحه پخش کن و دوباره روی نشانگر بزن.",
+    "The browser works only on the phone (Android).": "مرورگر فقط روی گوشی (اندروید) کار می‌کند.",
+    "Open a page first": "اول یک صفحه را باز کن",
+})

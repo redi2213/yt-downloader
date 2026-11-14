@@ -38,6 +38,10 @@ def build(nav):
         lab_btn.bind(on_press=lambda i: lab.show(nav))
         nav.add(lab_btn)
 
+    browser_btn = Button(text="Browser", size_hint_y=None, height=52)
+    browser_btn.bind(on_press=lambda i: nav.show_browser())
+    nav.add(browser_btn)
+
     follow_btn = Button(text="Auto follow", size_hint_y=None, height=52)
     follow_btn.bind(on_press=lambda i: nav.show_follow_menu())
     nav.add(follow_btn)
