@@ -2422,11 +2422,13 @@ class Navigator(ArvanController):
         """The chosen rows of the browser list.
         * video / audio files: the app's own download manager on the phone (with the Referer / cookies the
           page used); when that fails the link goes to GitHub (Any site) instead
-        * HLS / DASH streams: GitHub (Any site)
+        * HLS (.m3u8) streams: the phone joins the segments into one video file (core/hls_download.py);
+          when that fails the link goes to GitHub (Any site) instead
+        * DASH streams: GitHub (Any site)
         * YouTube qualities: GitHub (the normal YouTube download with that quality)"""
         from core.async_utils import run_in_background
-        direct = [e for e in entries if e["kind"] in ("video", "audio")]
-        streams = [e["url"] for e in entries if e["kind"] in ("hls", "dash")]
+        direct = [e for e in entries if e["kind"] in ("video", "audio", "hls")]
+        streams = [e["url"] for e in entries if e["kind"] == "dash"]
         youtube = [e for e in entries if e["kind"] == "ytdlp"]
         for e in direct:
             run_in_background(self._browser_phone_download, e)
@@ -2467,7 +2469,8 @@ class Navigator(ArvanController):
         from core import segmented_download
         try:
             android_downloads.download_to_downloads(
-                entry["url"], name=entry["name"], headers=entry.get("headers") or None, category="Browser")
+                entry["url"], name=entry["name"], headers=entry.get("headers") or None, category="Browser",
+                hls=True if entry["kind"] == "hls" else None)
         except segmented_download.Cancelled:
             return
         except Exception:

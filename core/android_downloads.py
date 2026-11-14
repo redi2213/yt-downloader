@@ -78,14 +78,14 @@ def _mime_for(name):
     return _MIME.get(ext) or mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 
-def download_to_downloads(url, name=None, on_progress=None, headers=None, category="Other"):
+def download_to_downloads(url, name=None, on_progress=None, headers=None, category="Other", hls=None):
     """Downloads ``url`` into Download/Yt-bridge/<category> and returns a short
     text like ``Download/Yt-bridge/Backup/project-backup-2026-10-14_17-51.zip``
     (a ``Saved``, with ``.location``). Raises on failure.
     ``on_progress(done_bytes, total_bytes)`` may be called from this thread
     (total is 0 when the server does not say)."""
     from core import download_manager
-    return download_manager.run(url, name, on_progress=on_progress, headers=headers, category=category)
+    return download_manager.run(url, name, on_progress=on_progress, headers=headers, category=category, hls=hls)
 
 
 def _fetch(url, path, on_progress, headers=None):

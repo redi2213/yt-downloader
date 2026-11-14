@@ -23,7 +23,7 @@
   - mornye.py (بزرگ)، filimo.py
 - core/: ابزار مشترک
   - fa_strings.py / fa_strings_more.py / fa_strings_msgs.py: متن‌های فارسی UI
-  - error_help.py (راهنمای خطا)، download_manager.py، android_*.py (دانلود/فایل/نصب/اشتراک)، plugin_loader.py، follow.py، rerun.py، retention.py، release_links.py، timeutil.py، appearance.py
+  - error_help.py (راهنمای خطا)، download_manager.py، hls_download.py (دانلود m3u8 روی گوشی و ساخت یک فایل ویدیویی)، android_*.py (دانلود/فایل/نصب/اشتراک)، plugin_loader.py، follow.py، rerun.py، retention.py، release_links.py، timeutil.py، appearance.py
 - scripts/: اسکریپت‌هایی که داخل workflowها اجرا می‌شوند (aparat_*، auto_follow، batch_download، cleanup_releases، storage_*، finglish_name، mornye_fetch، xh_*، xray_setup، ...)
 - java/org/redi2213/ytbridge/BrowserHelper.java، intent_filters.xml، buildozer.spec، version.txt، tests/
 

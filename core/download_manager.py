@@ -103,11 +103,13 @@ def _release_slot(task):
         _cond.notify_all()
 
 
-def run(url, name, on_progress=None, headers=None, category="Other"):
+def run(url, name, on_progress=None, headers=None, category="Other", hls=None):
     """Downloads ``url`` and saves it; returns what ``android_downloads._save_in_downloads`` returns.
-    Raises ``segmented_download.Cancelled`` when the user stops it."""
-    from core import android_downloads
+    A .m3u8 link (or ``hls=True``) is an HLS stream: all its segments are joined into one video file
+    (core/hls_download.py). Raises ``segmented_download.Cancelled`` when the user stops it."""
+    from core import android_downloads, hls_download
     name = name or android_downloads.file_name_from_url(url)
+    is_hls = hls_download.looks_like_hls(url) if hls is None else bool(hls)
     task = _new_task(name, category)
     fd, tmp_path = tempfile.mkstemp(suffix=".part")
     os.close(fd)
@@ -119,9 +121,14 @@ def run(url, name, on_progress=None, headers=None, category="Other"):
             if on_progress:
                 on_progress(done, total)
 
-        sd.fetch(url, tmp_path, headers=headers, segments=download_manager_prefs.segments(),
-                 preallocate=download_manager_prefs.preallocate(), control=task.control,
-                 on_progress=progress)
+        if is_hls:
+            ext = hls_download.fetch(url, tmp_path, headers=headers, control=task.control, on_progress=progress)
+            name = os.path.splitext(name)[0] + ext          # chunk.m3u8 -> chunk.ts (one playable video)
+            task.name = name
+        else:
+            sd.fetch(url, tmp_path, headers=headers, segments=download_manager_prefs.segments(),
+                     preallocate=download_manager_prefs.preallocate(), control=task.control,
+                     on_progress=progress)
         task.state = SAVING
         saved = android_downloads._save_in_downloads(tmp_path, name, category)
         task.saved = saved
