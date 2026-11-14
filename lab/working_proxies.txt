@@ -1,8 +1,5 @@
 # Auto-updated by Lab Find Proxies workflow
-# Updated: 2026-11-14T18:14:15Z
+# Updated: 2026-11-14T20:51:32Z
 # Format: socks5://ip:port  or  http://ip:port
-socks5://101.36.112.205:1081
-socks5://103.197.241.209:1080
-socks5://103.13.19.219:10808
-socks5://102.0.14.42:1080
-socks5://103.119.1.160:5555
+socks5://101.36.104.239:10808
+socks5://1.53.40.240:1080
