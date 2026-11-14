@@ -2430,17 +2430,38 @@ class Navigator(ArvanController):
         youtube = [e for e in entries if e["kind"] == "ytdlp"]
         for e in direct:
             run_in_background(self._browser_phone_download, e)
-        for e in youtube:
-            job = download_service.create_download_job(self.job_manager, e["url"])
-            download_service.run_download_job(
-                self.job_manager, job, e["format_id"], bool(e.get("audio")),
-                on_status=lambda text: None, on_complete=lambda job: None)
+        self._browser_youtube(youtube)
         if streams:
             self._browser_github(streams)
         if direct:
             self.show_downloads()
         else:
             self.show_running_jobs()
+
+    def _browser_youtube(self, rows):
+        """YouTube qualities: GitHub runs the normal YouTube download with that quality."""
+        for e in rows:
+            job = download_service.create_download_job(self.job_manager, e["url"])
+            download_service.run_download_job(
+                self.job_manager, job, e["format_id"], bool(e.get("audio")),
+                on_status=lambda text: None, on_complete=lambda job: None)
+
+    def browser_upload(self, entries):
+        """\"Upload to GitHub with this link\" (actions menu of the browser list).
+        * video / audio files: the existing Upload File (upload-file.yml), all links into one release,
+          with the page as Referer
+        * HLS / DASH streams and YouTube qualities have no direct file: they go the way Download does (GitHub)"""
+        direct = [e for e in entries if e["kind"] in ("video", "audio")]
+        streams = [e["url"] for e in entries if e["kind"] in ("hls", "dash")]
+        self._browser_youtube([e for e in entries if e["kind"] == "ytdlp"])
+        if streams:
+            self._browser_github(streams)
+        if not direct:
+            self.show_running_jobs()
+            return
+        referer = next(((e.get("headers") or {}).get("Referer", "") for e in direct
+                        if (e.get("headers") or {}).get("Referer")), "")
+        self.start_upload("\n".join(dict.fromkeys(e["url"] for e in direct)), False, "", referer=referer)
 
     def _browser_phone_download(self, entry):
         from core import segmented_download

@@ -128,6 +128,106 @@ def selection_summary(entries, selected):
     return count, total, unknown
 
 
+_Q_PATH = re.compile(r"(?<![0-9])(\d{3,4})p(?![a-z0-9])", re.I)
+_Q_STEM = re.compile(r"[_\-.](\d{3,4})$")
+_Q_NAME_P = re.compile(r"[\s_\-.]*\(?(?<![0-9])(\d{3,4})p\)?(?![a-z0-9])", re.I)
+_Q_NAME_N = re.compile(r"[_\-.](\d{3,4})(?=(?:\.[a-z0-9]{2,5})?$)")
+
+
+def group_base(url):
+    """The link with its quality token (720p / _720) cut out, or "" when it has none.
+    Two links with the same base are one video in two qualities (same host, same path, only the token differs)."""
+    parts = urlsplit(url or "")
+    host = parts.netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = unquote(parts.path)
+    m = _Q_PATH.search(path)
+    if m and int(m.group(1)) in HEIGHTS:
+        return host + path[:m.start()] + "{q}" + path[m.end():]
+    head, slash, last = path.rpartition("/")
+    stem, dot, ext = last.rpartition(".")
+    if not dot:
+        stem, ext = last, ""
+    m = _Q_STEM.search(stem)
+    if m and int(m.group(1)) in HEIGHTS:
+        return host + head + slash + stem[:m.start(1)] + "{q}" + dot + ext
+    return ""
+
+
+def strip_quality(name):
+    """"Movie_720p.mp4" -> "Movie.mp4" (the name of a group of qualities)."""
+    def cut(m):
+        return "" if int(m.group(1)) in HEIGHTS else m.group(0)
+    out = _Q_NAME_P.sub(cut, name or "")
+    if out == name:
+        out = _Q_NAME_N.sub(cut, out)
+    stem = out.rpartition(".")[0] if "." in out else out
+    return out if stem.strip(" _-.") else (name or "")
+
+
+def group_units(entries):
+    """The rows as units: one unit per file, or one unit for a video listed in several qualities.
+    A unit is {"key", "entry", "members", "name"}; ``members`` is None for a single file.
+    Only a certain relation groups rows: the yt-dlp qualities of one page, the qualities of one HLS master
+    playlist (both carry a ``gid``) and files whose links differ only in the quality token. Anything else
+    stays a row of its own. A "group" of one row is just that row."""
+    order, buckets = [], {}
+    for e in entries:
+        gid = e.get("gid")
+        if not gid and e.get("kind") in ("video", "audio"):
+            base = group_base(e.get("url"))
+            if base:
+                gid = "d:" + base
+        if not gid:
+            order.append((None, e))
+            continue
+        if gid not in buckets:
+            buckets[gid] = []
+            order.append((gid, None))
+        buckets[gid].append(e)
+    units = []
+    for gid, e in order:
+        members = buckets[gid] if gid else None
+        if members is not None and len(members) >= 2:
+            name = members[0].get("gname") or strip_quality(members[0].get("name") or "")
+            units.append({"key": "g:" + gid, "entry": None, "members": members, "name": name})
+        else:
+            one = e if members is None else members[0]
+            units.append({"key": one["key"], "entry": one, "members": None, "name": one.get("name") or ""})
+    return units
+
+
+def sort_members(members, mode):
+    """The qualities inside a group: by size when sorting by size, otherwise best quality first."""
+    return sort_entries(members, "size" if mode == "size" else "quality")
+
+
+def sort_units(units, mode):
+    """The units in one of SORT_MODES order. A group sorts by its best member (newest / oldest: by its
+    newest / oldest member, size: by its biggest), so Sort works the same with and without groups."""
+    reps, by_key = [], {}
+    for u in units:
+        by_key[u["key"]] = u
+        ms = u["members"]
+        if ms is None:
+            reps.append(u["entry"])
+            continue
+        best = max(ms, key=lambda m: (quality_height(m), m.get("size") or 0))
+        seqs = [m.get("seq", 0) for m in ms]
+        sizes = [m["size"] for m in ms if m.get("size")]
+        reps.append({**best, "key": u["key"], "name": u["name"],
+                     "seq": min(seqs) if mode == "oldest" else max(seqs),
+                     "size": max(sizes) if sizes else None})
+    out = []
+    for r in sort_entries(reps, mode):
+        u = by_key[r["key"]]
+        if u["members"] is not None:
+            u = {**u, "members": sort_members(u["members"], mode)}
+        out.append(u)
+    return out
+
+
 def normalize_input(text):
     """What the address box holds -> a link to open (a search for plain words)."""
     t = (text or "").strip()
@@ -185,6 +285,7 @@ class Session:
         self.title = ""
         self.items = {}
         self.selected = set()
+        self.open_groups = set()    # the groups of qualities opened in the list
         self.ytdlp = []
         self.ytdlp_for = None
         self.ytdlp_error = ""
@@ -208,7 +309,7 @@ class Session:
 
     def clear(self):
         """The list's Clear: everything found and selected goes."""
-        self.items, self.selected = {}, set()
+        self.items, self.selected, self.open_groups = {}, set(), set()
         self.ytdlp, self.ytdlp_error = [], ""
         self.ytdlp_for = self.page if is_ytdlp_page(self.page) else None    # not read again by itself
         self.version += 1
@@ -262,7 +363,8 @@ class Session:
                         continue
                     seen.add(key)
                     out.append({**item, "key": key, "url": v["url"], "kind": "hls", "quality": v["label"],
-                                "variants": None, "probed": True})
+                                "variants": None, "probed": True,
+                                "gid": "m:" + item["key"], "gname": item["name"]})
             elif item["key"] not in variant_keys:
                 out.append(item)
         return out
@@ -284,10 +386,12 @@ class Session:
         name = self.title or "YouTube video"
         seq = self._next_seq()
         rows = [{"key": "yt:" + fid, "kind": "ytdlp", "url": self.page, "format_id": fid, "name": name,
+                 "gid": "yt:" + self.page, "gname": name,
                  "quality": label, "size_label": size_label or "", "codec": codec or "", "audio": False,
                  "size": parse_size_label(size_label), "headers": {}, "probed": True, "seq": seq}
                 for fid, label, size_label, codec in reversed(formats)]
         rows.append({"key": "yt:audio", "kind": "ytdlp", "url": self.page, "format_id": "bestaudio", "name": name,
+                     "gid": "yt:" + self.page, "gname": name,
                      "quality": "Audio only (MP3)", "size_label": "", "codec": "", "audio": True,
                      "size": None, "headers": {}, "probed": True, "seq": seq})
         self.ytdlp = rows

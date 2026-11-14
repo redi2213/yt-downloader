@@ -11,8 +11,9 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
 
-from core import android_browser, browser_media as bm
+from core import android_actions, android_browser, browser_media as bm
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, PAD, back_button, card_box, content_width,
                             fa_font_kwargs, fa_text, paint_card, wrapped_label, wrapped_label_height)
 from services import browser_service
@@ -129,7 +130,20 @@ def _text(e, width):
     return f"{fa_text(e.get('name') or '', width)}\n{_sub(e)}"
 
 
+def _group_text(u, width, opened):
+    """A video in several qualities: its name, how many qualities and which (tap = open / close)."""
+    quals = [m.get("quality") for m in u["members"] if m.get("quality")]
+    line2 = f"{len(u['members'])} qualities"
+    if quals:
+        line2 += "  |  " + ", ".join(quals[:5]) + ("..." if len(quals) > 5 else "")
+    return f"{'- ' if opened else '+ '}{fa_text(u['name'] or '', width)}\n{line2}"
+
+
 PAGE = 30           # rows drawn at a time; "Show more" adds the next ones (a long list stays smooth)
+CHK_W = dp(52)      # the select box at the start of a row
+INDENT = dp(18)     # the qualities of an open group are drawn a little inside
+CARD_PART = [0.13, 0.28, 0.20, 1]       # some (not all) qualities of a group are selected
+_MARKS = {0: "[   ]", 1: "[ - ]", 2: "[ x ]"}
 _SORT_NAMES = {"newest": "Newest", "oldest": "Oldest", "size": "Size", "quality": "Quality",
                "name": "Name", "type": "Type"}
 _EMPTY = "No video found yet. Start playing the video on the page, then tap the badge again."
@@ -185,8 +199,9 @@ def build_list(nav):
     # state of this screen: sort mode (saved as the default), rows drawn, what the last draw showed
     state = {"mode": browser_service.default_sort(), "shown": PAGE, "version": None, "keys": None,
              "entries": [], "scan": 0}
-    cards, labels = {}, {}
+    marks, labels = {}, {}          # row key -> (card colour, select box, entry keys) / its text button
     inner = content_width() - 2 * dp(8)
+    base_w = inner - dp(16) - CHK_W - dp(4)
 
     sort_btn = Button(text=_sort_text(state["mode"]), size_hint_x=0.42)
     refresh_btn = Button(text="Refresh", size_hint_x=0.29)
@@ -198,8 +213,9 @@ def build_list(nav):
     info = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
     info.text_size = (content_width(), None)
     nav.add(info)
-    dl_btn = Button(text="Download selected", size_hint_y=None, height=BTN_H)
-    nav.add(dl_btn)
+    dl_btn = Button(text="Download selected")
+    act_btn = Button(text="Actions for selected")
+    nav.add(_row([dl_btn, act_btn]))
 
     rows_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
     rows_box.bind(minimum_height=rows_box.setter("height"))
@@ -219,14 +235,23 @@ def build_list(nav):
         info.text = text
         info.height = max(BTN_H, wrapped_label_height(text, width=content_width()))
 
-    def recolor():
-        for key, color in cards.items():
-            color.rgba = CARD_ON if key in sess.selected else CARD
+    def mark_of(keys):
+        n = sum(1 for k in keys if k in sess.selected)
+        return 2 if n and n == len(keys) else (1 if n else 0)
 
-    def toggle(key):
-        sess.selected ^= {key}
-        if key in cards:
-            cards[key].rgba = CARD_ON if key in sess.selected else CARD
+    def refresh_marks():
+        for color, chk, keys in marks.values():
+            m = mark_of(keys)
+            color.rgba = (CARD, CARD_PART, CARD_ON)[m]
+            if chk.text != _MARKS[m]:
+                chk.text = _MARKS[m]
+
+    def toggle(keys):
+        if all(k in sess.selected for k in keys):
+            sess.selected -= set(keys)
+        else:
+            sess.selected |= set(keys)
+        refresh_marks()
         update_info()
 
     def select_all(on):
@@ -234,21 +259,55 @@ def build_list(nav):
             sess.selected |= {e["key"] for e in state["entries"]}
         else:
             sess.selected.clear()
-        recolor()
+        refresh_marks()
         update_info()
 
-    def make_row(e):
-        text = _text(e, inner - dp(16))
-        height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(14), width=inner - dp(16)))
+    def toggle_open(gkey):
+        sess.open_groups ^= {gkey}
+        render(force=True)
+
+    def make_card(key, keys, text, name, on_body, member=False):
+        """One row: a select box (selects) and the text (opens the actions menu / opens the group)."""
+        width = base_w - (INDENT if member else 0)
+        height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(14), width=width))
         card = card_box([height])
-        cards[e["key"]] = paint_card(card, CARD_ON if e["key"] in sess.selected else CARD)
-        btn = Button(text=text, size_hint_y=None, height=height, halign="left", valign="middle",
-                     background_normal="", background_color=(0, 0, 0, 0), **fa_font_kwargs(e.get("name")))
-        btn.text_size = (inner - dp(16), None)
-        btn.bind(on_press=lambda i, k=e["key"]: toggle(k))
-        labels[e["key"]] = btn
-        card.add_widget(btn)
-        return card
+        color = paint_card(card, CARD)
+        line = BoxLayout(orientation="horizontal", size_hint_y=None, height=height, spacing=dp(4))
+        chk = Button(text=_MARKS[0], size_hint=(None, None), size=(CHK_W, height),
+                     background_normal="", background_color=(0, 0, 0, 0))
+        chk.bind(on_press=lambda i: toggle(keys))
+        body = Button(text=text, size_hint_y=None, height=height, halign="left", valign="middle",
+                      background_normal="", background_color=(0, 0, 0, 0), **fa_font_kwargs(name))
+        body.text_size = (width, None)
+        body.bind(on_press=lambda i: on_body())
+        line.add_widget(chk)
+        line.add_widget(body)
+        card.add_widget(line)
+        marks[key] = (color, chk, keys)
+        labels[key] = body
+        refresh_marks_one(key)
+        if not member:
+            return card
+        wrap = BoxLayout(orientation="horizontal", size_hint_y=None, height=height + 2 * dp(8))
+        wrap.add_widget(Widget(size_hint_x=None, width=INDENT))
+        wrap.add_widget(card)
+        return wrap
+
+    def refresh_marks_one(key):
+        color, chk, keys = marks[key]
+        m = mark_of(keys)
+        color.rgba = (CARD, CARD_PART, CARD_ON)[m]
+        chk.text = _MARKS[m]
+
+    def make_row(e, member=False):
+        key = e["key"]
+        text = _sub(e) if member else _text(e, base_w)
+        return make_card(key, [key], text, e.get("name"), lambda k=key: open_actions(nav, [k]), member)
+
+    def make_group(u):
+        gkey = u["key"]
+        text = _group_text(u, base_w, gkey in sess.open_groups)
+        return make_card(gkey, [m["key"] for m in u["members"]], text, u["name"], lambda k=gkey: toggle_open(k))
 
     def show_more(_i=None):
         state["shown"] += PAGE
@@ -258,26 +317,43 @@ def build_list(nav):
         entries = sess.all_entries()
         sess.selected &= {e["key"] for e in entries}        # a row that is gone cannot stay selected
         state["entries"] = entries
-        shown = bm.sort_entries(entries, state["mode"])[:state["shown"]]
-        keys = tuple(e["key"] for e in shown)
-        if force or keys != state["keys"]:
-            state["keys"] = keys
+        units = bm.sort_units(bm.group_units(entries), state["mode"])
+        shown = units[:state["shown"]]
+        layout = tuple((u["key"], u["key"] in sess.open_groups,
+                        tuple(m["key"] for m in u["members"]) if u["members"] else ()) for u in shown)
+        if force or layout != state["keys"]:
+            state["keys"] = layout
             rows_box.clear_widgets()
             more_box.clear_widgets()
-            cards.clear()
+            marks.clear()
             labels.clear()
             if not entries:
                 rows_box.add_widget(wrapped_label(_EMPTY))
-            for e in shown:
-                rows_box.add_widget(make_row(e))
-            if len(entries) > len(shown):
+            for u in shown:
+                if u["members"] is None:
+                    rows_box.add_widget(make_row(u["entry"]))
+                    continue
+                rows_box.add_widget(make_group(u))
+                if u["key"] in sess.open_groups:
+                    for m in u["members"]:
+                        rows_box.add_widget(make_row(m, member=True))
+            if len(units) > len(shown):
                 more = Button(text="Show more", size_hint_y=None, height=BTN_H)
                 more.bind(on_press=show_more)
                 more_box.add_widget(more)
         else:
-            for e in shown:         # same rows: only the sizes / qualities that arrived are redrawn
-                if e["key"] in labels:
-                    _set(labels[e["key"]], _text(e, inner - dp(16)))
+            for u in shown:         # same rows: only the sizes / qualities that arrived are redrawn
+                if u["members"] is None:
+                    if u["key"] in labels:
+                        _set(labels[u["key"]], _text(u["entry"], base_w))
+                    continue
+                opened = u["key"] in sess.open_groups
+                if u["key"] in labels:
+                    _set(labels[u["key"]], _group_text(u, base_w, opened))
+                if opened:
+                    for m in u["members"]:
+                        if m["key"] in labels:
+                            _set(labels[m["key"]], _sub(m))
         update_info()
 
     def cycle_sort(_i):
@@ -305,12 +381,22 @@ def build_list(nav):
         state["scan"] = 8
         render(force=True)
 
+    def chosen_keys():
+        return [e["key"] for e in sess.all_entries() if e["key"] in sess.selected]
+
     def go(_i):
-        chosen = [e for e in sess.all_entries() if e["key"] in sess.selected]
-        if not chosen:
+        keys = set(chosen_keys())
+        if not keys:
             info.text = "Tap the files you want first"
             return
-        nav.browser_download(chosen)
+        nav.browser_download([e for e in sess.all_entries() if e["key"] in keys])
+
+    def actions(_i):
+        keys = chosen_keys()
+        if not keys:
+            info.text = "Tap the files you want first"
+            return
+        open_actions(nav, keys)
 
     sort_btn.bind(on_press=cycle_sort)
     refresh_btn.bind(on_press=do_refresh)
@@ -318,6 +404,7 @@ def build_list(nav):
     all_btn.bind(on_press=lambda i: select_all(True))
     none_btn.bind(on_press=lambda i: select_all(False))
     dl_btn.bind(on_press=go)
+    act_btn.bind(on_press=actions)
 
     def tick():
         if nav.browser_list_token is not token:
@@ -336,6 +423,113 @@ def build_list(nav):
             update_info()
 
     nav.start_progress_timer(tick, interval=1.0)
+
+
+# -- the actions menu of a file (or of the selected files) --------------------------------------------------------
+def open_actions(nav, keys):
+    nav.remember(lambda: open_actions(nav, keys))
+    build_actions(nav, keys)
+
+
+def open_details(nav, key):
+    nav.remember(lambda: open_details(nav, key))
+    build_details(nav, key)
+
+
+def _copy(text):
+    try:
+        from kivy.core.clipboard import Clipboard
+        Clipboard.copy(text)
+    except Exception:
+        pass
+
+
+def build_actions(nav, keys):
+    sess = nav.browser_session
+    wanted = set(keys)
+    all_rows = sess.all_entries()
+    entries = [e for e in all_rows if e["key"] in wanted]
+    nav.clear()
+    if not entries:
+        nav.show_browser_list()
+        return
+    many = len(entries) > 1
+    nav.add(Label(text="What to do with it", size_hint_y=None, height=BTN_H))
+    title = wrapped_label(_info_text(all_rows, wanted) if many else _text(entries[0], content_width()))
+    if not many:
+        kw = fa_font_kwargs(entries[0].get("name"))
+        if kw:
+            title.font_name = kw["font_name"]
+    nav.add(title)
+    status = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
+    status.text_size = (content_width(), None)
+    nav.add(status)
+
+    urls = list(dict.fromkeys(e["url"] for e in entries))
+    plural = len(urls) > 1
+    page_only = all(e["kind"] == "ytdlp" for e in entries)      # a YouTube quality has the page link only
+
+    def copy_links():
+        _copy("\n".join(urls))
+        status.text = f"{len(urls)} links copied" if plural else "Link copied"
+
+    def share_apps():
+        if not android_actions.share_text("\n".join(urls)):
+            status.text = "Share is not available - copied to the clipboard"
+
+    copy_text = ("Copy page links" if plural else "Copy page link") if page_only else \
+        ("Copy direct links" if plural else "Copy direct link")
+    items = [
+        ("Download in the app", lambda: nav.browser_download(entries)),
+        (copy_text, copy_links),
+        ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
+         lambda: nav.browser_upload(entries)),
+        ("Send to workflows", lambda: nav.show_share_chooser("\n".join(urls))),
+        ("Share with other apps", share_apps),
+    ]
+    if not many:
+        items.append(("File details", lambda: open_details(nav, entries[0]["key"])))
+    for text, fn in items:
+        nav.add(button_row(nav, text, fn))
+    nav.add(button_row(nav, "Back to the list", nav.show_browser_list))
+
+
+def build_details(nav, key):
+    sess = nav.browser_session
+    e = next((x for x in sess.all_entries() if x["key"] == key), None)
+    nav.clear()
+    if e is None:
+        nav.show_browser_list()
+        return
+    nav.add(Label(text="File details", size_hint_y=None, height=BTN_H))
+    if e["kind"] == "ytdlp":
+        kind = "Video page (via GitHub)"
+        size = e.get("size_label") or "Not known"
+    else:
+        kind = _KIND.get(e["kind"], "File")
+        size = bm.fmt_size(e.get("size")) or "Not known"
+    rows = [("File name", e.get("name") or ""), ("File type", kind), ("Video quality", e.get("quality") or ""),
+            ("File size", size), ("Codec", e.get("codec") or ""),
+            ("Page link" if e["kind"] == "ytdlp" else "Direct link", e.get("url") or ""),
+            ("Found on page", e.get("found_on") or ""),
+            ("Sent with the request", ", ".join(e.get("headers") or {}))]      # the names only, never the values
+    kw = fa_font_kwargs(e.get("name"))
+    for caption, value in rows:
+        if not value:
+            continue
+        cap = Label(text=caption, size_hint_y=None, height=dp(26), halign="left", color=(0.7, 0.7, 0.75, 1))
+        cap.text_size = (content_width(), None)
+        nav.add(cap)
+        val = wrapped_label(value)
+        if caption == "File name" and kw:
+            val.font_name = kw["font_name"]
+        nav.add(val)
+
+    def copy_link():
+        _copy(e.get("url") or "")
+
+    nav.add(button_row(nav, "Copy page link" if e["kind"] == "ytdlp" else "Copy direct link", copy_link))
+    nav.add(button_row(nav, "Back to the actions", lambda: open_actions(nav, [key])))
 
 
 def button_row(nav, text, action):

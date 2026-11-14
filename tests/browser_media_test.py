@@ -62,4 +62,46 @@ y.clear()
 assert y.all_entries() == [] and y.ytdlp_for == y.page
 y.restart_scan()
 assert y.ytdlp_for is None
+
+# quality groups: only a certain relation groups rows
+g = bm.Session()
+g.merge({"epoch": 1, "page": "https://site.test/p1", "title": "T", "items": [
+    rec("https://cdn.test/a/Movie_360p.mp4"), rec("https://cdn.test/a/Movie_720p.mp4"),   # one video, two qualities
+    rec("https://cdn.test/a/Other_720p.mp4"),                                              # alone: not a group
+    rec("https://cdn.test/b/clip_480.mp4"), rec("https://cdn.test/b/clip_1080.mp4"),      # _480 / _1080 suffix
+    rec("https://cdn.test/c/x.mp4"), rec("https://cdn.test/d/x.mp4"),                      # same name, other folders
+]})
+units = bm.group_units(g.all_entries())
+grouped = {u["name"]: [m["quality"] for m in u["members"]] for u in units if u["members"]}
+assert set(grouped) == {"Movie.mp4", "clip.mp4"}, grouped
+assert sum(1 for u in units if u["members"] is None) == 3          # Other_720p, x.mp4, x.mp4
+assert bm.group_base("https://cdn.test/c/x.mp4") == "" and bm.strip_quality("Movie_720p.mp4") == "Movie.mp4"
+assert bm.strip_quality("clip_1080.mp4") == "clip.mp4" and bm.strip_quality("720p.mp4") == "720p.mp4"
+for mode in bm.SORT_MODES:
+    out = bm.sort_units(units, mode)
+    assert len(out) == len(units) and {u["key"] for u in out} == {u["key"] for u in units}, mode
+    for u in out:
+        if u["members"] and mode != "size":          # inside a group: best quality first
+            q = [m["quality"] for m in u["members"]]
+            assert q in (["720p", "360p"], ["1080p", "480p"]), (mode, q)
+assert bm.sort_units(units, "name")[0]["name"] == "clip.mp4"
+assert bm.sort_units(units, "newest")[0]["key"] != bm.sort_units(units, "oldest")[0]["key"]
+
+# the same on a yt-dlp page and on an HLS master; Clear closes the groups
+y2 = bm.Session()
+y2.merge({"epoch": 1, "page": "https://youtu.be/abcdefghijk", "title": "V", "items": []})
+y2.set_ytdlp([("f1", "720p", "120 MB", "avc1"), ("f2", "1080p", "1.50 GB", "vp9")])
+yu = bm.group_units(y2.all_entries())
+assert len(yu) == 1 and len(yu[0]["members"]) == 3 and yu[0]["name"] == "V", yu
+assert bm.sort_units(yu, "size")[0]["members"][0]["size"] == int(1.5 * 1024 ** 3)
+y2.open_groups.add(yu[0]["key"])
+y2.clear()
+assert not y2.open_groups
+m2 = bm.Session()
+m2.merge({"epoch": 1, "page": "https://h.test/", "items": [rec("https://h.test/master.m3u8")]})
+m2.items[bm.dedupe_key("https://h.test/master.m3u8")]["variants"] = [
+    {"url": "https://h.test/v720.m3u8", "height": 720, "bandwidth": 1, "label": "720p"},
+    {"url": "https://h.test/v480.m3u8", "height": 480, "bandwidth": 1, "label": "480p"}]
+hu = bm.group_units(m2.all_entries())
+assert len(hu) == 1 and len(hu[0]["members"]) == 2, hu
 print("browser_media_test: ok")

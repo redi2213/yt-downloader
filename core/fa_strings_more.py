@@ -776,3 +776,40 @@ MORE_EXACT.update({
 MORE_PATTERNS.extend([
     (r"Selected: (\d+) of (\d+)  \|  Total (.+)", "انتخاب\u200cشده: {0} از {1}  |  حجم کل {2}"),
 ])
+
+# --- update 13: browser actions menu, quality groups
+MORE_EXACT.update({
+    "Actions for selected": "عملیات روی انتخاب‌شده‌ها",
+    "What to do with it": "با این فایل چه کنم؟",
+    "Download in the app": "دانلود با دانلودر برنامه",
+    "Copy direct link": "کپی لینک مستقیم",
+    "Copy direct links": "کپی لینک‌های مستقیم",
+    "Copy page link": "کپی لینک صفحه",
+    "Copy page links": "کپی لینک صفحه‌ها",
+    "Upload to GitHub with this link": "آپلود در GitHub با همین لینک",
+    "Upload to GitHub with these links": "آپلود در GitHub با همین لینک‌ها",
+    "Send to workflows": "ارسال به Workflowها",
+    "Share with other apps": "اشتراک‌گذاری با برنامه‌های دیگر",
+    "File details": "جزئیات فایل",
+    "Back to the list": "بازگشت به فهرست",
+    "Back to the actions": "بازگشت به عملیات",
+    "Link copied": "لینک کپی شد",
+    "Share is not available - copied to the clipboard": "اشتراک‌گذاری در دسترس نیست - در کلیپ‌بورد کپی شد",
+    "Video page (via GitHub)": "ویدیوی صفحه (از طریق GitHub)",
+    "Not known": "نامشخص",
+    "File name": "نام فایل",
+    "File type": "نوع فایل",
+    "Video quality": "کیفیت ویدیو",
+    "File size": "حجم فایل",
+    "Codec": "کدک",
+    "Page link": "لینک صفحه",
+    "Direct link": "لینک مستقیم",
+    "Found on page": "پیدا شده در صفحه",
+    "Sent with the request": "همراه درخواست ارسال می‌شود",
+})
+MORE_PATTERNS.extend([
+    (r"(\d+) qualities  \|  (.+)", "{0} کیفیت  |  {1}"),
+    (r"(\d+) qualities", "{0} کیفیت"),
+    (r"(\d+) links copied", "{0} لینک کپی شد"),
+    (r"Selected: (\d+) of (\d+)", "انتخاب\u200cشده: {0} از {1}"),
+])
