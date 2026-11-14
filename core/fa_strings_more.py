@@ -759,3 +759,20 @@ MORE_PATTERNS.extend([
      "{0} فایلی که از ریلیز دانلود کردی الان روی گوشی است.\nاز ریلیز هم حذف شوند؟"),
     (r"Files seen in these folders: (\d+)", "فایل‌های دیده‌شده در این پوشه‌ها: {0}"),
 ])
+
+# --- update 12: browser list - sort, select, clear, refresh
+MORE_EXACT.update({
+    "Found files": "فایل\u200cهای پیدا\u200cشده",
+    "Deselect all": "لغو انتخاب همه",
+    "Sort: Newest": "مرتب\u200cسازی: جدیدترین",
+    "Sort: Oldest": "مرتب\u200cسازی: قدیمی\u200cترین",
+    "Sort: Size": "مرتب\u200cسازی: حجم",
+    "Sort: Quality": "مرتب\u200cسازی: کیفیت",
+    "Sort: Name": "مرتب\u200cسازی: نام",
+    "Sort: Type": "مرتب\u200cسازی: نوع",
+    "Scanning the page again...": "در حال اسکن دوباره\u200cی صفحه...",
+    "Tap the files you want first": "اول فایل\u200cهای مورد نظر را لمس کن",
+})
+MORE_PATTERNS.extend([
+    (r"Selected: (\d+) of (\d+)  \|  Total (.+)", "انتخاب\u200cشده: {0} از {1}  |  حجم کل {2}"),
+])

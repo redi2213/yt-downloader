@@ -73,6 +73,25 @@ class Browser:
         if self._created:
             self._helper().reload()
 
+    def rescan(self, page=""):
+        """The list's Refresh: the helper forgets what it saw and the page loads again.
+        An APK built before rescan() existed gets the same through about:blank (a new page
+        makes the helper forget what it saw)."""
+        if not self._created:
+            return
+        try:
+            self._helper().rescan()
+            return
+        except Exception:
+            pass
+        try:
+            self._helper().load("about:blank")
+            if page:
+                from kivy.clock import Clock
+                Clock.schedule_once(lambda dt: self._helper().load(str(page)), 0.6)
+        except Exception:
+            pass
+
     def can_back(self):
         try:
             return bool(self._created and self._helper().canBack())

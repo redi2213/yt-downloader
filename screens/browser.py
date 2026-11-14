@@ -1,4 +1,4 @@
-"""The in-app browser: the address bar (Kivy) over a native WebView, and the list of videos found.
+"""The in-app browser: the address bar (Kivy) over a native WebView, and the list of files found.
 
 While the browser screen is shown the WebView covers the area under the bar; every other screen
 hides it (Navigator.clear), so it never stays on top of a menu. The round badge (top right, drawn
@@ -129,13 +129,37 @@ def _text(e, width):
     return f"{fa_text(e.get('name') or '', width)}\n{_sub(e)}"
 
 
+PAGE = 30           # rows drawn at a time; "Show more" adds the next ones (a long list stays smooth)
+_SORT_NAMES = {"newest": "Newest", "oldest": "Oldest", "size": "Size", "quality": "Quality",
+               "name": "Name", "type": "Type"}
+_EMPTY = "No video found yet. Start playing the video on the page, then tap the badge again."
+
+
+def _sort_text(mode):
+    return "Sort: " + _SORT_NAMES.get(mode, "Newest")
+
+
+def _info_text(entries, selected):
+    count, total, unknown = bm.selection_summary(entries, selected)
+    text = f"Selected: {count} of {len(entries)}"
+    if total:
+        text += f"  |  Total {bm.fmt_size(total)}" + ("+" if unknown else "")
+    return text
+
+
+def _row(widgets, height=BTN_H):
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=height, spacing=GAP)
+    for w in widgets:
+        row.add_widget(w)
+    return row
+
+
 def build_list(nav):
     nav.clear()
     sess = nav.browser_session
     token = object()
     nav.browser_list_token = token
-    nav.add(Label(text="Videos on this page", size_hint_y=None, height=BTN_H))
-    info = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1))
+    nav.add(Label(text="Found files", size_hint_y=None, height=BTN_H))
 
     if bm.is_ytdlp_page(sess.page) and sess.ytdlp_for != sess.page:
         sess.ytdlp_for = sess.page
@@ -158,77 +182,160 @@ def build_list(nav):
     if sess.ytdlp_error:
         nav.add(wrapped_label(f"The phone could not read the qualities ({sess.ytdlp_error})."))
 
-    entries = sess.all_entries()
-    keys = tuple(e["key"] for e in entries)
+    # state of this screen: sort mode (saved as the default), rows drawn, what the last draw showed
+    state = {"mode": browser_service.default_sort(), "shown": PAGE, "version": None, "keys": None,
+             "entries": [], "scan": 0}
     cards, labels = {}, {}
     inner = content_width() - 2 * dp(8)
 
-    def update_info():
-        info.text = f"Selected: {len(sess.selected & set(keys))} of {len(keys)}"
+    sort_btn = Button(text=_sort_text(state["mode"]), size_hint_x=0.42)
+    refresh_btn = Button(text="Refresh", size_hint_x=0.29)
+    clear_btn = Button(text="Clear", size_hint_x=0.29)
+    nav.add(_row([sort_btn, refresh_btn, clear_btn]))
+    all_btn = Button(text="Select all")
+    none_btn = Button(text="Deselect all")
+    nav.add(_row([all_btn, none_btn]))
+    info = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
+    info.text_size = (content_width(), None)
+    nav.add(info)
+    dl_btn = Button(text="Download selected", size_hint_y=None, height=BTN_H)
+    nav.add(dl_btn)
 
-    def toggle(key):
-        sess.selected ^= {key}
-        cards[key].rgba = CARD_ON if key in sess.selected else CARD
-        update_info()
-
-    def select_all(on):
-        for key in keys:
-            if (key in sess.selected) != on:
-                toggle(key)
-
-    if not entries:
-        nav.add(wrapped_label("No video found yet. Start playing the video on the page, then tap the badge again."))
-    else:
-        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-        all_btn = Button(text="Select all")
-        all_btn.bind(on_press=lambda i: select_all(True))
-        clear_btn = Button(text="Clear")
-        clear_btn.bind(on_press=lambda i: select_all(False))
-        row.add_widget(all_btn)
-        row.add_widget(clear_btn)
-        nav.add(row)
-        nav.add(info)
-
-        def go(_i):
-            chosen = [e for e in sess.all_entries() if e["key"] in sess.selected]
-            if not chosen:
-                info.text = "Tap the files you want first"
-                return
-            nav.browser_download(chosen)
-
-        dl_btn = Button(text="Download selected", size_hint_y=None, height=BTN_H)
-        dl_btn.bind(on_press=go)
-        nav.add(dl_btn)
-
-        for e in entries:
-            text = _text(e, inner - dp(16))
-            height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(14), width=inner - dp(16)))
-            card = card_box([height])
-            cards[e["key"]] = paint_card(card, CARD_ON if e["key"] in sess.selected else CARD)
-            btn = Button(text=text, size_hint_y=None, height=height, halign="left", valign="middle",
-                         background_normal="", background_color=(0, 0, 0, 0), **fa_font_kwargs(e.get("name")))
-            btn.text_size = (inner - dp(16), None)
-            btn.bind(on_press=lambda i, k=e["key"]: toggle(k))
-            labels[e["key"]] = btn
-            card.add_widget(btn)
-            nav.add(card)
-        update_info()
-
+    rows_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
+    rows_box.bind(minimum_height=rows_box.setter("height"))
+    nav.add(rows_box)
+    more_box = BoxLayout(orientation="vertical", size_hint_y=None)
+    more_box.bind(minimum_height=more_box.setter("height"))
+    nav.add(more_box)
     nav.add(button_row(nav, "Try this page on GitHub (Any site)", lambda: nav.browser_send_page(sess.page)))
     nav.add(button_row(nav, "Back to browser", nav.show_browser))
 
-    def refresh():
-        browser_service.start_probe(sess)
-        now = sess.all_entries()
-        if tuple(e["key"] for e in now) != keys:
-            if nav.browser_list_token is token:
-                nav.show_browser_list()
-            return
-        for e in now:
-            if e["key"] in labels:
-                _set(labels[e["key"]], _text(e, inner - dp(16)))
+    def update_info():
+        entries = state["entries"]
+        if state["scan"] > 0 and not entries:
+            text = "Scanning the page again..."
+        else:
+            text = _info_text(entries, sess.selected)
+        info.text = text
+        info.height = max(BTN_H, wrapped_label_height(text, width=content_width()))
 
-    nav.start_progress_timer(refresh, interval=1.0)
+    def recolor():
+        for key, color in cards.items():
+            color.rgba = CARD_ON if key in sess.selected else CARD
+
+    def toggle(key):
+        sess.selected ^= {key}
+        if key in cards:
+            cards[key].rgba = CARD_ON if key in sess.selected else CARD
+        update_info()
+
+    def select_all(on):
+        if on:
+            sess.selected |= {e["key"] for e in state["entries"]}
+        else:
+            sess.selected.clear()
+        recolor()
+        update_info()
+
+    def make_row(e):
+        text = _text(e, inner - dp(16))
+        height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(14), width=inner - dp(16)))
+        card = card_box([height])
+        cards[e["key"]] = paint_card(card, CARD_ON if e["key"] in sess.selected else CARD)
+        btn = Button(text=text, size_hint_y=None, height=height, halign="left", valign="middle",
+                     background_normal="", background_color=(0, 0, 0, 0), **fa_font_kwargs(e.get("name")))
+        btn.text_size = (inner - dp(16), None)
+        btn.bind(on_press=lambda i, k=e["key"]: toggle(k))
+        labels[e["key"]] = btn
+        card.add_widget(btn)
+        return card
+
+    def show_more(_i=None):
+        state["shown"] += PAGE
+        render(force=True)
+
+    def render(force=False):
+        entries = sess.all_entries()
+        sess.selected &= {e["key"] for e in entries}        # a row that is gone cannot stay selected
+        state["entries"] = entries
+        shown = bm.sort_entries(entries, state["mode"])[:state["shown"]]
+        keys = tuple(e["key"] for e in shown)
+        if force or keys != state["keys"]:
+            state["keys"] = keys
+            rows_box.clear_widgets()
+            more_box.clear_widgets()
+            cards.clear()
+            labels.clear()
+            if not entries:
+                rows_box.add_widget(wrapped_label(_EMPTY))
+            for e in shown:
+                rows_box.add_widget(make_row(e))
+            if len(entries) > len(shown):
+                more = Button(text="Show more", size_hint_y=None, height=BTN_H)
+                more.bind(on_press=show_more)
+                more_box.add_widget(more)
+        else:
+            for e in shown:         # same rows: only the sizes / qualities that arrived are redrawn
+                if e["key"] in labels:
+                    _set(labels[e["key"]], _text(e, inner - dp(16)))
+        update_info()
+
+    def cycle_sort(_i):
+        modes = bm.SORT_MODES
+        state["mode"] = modes[(modes.index(state["mode"]) + 1) % len(modes)]
+        sort_btn.text = _sort_text(state["mode"])
+        browser_service.save_default_sort(state["mode"])
+        state["shown"] = PAGE
+        render(force=True)
+
+    def do_clear(_i):
+        sess.clear()
+        state["shown"] = PAGE
+        state["scan"] = 0
+        render(force=True)
+
+    def do_refresh(_i):
+        sess.restart_scan()
+        if nav.browser is not None:
+            nav.browser.rescan(sess.page)
+        state["shown"] = PAGE
+        if bm.is_ytdlp_page(sess.page):
+            nav.show_browser_list()         # reads the qualities of the page again
+            return
+        state["scan"] = 8
+        render(force=True)
+
+    def go(_i):
+        chosen = [e for e in sess.all_entries() if e["key"] in sess.selected]
+        if not chosen:
+            info.text = "Tap the files you want first"
+            return
+        nav.browser_download(chosen)
+
+    sort_btn.bind(on_press=cycle_sort)
+    refresh_btn.bind(on_press=do_refresh)
+    clear_btn.bind(on_press=do_clear)
+    all_btn.bind(on_press=lambda i: select_all(True))
+    none_btn.bind(on_press=lambda i: select_all(False))
+    dl_btn.bind(on_press=go)
+
+    def tick():
+        if nav.browser_list_token is not token:
+            return
+        if nav.browser is not None:
+            data = nav.browser.poll()       # files that arrive while the list is open (Refresh) join the list
+            if data:
+                sess.merge(data)
+        browser_service.start_probe(sess)
+        if state["scan"] > 0:
+            state["scan"] -= 1
+        if sess.version != state["version"]:
+            state["version"] = sess.version
+            render()
+        elif state["scan"] >= 0:
+            update_info()
+
+    nav.start_progress_timer(tick, interval=1.0)
 
 
 def button_row(nav, text, action):

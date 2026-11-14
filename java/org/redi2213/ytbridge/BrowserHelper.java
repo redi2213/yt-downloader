@@ -186,6 +186,15 @@ public class BrowserHelper {
 
     public static boolean canBack() { return canBack; }
 
+    /** The list's Refresh: forget what was seen and load the page again, so every file is reported once more. */
+    public static void rescan() {
+        synchronized (LOCK) {
+            seen.clear();
+            pending.clear();
+        }
+        ui(new Runnable() { public void run() { if (web != null) web.reload(); } });
+    }
+
     // ---- what was found -------------------------------------------------------------
     private static void newPage(String url) {
         synchronized (LOCK) {
