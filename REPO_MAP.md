@@ -1,11 +1,12 @@
 # REPO_MAP (نقشه کوتاه ریپو)
 
 هدف: Claude اول این فایل را بخواند، نه کل درخت ریپو را. هر وقت فایل/پوشه‌ی مهمی اضافه، حذف یا جابجا شد، همین فایل را به‌روز کن.
-جزئیات بیشتر: ARCHITECTURE.md (کوتاه) و PROJECT_NOTES.md (حجیم، فقط وقتی لازم شد).
+جزئیات بیشتر: ARCHITECTURE.md (لایه‌بندی و جریان اجرا؛ به‌روز؛ فقط برای کار معماری) و PROJECT_NOTES.md (رفتار قابلیت‌ها، ~۱۴KB، خلاصه‌شده ۱۴۰۵/۰۸؛ قابلیت‌های جدیدتر در آن نیست؛ فقط وقتی صریحاً لازم شد).
 
 ## شاخه‌ها
 - main: کد اپ (Kivy/Android) + همه workflowهای GitHub Actions + version.txt
 - config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، plugins/، lab/ (کپی‌های کاری)، backups/ (zip پشتیبان)، logs/
+- backup: نسخه‌ی پشتیبان کد (دست نزن مگر درخواست صریح)
 - lab: محیط آزمایشی Lab: workflowهای lab-*، lab/lib/*، lab_scripts/*، راهنماها (LAB.md, WORKFLOW_GUIDE.md, LINKLAB_SITE_GUIDE.md)
 
 ## main: کد اپ
