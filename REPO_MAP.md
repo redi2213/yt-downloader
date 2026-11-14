@@ -5,9 +5,9 @@
 
 ## شاخه‌ها
 - main: کد اپ (Kivy/Android) + همه workflowهای GitHub Actions + version.txt
-- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، plugins/، lab/ (کپی‌های کاری)، backups/ (zip پشتیبان)، logs/
-- backup: شاخه‌ی پشتیبان (محتوایش بررسی نشده؛ دست نزن مگر درخواست صریح)
+- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/
 - lab: محیط آزمایشی Lab: workflowهای lab-*، lab/lib/*، lab_scripts/*، راهنماها (LAB.md, WORKFLOW_GUIDE.md, LINKLAB_SITE_GUIDE.md)
+- بکاپ: شاخه‌ی backup و پوشه‌ی config/backups/ حذف شده‌اند (۱۴۰۵/۰۸). بکاپ پروژه فقط با backup-project.yml ساخته می‌شود و zip آن در Release آپلود می‌شود (نه در هیچ شاخه‌ای).
 
 ## main: کد اپ
 - main.py: ورودی اپ
@@ -30,7 +30,7 @@
 ## main: workflowها (.github/workflows/)
 - دانلود: download.yml، download-batch.yml، list-formats.yml، list-playlist.yml، aparat-download.yml، telegram-download.yml، instagram-downloader.yml، filimo-direct-link.yml، google-play-download.yml، Series-Links.yml، mornye-from-links.yml
 - آپلود/ذخیره: Any-Site-Upload.yml، upload-file.yml، drive-to-release.yml، arvan-from-link.yml، arvan-manage.yml، arvan-upload.yml، zip-release.yml
-- خودکار: Auto-Follow.yml، backup-project.yml، build-apk.yml
+- خودکار: Auto-Follow.yml، backup-project.yml (zip از main + config در Release)، build-apk.yml
 - پاک‌سازی: cleanup-artifacts.yml، cleanup-releases.yml، standalone-cleanup-all-artifacts.yml
 - پروکسی: find-proxies.yml
 - Lab: lab-*.yml (download، find-proxies، free-iran-proxy-list، links، pornhub-search-scraper، refresh-configs، run، schedule، site-suj-mobi، workflow)
@@ -40,9 +40,10 @@
 - منوی Download Anything/دکمه‌ها: config.json (شاخه config) + screens/actions_dynamic.py
 - Release History / حذف / انتخاب: screens/history.py + api/github/releases.py
 - Downloads (مدیر دانلود): screens/downloads.py + core/download_manager.py + services/file_download_service.py
-- خطای workflow: .github/workflows/<name>.yml + scripts/<name>.py + core/error_help.py
+- خطای workflow: .github/workflows/<n>.yml + scripts/<n>.py + core/error_help.py
 - Lab و Promote: شاخه lab → lab/promote.py، lab/lib/promote_*.py، lab/wf_import.py
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec
+- بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
 ## قوانین کار
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
