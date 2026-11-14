@@ -684,3 +684,39 @@ MORE_EXACT.update({
     "The browser works only on the phone (Android).": "مرورگر فقط روی گوشی (اندروید) کار می‌کند.",
     "Open a page first": "اول یک صفحه را باز کن",
 })
+
+
+# --- update 8: compact Downloads page (tabs, menu, group delete)
+MORE_EXACT.update({
+    "+ Add link": "+ افزودن لینک",
+    "Finished": "تمام‌شده",
+    "Downloading": "در حال دانلود",
+    "Failed": "ناموفق",
+    "\u25cf All": "\u25cf همه",
+    "\u25cf Downloading": "\u25cf در حال دانلود",
+    "\u25cf Finished": "\u25cf تمام‌شده",
+    "\u25cf Failed": "\u25cf ناموفق",
+    "Delete file": "حذف فایل",
+    "Delete files": "حذف فایل‌ها",
+    "Remove from list": "حذف از فهرست",
+    "Remove from list only": "فقط از فهرست حذف شود",
+    "Tap a file to select it first": "اول یک فایل را لمس کن تا انتخاب شود",
+})
+MORE_PATTERNS.extend([
+    (r"All \((\d+)\)", "همه ({0})"),
+    (r"Downloading \((\d+)\)", "در حال دانلود ({0})"),
+    (r"Finished \((\d+)\)", "تمام‌شده ({0})"),
+    (r"Failed \((\d+)\)", "ناموفق ({0})"),
+    (r"\u25cf All \((\d+)\)", "\u25cf همه ({0})"),
+    (r"\u25cf Downloading \((\d+)\)", "\u25cf در حال دانلود ({0})"),
+    (r"\u25cf Finished \((\d+)\)", "\u25cf تمام‌شده ({0})"),
+    (r"\u25cf Failed \((\d+)\)", "\u25cf ناموفق ({0})"),
+    (r"Deleting (\d+) file\(s\)\.\.\.", "در حال حذف {0} فایل..."),
+    (r"Deleted (\d+) file\(s\), (\d+) already gone", "{0} فایل حذف شد، {1} قبلاً حذف شده بود"),
+    (r"Deleted (\d+) file\(s\)", "{0} فایل حذف شد"),
+    (r"Removed (\d+) from the list \(files stay\)", "{0} مورد از فهرست حذف شد (فایل‌ها می‌مانند)"),
+    (r"Delete the (\d+) selected files from the phone\?\nThis cannot be undone\.",
+     "{0} فایل انتخاب‌شده از گوشی حذف شود؟\nاین کار برگشت‌پذیر نیست."),
+    (r"Delete this file from the phone\?\n(.+)\nThis cannot be undone\.",
+     "این فایل از گوشی حذف شود؟\n{0}\nاین کار برگشت‌پذیر نیست."),
+])

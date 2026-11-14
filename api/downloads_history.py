@@ -33,5 +33,11 @@ def remove(entry_id) -> None:
     _save([x for x in load() if x.get("id") != entry_id])
 
 
+def remove_many(entry_ids) -> None:
+    """Removes several entries with one read and one write."""
+    gone = set(entry_ids)
+    _save([x for x in load() if x.get("id") not in gone])
+
+
 def clear() -> None:
     _save([])
