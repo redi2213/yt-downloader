@@ -10,9 +10,10 @@ from kivy.utils import escape_markup
 
 from datetime import datetime
 
-from core import android_actions, i18n, timeutil
+from core import android_actions, i18n, phone_files, timeutil
 from kivy.metrics import dp
 
+from screens import dialogs
 from screens.common import (
     BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box,
     content_width, fa_text, paint_card, wrapped_label, wrapped_label_height,
@@ -171,6 +172,13 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     download in app / delete for the selected files. Hold a card = its menu (copy, share, download,
     rename, zip, extend, delete)."""
     nav.clear()
+    if back is None and not bot and not apk:
+        switch = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=dp(4))
+        to_phone = Button(text="Phone")
+        to_phone.bind(on_press=lambda i: nav.show_downloads())
+        switch.add_widget(to_phone)
+        switch.add_widget(Button(text="\u25cf Release"))
+        nav.add(switch)
     paged = back is None or bot or apk   # the normal list and the bot's list are paged; one Auto follow channel is not
     if paged and all_files:
         heading = f"{title} - all {len(items)} files"
@@ -191,7 +199,10 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         top.append(("APK and backups", on_apk))
     if paged and not bot and not apk and page == 0 and hasattr(nav, "show_arvan_files"):
         top.append(("Arvan files", nav.show_arvan_files))
-    _grid_rows(nav, top)
+    if top:
+        tools_btn = Button(text="Tools", size_hint_y=None, height=BTN_H)
+        tools_btn.bind(on_press=lambda i: dialogs.menu("Tools", [(t, f, False) for t, f in top]))
+        nav.add(tools_btn)
 
     follow_box = None
     if paged and not bot and not apk and page == 0:
@@ -224,6 +235,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     list_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
     list_box.bind(minimum_height=list_box.setter("height"))
     inner_width = content_width() - 2 * dp(8)
+    phone = phone_files.index()    # files already on the phone (name + size)
 
     def selected_items():
         return [items[i] for i in view if selected[i]]
@@ -420,8 +432,11 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         title_s = fa_text(item["title"], text_w) if i18n.is_fa() else item["title"]
         parts_s = [fa_text(p) if i18n.is_fa() else p for p in parts]
         deadline_s = fa_text(i18n.tr(deadline)) if (deadline and i18n.is_fa()) else deadline
+        on_phone = phone.has(item.get("title"), item.get("size"))
+        phone_s = (fa_text(i18n.tr("On phone")) if i18n.is_fa() else "On phone") if on_phone else ""
         markup = (f"{escape_markup(title_s)}\n[size=13sp][color=999999]{escape_markup('  ·  '.join(parts_s))}[/color]"
                   + (f"  [color={_deadline_color(item)}]{escape_markup(deadline_s)}[/color]" if deadline else "")
+                  + (f"  [color=66dd88]{escape_markup(phone_s)}[/color]" if on_phone else "")
                   + "[/size]")
         title_height = max(BTN_H, wrapped_label_height(plain, extra_padding=dp(14), width=text_w))
         row = card_box([title_height])
@@ -434,14 +449,9 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         title_btn._ytb_notr = True
         title_btn.text_size = (text_w, None)
         line.add_widget(title_btn)
-        copy_btn = Button(text="Copy", size_hint_x=0.22)
-
-        def do_copy(btn, l=item["link"]):
-            Clipboard.copy(l)
-            btn.text = "Copied"
-
-        copy_btn.bind(on_press=do_copy)
-        line.add_widget(copy_btn)
+        more_btn = Button(text="\u2022\u2022\u2022", size_hint_x=0.22)
+        more_btn.bind(on_press=lambda i, n=idx, it=item: on_hold(n, it))
+        line.add_widget(more_btn)
         row.add_widget(line)
         return row
 
@@ -509,7 +519,6 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             scope_btn.bind(on_press=lambda i: on_toggle_all())
             filters.add_widget(scope_btn)
         nav.add(filters)
-        nav.add(wrapped_label("Tap a file to select it  -  hold a file to open its menu", halign="center"))
         render_list()
         nav.add(list_box)
 

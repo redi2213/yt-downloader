@@ -720,3 +720,42 @@ MORE_PATTERNS.extend([
     (r"Delete this file from the phone\?\n(.+)\nThis cannot be undone\.",
      "این فایل از گوشی حذف شود؟\n{0}\nاین کار برگشت‌پذیر نیست."),
 ])
+
+
+# --- update 9: Phone / Release switch, on-phone badge, duplicate warning, release delete, folders
+MORE_EXACT.update({
+    "Phone": "گوشی",
+    "\u25cf Phone": "\u25cf گوشی",
+    "\u25cf Release": "\u25cf ریلیز",
+    "Release": "ریلیز",
+    "Tools": "ابزارها",
+    "On phone": "روی گوشی",
+    "Download again": "دانلود دوباره",
+    "Download all again": "همه را دوباره دانلود کن",
+    "Nothing to download": "چیزی برای دانلود نیست",
+    "Delete from release": "حذف از ریلیز",
+    "Keep in release": "نگه داشتن در ریلیز",
+    "Delete this file from the release?": "این فایل از ریلیز حذف شود؟",
+    "Yes, delete from release": "بله، از ریلیز حذف شود",
+    "Watched folders": "پوشه‌های نظارت‌شده",
+    "Add folder": "افزودن پوشه",
+    "Watched folders (files saved by other apps)": "پوشه‌های نظارت‌شده (فایل‌های برنامه‌های دیگر)",
+    "Add the folders where other download apps save files. Release History and Downloads then show a file that is already on the phone, and warn before it is downloaded again.":
+        "پوشه‌هایی را اضافه کن که برنامه‌های دانلود دیگر فایل‌ها را در آن ذخیره می‌کنند. تاریخچه ریلیز و دانلودها فایلی را که از قبل روی گوشی هست نشان می‌دهند و قبل از دانلود دوباره هشدار می‌دهند.",
+    "Folders: By source (APK, YouTube...)  (tap to change)": "پوشه‌ها: بر اساس منبع (APK، YouTube...)  (برای تغییر لمس کن)",
+    "Folders: By file type (Videos, Audio...)  (tap to change)": "پوشه‌ها: بر اساس نوع فایل (ویدیو، صدا...)  (برای تغییر لمس کن)",
+    "Folders: One folder for everything  (tap to change)": "پوشه‌ها: یک پوشه برای همه  (برای تغییر لمس کن)",
+    "After a release download: Ask me to delete it from the release": "بعد از دانلود از ریلیز: بپرس از ریلیز هم حذف شود",
+    "After a release download: Always delete it from the release": "بعد از دانلود از ریلیز: همیشه از ریلیز هم حذف شود",
+    "After a release download: Keep it in the release": "بعد از دانلود از ریلیز: در ریلیز بماند",
+})
+MORE_PATTERNS.extend([
+    (r"(\d+) of (\d+) file\(s\) already on the phone", "{0} از {1} فایل از قبل روی گوشی هست"),
+    (r"Skip them, download (\d+) new", "ردشان کن، {0} فایل جدید دانلود شود"),
+    (r"Already on the phone: (.+)", "از قبل روی گوشی هست: {0}"),
+    (r"Deleting (\d+) from the release\.\.\.", "در حال حذف {0} فایل از ریلیز..."),
+    (r"Deleted (\d+) of (\d+) from the release", "{0} از {1} فایل از ریلیز حذف شد"),
+    (r"(\d+) file\(s\) you downloaded from the release are on the phone now\.\nDelete them from the release too\?",
+     "{0} فایلی که از ریلیز دانلود کردی الان روی گوشی است.\nاز ریلیز هم حذف شوند؟"),
+    (r"Files seen in these folders: (\d+)", "فایل‌های دیده‌شده در این پوشه‌ها: {0}"),
+])

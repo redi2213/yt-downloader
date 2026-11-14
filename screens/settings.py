@@ -9,7 +9,8 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.boxlayout import BoxLayout
 
-from api import auto_build_prefs, download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs
+from api import (auto_build_prefs, download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs,
+                 release_delete_prefs)
 from core import android_downloads
 from screens.common import back_button, GAP, paste_row, wrapped_label
 from services import ntfy_service, token_service
@@ -64,11 +65,21 @@ def _downloads(nav):
         reset_btn = Button(text="Reset to default folder", size_hint_y=None, height=48)
         reset_btn.bind(on_press=lambda i: nav.reset_save_folder())
         nav.add(reset_btn)
-        sub_on = download_folder_prefs.subfolders()
-        sub_btn = Button(text=f"Subfolders by type (APK, YouTube...): {'ON' if sub_on else 'OFF'}",
-                         size_hint_y=None, height=48)
-        sub_btn.bind(on_press=lambda i: nav.toggle_save_subfolders())
-        nav.add(sub_btn)
+    layout_names = {"source": "By source (APK, YouTube...)", "type": "By file type (Videos, Audio...)",
+                    "one": "One folder for everything"}
+    layout_btn = Button(text=f"Folders: {layout_names[download_folder_prefs.layout()]}  (tap to change)",
+                        size_hint_y=None, height=48)
+    layout_btn.bind(on_press=lambda i: nav.toggle_save_subfolders())
+    nav.add(layout_btn)
+    watched_btn = Button(text="Watched folders (files saved by other apps)", size_hint_y=None, height=48)
+    watched_btn.bind(on_press=lambda i: nav.show_watched_folders())
+    nav.add(watched_btn)
+    after_names = {"ask": "Ask me to delete it from the release", "always": "Always delete it from the release",
+                   "never": "Keep it in the release"}
+    after_btn = Button(text=f"After a release download: {after_names[release_delete_prefs.mode()]}",
+                       size_hint_y=None, height=48)
+    after_btn.bind(on_press=lambda i: nav.cycle_release_delete_mode())
+    nav.add(after_btn)
 
     nav.add(Label(text="Download manager", size_hint_y=None, height=32))
     pieces_btn = Button(text=f"Pieces per file: {download_manager_prefs.segments()}  (tap to change)",

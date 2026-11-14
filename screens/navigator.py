@@ -279,9 +279,40 @@ class Navigator(ArvanController):
         self.show_settings_section("downloads")
 
     def toggle_save_subfolders(self):
+        """Settings > Downloads: how the saved files are sorted (by source / by file type / one folder)."""
         from api import download_folder_prefs
-        download_folder_prefs.set_subfolders(not download_folder_prefs.subfolders())
+        download_folder_prefs.cycle_layout()
         self.show_settings_section("downloads")
+
+    def cycle_release_delete_mode(self):
+        """Settings > Downloads: after a release file is downloaded in app - ask / always / never delete it there."""
+        from api import release_delete_prefs
+        release_delete_prefs.cycle()
+        self.show_settings_section("downloads")
+
+    # -- Settings > Downloads > Watched folders (files other apps saved) ---------
+    def show_watched_folders(self):
+        from screens import watched
+        self.remember(self.show_watched_folders)
+        watched.build(self)
+
+    def add_watched_folder(self):
+        from api import watched_folders_prefs
+        from core import android_files, phone_files
+
+        def chosen(uri, label):
+            watched_folders_prefs.add(uri, label)
+            phone_files.refresh_watched(force=True)
+            self.show_watched_folders()
+
+        android_files.pick_folder(chosen, lambda text: self.set_status(text))
+
+    def remove_watched_folder(self, uri):
+        from api import watched_folders_prefs
+        from core import phone_files
+        watched_folders_prefs.remove(uri)
+        phone_files.refresh_watched(force=True)
+        self.show_watched_folders()
 
     # -- storage: GitHub / Arvan Cloud ---------------------------------------
     def storage_mode(self):
@@ -2486,8 +2517,30 @@ class Navigator(ArvanController):
     def start_history_download(self, items, on_text):
         """Release History: download these files into the phone ("Download in app"); ``on_text``
         gets the progress lines on the main thread. The Downloads manager shows them too."""
-        file_download_service.start_items_download(
-            items, on_text=lambda text: self.schedule(lambda: on_text(text)))
+        from core import phone_files, release_links
+        from screens import dialogs
+        have = phone_files.index()
+        dupes = [it for it in items if have.has(it.get("title"), it.get("size"))]
+
+        def go(chosen):
+            if not chosen:
+                on_text("Nothing to download")
+                return
+            release_links.remember(chosen)
+            file_download_service.start_items_download(
+                chosen, on_text=lambda text: self.schedule(lambda: on_text(text)))
+
+        if not dupes:
+            go(items)
+            return
+        dupe_ids = {id(it) for it in dupes}
+        fresh = [it for it in items if id(it) not in dupe_ids]
+        buttons = []
+        if fresh:
+            buttons.append((f"Skip them, download {len(fresh)} new", lambda: go(fresh), False))
+        buttons.append(("Download all again", lambda: go(items), False))
+        on_text("")
+        dialogs.menu(f"{len(dupes)} of {len(items)} file(s) already on the phone", buttons)
 
     def show_item_menu(self, item):
         """Menu of one file of the Release History (copy, share, download, rename, zip, extend, delete)."""

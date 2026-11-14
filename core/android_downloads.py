@@ -128,13 +128,29 @@ def safe_file_name(name, default="file"):
     return cleaned or default
 
 
+_TYPE_FOLDER = {"Video": "Videos", "Audio": "Audio", "APK": "APK", "Zip": "Zip", "Other": "Other"}
+
+
+def folder_for(category, name):
+    """The sub folder a file goes in, by the layout chosen in Settings: its source (``category``), its
+    kind (Videos / Audio / APK / Zip / Other), or none (\"\" = everything in one folder)."""
+    from api import download_folder_prefs
+    mode = download_folder_prefs.layout()
+    if mode == "one":
+        return ""
+    if mode == "type":
+        from core import file_types
+        return _TYPE_FOLDER.get(file_types.kind_of(name), "Other")
+    return category
+
+
 def folder_label(category=None):
     """Where files go, as shown to the user: ``Download/Yt-bridge/<category>`` or the chosen
     folder (``Storage/Movies/YT/<category>``)."""
     from api import download_folder_prefs
     tree = download_folder_prefs.get_tree()
     base = tree[1] if tree else f"Download/{ROOT_FOLDER}"
-    if category and (not tree or download_folder_prefs.subfolders()):
+    if category and download_folder_prefs.subfolders():
         return f"{base}/{category}"
     return base
 
@@ -142,6 +158,7 @@ def folder_label(category=None):
 def _save_in_downloads(src, name, category="Other"):
     category = category if category in CATEGORIES else "Other"
     name = safe_file_name(name)
+    category = folder_for(category, name)      # "" when everything goes in one folder
     try:
         from jnius import autoclass
     except Exception:
@@ -150,7 +167,7 @@ def _save_in_downloads(src, name, category="Other"):
         from api import download_folder_prefs
         tree = download_folder_prefs.get_tree()
         if tree:
-            return _save_in_tree(src, name, category, tree, autoclass, download_folder_prefs.subfolders())
+            return _save_in_tree(src, name, category, tree, autoclass, bool(category))
     except Exception:
         pass   # the chosen folder is gone or not allowed any more: use the default folder
     sdk = autoclass("android.os.Build$VERSION").SDK_INT
@@ -199,7 +216,7 @@ def _save_mediastore(src, name, autoclass, category="Other"):
     values = ContentValues()
     values.put("_display_name", String(name))
     values.put("mime_type", String(_mime_for(name)))
-    values.put("relative_path", String(f"Download/{ROOT_FOLDER}/{category}"))
+    values.put("relative_path", String("/".join(p for p in ("Download", ROOT_FOLDER, category) if p)))
     uri = resolver.insert(Downloads.EXTERNAL_CONTENT_URI, values)
     if uri is None:
         raise OSError("Android would not create the file in Downloads")
@@ -216,7 +233,7 @@ def _save_mediastore(src, name, autoclass, category="Other"):
 
     from core.android_files import read_uri_name
     shown = read_uri_name(uri) or name  # Android may add " (1)"
-    saved = Saved(f"Download/{ROOT_FOLDER}/{category}/{shown}")
+    saved = Saved("/".join(p for p in ("Download", ROOT_FOLDER, category, shown) if p))
     saved.location = str(uri.toString())
     return saved
 
@@ -276,6 +293,6 @@ def _save_in_tree(src, name, category, tree, autoclass, use_subfolders):
 
     from core.android_files import read_uri_name
     shown = read_uri_name(doc) or name
-    saved = Saved(f"{folder_label(category)}/{shown}")
+    saved = Saved(f"{tree[1]}/{category}/{shown}" if category else f"{tree[1]}/{shown}")
     saved.location = str(doc.toString())
     return saved

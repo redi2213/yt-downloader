@@ -19,12 +19,14 @@ from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.textinput import TextInput
 
-from api import downloads_history
-from core import android_downloads, android_open, download_manager as dm, file_types, segmented_download
+from api import downloads_history, release_delete_prefs
+from core import (android_downloads, android_open, download_manager as dm, file_types, phone_files,
+                  release_links, segmented_download)
 from core.async_utils import run_in_background
 from core.links import split_links
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, SMALL_BTN_H, back_button, card_box,
                             content_width, font_px, paint_card, paste_row, wrapped_label_height)
+from screens import dialogs
 from screens.history import _PressCard
 
 _DANGER = (1.0, 0.55, 0.55, 1)
@@ -116,15 +118,37 @@ def _name_for(url):
     return android_downloads.file_name_from_url(url)
 
 
-def _download_link(url):
+def _probe(url):
+    """(file name, size in bytes or 0) of a direct link."""
+    name, size = _name_for(url), 0
+    try:
+        import requests
+        r = requests.head(url, allow_redirects=True, timeout=10)
+        size = int(r.headers.get("Content-Length") or 0)
+    except Exception:
+        pass
+    return name, size
+
+
+def _save_link(url, name):
     """Runs in a background thread. The task shows up in the live list; a failure stays there
     with its message, so nothing more is needed here."""
     try:
-        android_downloads.download_to_downloads(url, name=_name_for(url), category="Other")
+        android_downloads.download_to_downloads(url, name=name, category="Other")
     except segmented_download.Cancelled:
         pass
     except Exception:
         pass
+
+
+def _download_link(url):
+    name, size = _probe(url)
+    if size and phone_files.index().has(name, size):      # same name + size is already on the phone
+        Clock.schedule_once(lambda dt: dialogs.menu(
+            f"Already on the phone: {name}",
+            [("Download again", lambda: run_in_background(_save_link, url, name), False)]), 0)
+        return
+    _save_link(url, name)
 
 
 def _menu(title, buttons):
@@ -146,6 +170,13 @@ def _menu(title, buttons):
 def build(nav):
     nav.clear()
     nav.add(Label(text="Downloads", size_hint_y=None, height=44))
+    switch = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=dp(4))
+    here_btn = Button(text="\u25cf Phone")
+    there_btn = Button(text="Release")
+    there_btn.bind(on_press=lambda i: nav.show_release_history())
+    switch.add_widget(here_btn)
+    switch.add_widget(there_btn)
+    nav.add(switch)
     info = Label(text="", size_hint_y=None, height=dp(32), color=(1, 0.75, 0.4, 1))
     row_w = (content_width() - 2 * dp(8)) * 0.80 - dp(16)
 
@@ -402,6 +433,7 @@ def build(nav):
         if done_now - seen_done:
             seen_done.update(done_now)
             build_finished()
+            Clock.schedule_once(lambda dt: check_release_prompts(), 0.8)
         refresh_tabs(all_tasks)
 
     # -- saved files ---------------------------------------------------------------------------
@@ -458,12 +490,18 @@ def build(nav):
         if eid in busy:
             return
         loc, name = entry.get("location"), entry.get("name", "")
-        _menu(name, [
+        buttons = [
             ("Open", lambda: say(android_open.open_file(loc, name)), False),
             ("Share", lambda: say(android_open.share_file(loc, name)), False),
             ("Delete file", lambda: ask_delete([entry]), True),
-            ("Remove from list only", lambda: remove_from_list([entry]), False),
-        ])
+        ]
+        rec = release_links.get(name, entry.get("size"))
+        if rec:
+            buttons.append(("Delete from release", lambda: dialogs.confirm(
+                "Delete this file from the release?", "Yes, delete from release",
+                lambda: release_delete([rec["item"]])), True))
+        buttons.append(("Remove from list only", lambda: remove_from_list([entry]), False))
+        _menu(name, buttons)
 
     def show_more():
         _state["shown"] += PAGE
@@ -547,7 +585,46 @@ def build(nav):
 
         run_in_background(worker)
 
+    # -- files that came from a release: offer to delete them there too ------------------------------
+    def release_delete(items):
+        if not items:
+            return
+        total, ok_count = len(items), [0]
+        say(f"Deleting {total} from the release...")
+
+        def on_item(item, ok):
+            if ok:
+                ok_count[0] += 1
+                release_links.forget_item(item)
+
+        def on_done(_res):
+            say(f"Deleted {ok_count[0]} of {total} from the release")
+
+        nav.start_inline_delete(items, on_item, on_done)
+
+    def check_release_prompts():
+        found, seen = [], set()
+        for entry in downloads_history.load():
+            rec = release_links.get(entry.get("name"), entry.get("size"))
+            if rec and not rec.get("asked") and rec["key"] not in seen:
+                seen.add(rec["key"])
+                found.append(rec)
+        if not found:
+            return
+        release_links.mark_asked([r["key"] for r in found])
+        items = [r["item"] for r in found]
+        mode = release_delete_prefs.mode()
+        if mode == "never":
+            return
+        if mode == "always":
+            release_delete(items)
+            return
+        dialogs.confirm(f"{len(items)} file(s) you downloaded from the release are on the phone now.\n"
+                        "Delete them from the release too?", "Delete from release",
+                        lambda: release_delete(items), "Keep in release")
+
     seen_done.update(t.id for t in dm.snapshot() if t.state == dm.DONE)
     build_finished()
     nav.set_footer(back_row)
+    Clock.schedule_once(lambda dt: check_release_prompts(), 0.6)
     nav.start_progress_timer(refresh_active, interval=1.0)
