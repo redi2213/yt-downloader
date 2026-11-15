@@ -971,3 +971,25 @@ MORE_PATTERNS.extend([
     (r"Saved now: (.+)", "الان ذخیره است: {0}"),
     (r"Saved: (.+)", "ذخیره شد: {0}"),
 ])
+
+# --- update: browser start mode (background queue or now)
+_RUNMODE_FA = {
+    "Run it in the background or now?": "در پس\u200cزمینه انجام شود یا همین الان؟",
+    "Background: the files join the queue and you stay here. Now: the Downloads page opens and you watch the progress.":
+        "پس\u200cزمینه: فایل\u200cها به صف می\u200cروند و تو همین\u200cجا می\u200cمانی. همین الان: صفحه\u200cی دانلودها باز می\u200cشود و پیشرفت را می\u200cبینی.",
+    "Add to the queue (background)": "افزودن به صف (پس\u200cزمینه)",
+    "Now (watch it)": "همین الان (نمایش پیشرفت)",
+    "Don't ask again: OFF": "دیگر نپرس: خاموش",
+    "Don't ask again: ON": "دیگر نپرس: روشن",
+    "You can change this later in Browser settings.": "بعداً از تنظیمات مرورگر می\u200cتوانی این را عوض کنی.",
+    "Added to the queue - it runs in the background": "به صف اضافه شد - در پس\u200cزمینه انجام می\u200cشود",
+    "Add to the queue (download in background)": "افزودن به صف (دانلود در پس\u200cزمینه)",
+    "Start mode (download / upload)": "حالت شروع (دانلود / آپلود)",
+    "Run mode: Ask every time": "حالت اجرا: هر بار بپرس",
+    "Run mode: Always in the background": "حالت اجرا: همیشه در پس\u200cزمینه",
+    "Run mode: Always now": "حالت اجرا: همیشه همین الان",
+    "Ask every time shows the choice each time. The other two start at once without asking - this setting wins.":
+        "«هر بار بپرس» هر دفعه انتخاب را نشان می\u200cدهد. دو حالت دیگر بدون پرسیدن فوراً شروع می\u200cکنند - این تنظیم اولویت دارد.",
+}
+for _en, _fa in _RUNMODE_FA.items():
+    MORE_EXACT.setdefault(_en, _fa)
