@@ -2409,9 +2409,28 @@ class Navigator(ArvanController):
     # -- job history ------------------------------------------------------
     # -- in-app browser -------------------------------------------------------------------
     def show_browser(self, url=None):
-        from screens import browser as browser_screen
+        from core import browser_pack
+        browser_pack.activate()             # the downloaded browser code (checked), or the built-in code
         self.remember(self.show_browser)
-        browser_screen.build(self, url)
+        while True:
+            from screens import browser as browser_screen
+            try:
+                browser_screen.build(self, url)
+            except Exception as e:
+                # a downloaded version that cannot build the screen: it is blocked and the previous good one
+                # (or the built-in code) is used; with the built-in code running the error is real
+                if not browser_pack.fall_back(f"{e.__class__.__name__}: {e}"):
+                    raise
+                continue
+            break
+        browser_pack.confirm()
+        browser_pack.start_background_check()
+
+    def show_browser_pack(self, note=""):
+        """Settings > App tools > Browser online update (screens/browser_pack_screen.py)."""
+        from screens import browser_pack_screen
+        self.remember(lambda: self.show_browser_pack(note))
+        browser_pack_screen.build(self, note)
 
     def show_browser_list(self):
         from screens import browser as browser_screen

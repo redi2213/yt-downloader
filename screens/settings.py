@@ -210,6 +210,9 @@ def _tools(nav):
     backup_btn = Button(text="Backup project (zip to release)", size_hint_y=None, height=48)
     backup_btn.bind(on_press=lambda i: nav.start_project_backup())
     nav.add(backup_btn)
+    browser_btn = Button(text="Browser online update", size_hint_y=None, height=48)
+    browser_btn.bind(on_press=lambda i: nav.show_browser_pack())
+    nav.add(browser_btn)
 
 
 def _reveal_token_field(nav):

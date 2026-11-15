@@ -1,0 +1,86 @@
+name: Publish Browser Pack
+run-name: Publish browser pack
+
+# Copies the in-app browser's Python files from main to the config branch (plugins/browser/) with a
+# manifest.json (version + SHA-256 of each file). The app downloads it (Settings > App tools > Browser online
+# update, or by itself when the browser opens) and uses it instead of the code inside the APK - no new build.
+# Runs on its own when a browser file changes on main. The list of files is PACK_FILES in core/browser_pack.py.
+on:
+  push:
+    branches: [main]
+    paths:
+      - core/browser_media.py
+      - core/browser_tabs.py
+      - core/browser_tools.py
+      - core/browser_cookies.py
+      - services/browser_service.py
+      - screens/browser.py
+      - screens/browser_pages.py
+      - screens/browser_tools.py
+      - screens/browser_cookies.py
+      - core/browser_pack.py
+      - scripts/publish_browser_pack.py
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'true = publish a new version even if no file changed'
+        required: false
+        default: 'false'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: browser-pack
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get main
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Get the config branch
+        uses: actions/checkout@v4
+        with:
+          ref: config
+          path: cfg
+
+      - name: Build the pack
+        id: pack
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          flag=""
+          if [ "$FORCE" = "true" ]; then flag="--force"; fi
+          python3 repo/scripts/publish_browser_pack.py --repo repo --out cfg/plugins/browser $flag | tee pack.log
+          grep '^changed=' pack.log >> "$GITHUB_OUTPUT"
+
+      - name: Save it (config branch)
+        if: ${{ steps.pack.outputs.changed == '1' }}
+        run: |
+          cd cfg
+          git config user.name "yt-bridge"
+          git config user.email "yt-bridge@users.noreply.github.com"
+          git add -A plugins/browser
+          if git diff --cached --quiet; then
+            echo "Nothing to save."
+            exit 0
+          fi
+          git commit -m "Browser pack: new version"
+          for i in 1 2 3; do
+            git push origin HEAD:config && exit 0
+            git pull --rebase origin config || true
+          done
+          echo "::error::Could not save the browser pack"
+          exit 1
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          { echo "### Browser pack"; echo; cat pack.log 2>/dev/null || true; } >> "$GITHUB_STEP_SUMMARY"

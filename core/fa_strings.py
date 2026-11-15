@@ -443,3 +443,6 @@ PATTERNS = [
 from core.fa_strings_more import MORE_EXACT, MORE_PATTERNS   # noqa: E402
 EXACT.update(MORE_EXACT)
 PATTERNS.extend(MORE_PATTERNS)
+from core.fa_strings_browser_pack import BP_EXACT, BP_PATTERNS   # noqa: E402
+EXACT.update(BP_EXACT)
+PATTERNS.extend(BP_PATTERNS)
