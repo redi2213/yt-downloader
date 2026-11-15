@@ -17,6 +17,7 @@ from core import android_actions, android_browser, browser_media as bm
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, PAD, back_button, card_box, content_width,
                             fa_font_kwargs, fa_text, paint_card, wrapped_label, wrapped_label_height)
 from screens import browser_pages, browser_tools
+from api import browser_prefs
 from services import browser_service
 
 START_PAGE = "https://www.google.com"
@@ -457,7 +458,8 @@ def build_list(nav):
         if not keys:
             info.text = "Tap the files you want first"
             return
-        nav.browser_download([e for e in state["entries"] if e["key"] in keys])
+        start_action(nav, "download", [e for e in state["entries"] if e["key"] in keys],
+                     status=lambda text: _set(info, text))
 
     def actions(_i):
         keys = chosen_keys()
@@ -493,6 +495,133 @@ def build_list(nav):
             update_info()
 
     nav.start_progress_timer(tick, interval=1.0)
+
+
+# -- start mode: in the background (queue) or now --------------------------------------------------------------
+RUN_MODES = ("ask", "background", "now")
+_RUN_TEXT = {"ask": "Run mode: Ask every time", "background": "Run mode: Always in the background",
+             "now": "Run mode: Always now"}
+_QUEUED = "Added to the queue - it runs in the background"
+
+
+def run_mode():
+    """The saved start mode of a download / upload: ask (default), background or now."""
+    try:
+        value = browser_prefs.get_data("run_mode")
+    except Exception:
+        value = None
+    return value if value in RUN_MODES else "ask"
+
+
+def set_run_mode(mode):
+    try:
+        browser_prefs.set_data("run_mode", mode if mode in RUN_MODES else "ask")
+    except Exception:
+        pass
+
+
+def _quiet_done(nav):
+    """Finish callback of a background job: the notification and the auto actions, but no screen change."""
+    def done(job):
+        for name in ("_auto_after_finish", "_notify_job_finished"):
+            try:
+                getattr(nav, name)(job)
+            except Exception:
+                pass
+    return done
+
+
+def run_background(nav, kind, entries):
+    """Starts the files and stays on this screen (nothing opens): the download manager's queue / GitHub
+    works on. ``kind`` is "download" or "upload". Returns how many files were started."""
+    from core.async_utils import run_in_background
+    if kind == "download":
+        for e in [e for e in entries if e["kind"] in bm.DIRECT_KINDS]:
+            run_in_background(nav._browser_phone_download, e)
+        nav._browser_youtube([e for e in entries if e["kind"] == "ytdlp"])
+        streams = [e["url"] for e in entries if e["kind"] == "dash"]
+        if streams:
+            nav._browser_github(streams)
+        return len(entries)
+    from services import upload_service
+    direct = [e for e in entries if e["kind"] in bm.FILE_KINDS]
+    streams = [e["url"] for e in entries if e["kind"] in ("hls", "dash")]
+    nav._browser_youtube([e for e in entries if e["kind"] == "ytdlp"])
+    if streams:
+        nav._browser_github(streams)
+    if direct:
+        referer = next(((e.get("headers") or {}).get("Referer", "") for e in direct
+                        if (e.get("headers") or {}).get("Referer")), "")
+        urls = "\n".join(dict.fromkeys(e["url"] for e in direct))
+        job = upload_service.create_upload_job(nav.job_manager, urls)
+        upload_service.run_upload_job(nav.job_manager, job, False, "", on_status=lambda text: None,
+                                      on_complete=_quiet_done(nav), referer=referer)
+    return len(entries)
+
+
+def run_now(nav, kind, entries):
+    """The normal way: the Downloads / jobs page opens."""
+    if kind == "download":
+        nav.browser_download(entries)
+    else:
+        nav.browser_upload(entries)
+
+
+def start_action(nav, kind, entries, status=None):
+    """The chosen action of a download / upload. The saved start mode wins; with "ask" a choice page opens.
+    ``status`` (optional) is called with a short text when the files were queued."""
+    mode = run_mode()
+    if mode == "background":
+        run_background(nav, kind, entries)
+        if status:
+            status(_QUEUED)
+    elif mode == "now":
+        run_now(nav, kind, entries)
+    else:
+        open_run_choice(nav, kind, entries)
+
+
+def open_run_choice(nav, kind, entries):
+    nav.remember(lambda: open_run_choice(nav, kind, entries))
+    build_run_choice(nav, kind, entries)
+
+
+def build_run_choice(nav, kind, entries):
+    nav.clear()
+    nav.add(Label(text="Run it in the background or now?", size_hint_y=None, height=BTN_H))
+    nav.add(wrapped_label("Background: the files join the queue and you stay here. "
+                          "Now: the Downloads page opens and you watch the progress."))
+    status = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
+    status.text_size = (content_width(), None)
+    remember = {"on": False}
+    bg_btn = Button(text="Add to the queue (background)", size_hint_y=None, height=BTN_H)
+    now_btn = Button(text="Now (watch it)", size_hint_y=None, height=BTN_H)
+    again_btn = Button(text="Don't ask again: OFF", size_hint_y=None, height=BTN_H)
+
+    def flip_again(_i):
+        remember["on"] = not remember["on"]
+        again_btn.text = "Don't ask again: ON" if remember["on"] else "Don't ask again: OFF"
+
+    def pick(mode):
+        if remember["on"]:
+            set_run_mode(mode)
+        if mode == "background":
+            run_background(nav, kind, entries)
+            status.text = _QUEUED
+            for b in (bg_btn, now_btn, again_btn):
+                b.disabled = True
+        else:
+            run_now(nav, kind, entries)
+
+    again_btn.bind(on_press=flip_again)
+    bg_btn.bind(on_press=lambda i: pick("background"))
+    now_btn.bind(on_press=lambda i: pick("now"))
+    nav.add(bg_btn)
+    nav.add(now_btn)
+    nav.add(again_btn)
+    nav.add(status)
+    nav.add(wrapped_label("You can change this later in Browser settings."))
+    nav.add(button_row(nav, "Back to the list", nav.show_browser_list))
 
 
 # -- the actions menu of a file (or of the selected files) --------------------------------------------------------
@@ -550,10 +679,12 @@ def build_actions(nav, keys):
     copy_text = ("Copy page links" if plural else "Copy page link") if page_only else \
         ("Copy direct links" if plural else "Copy direct link")
     items = [
-        ("Download in the app", lambda: nav.browser_download(entries)),
+        ("Download in the app", lambda: start_action(nav, "download", entries, status=lambda t: _set(status, t))),
+        ("Add to the queue (download in background)",
+         lambda: (run_background(nav, "download", entries), _set(status, _QUEUED))),
         (copy_text, copy_links),
         ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
-         lambda: nav.browser_upload(entries)),
+         lambda: start_action(nav, "upload", entries, status=lambda t: _set(status, t))),
         ("Send to workflows", lambda: nav.show_share_chooser("\n".join(urls))),
         ("Share with other apps", share_apps),
     ]
@@ -618,6 +749,18 @@ def build_settings(nav, back, back_text):
     sess = nav.browser_session
     nav.clear()
     nav.add(Label(text="Browser settings", size_hint_y=None, height=BTN_H))
+    nav.add(wrapped_label("Start mode (download / upload)"))
+    mode_btn = Button(text=_RUN_TEXT[run_mode()], size_hint_y=None, height=BTN_H)
+
+    def cycle_mode(_i):
+        nxt = RUN_MODES[(RUN_MODES.index(run_mode()) + 1) % len(RUN_MODES)]
+        set_run_mode(nxt)
+        mode_btn.text = _RUN_TEXT[nxt]
+
+    mode_btn.bind(on_press=cycle_mode)
+    nav.add(mode_btn)
+    nav.add(wrapped_label("Ask every time shows the choice each time. The other two start at once "
+                          "without asking - this setting wins."))
     nav.add(wrapped_label("File types the browser looks for. Turn a type off to hide it from the results."))
     status = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
     status.text_size = (content_width(), None)
