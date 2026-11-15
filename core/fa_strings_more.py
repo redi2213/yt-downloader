@@ -850,3 +850,30 @@ PHRASES.extend([
     ("Package file", "فایل بسته"), ("Document", "سند"), ("Custom file", "فایل سفارشی"),
     ("Unknown file", "فایل ناشناخته"), ("via GitHub", "از طریق GitHub"),
 ])
+
+
+# --- update 15: browser tabs, history and bookmarks (screens/browser_pages.py)
+_TABS_FA = {
+    "Menu": "منو", "Browser menu": "منوی مرورگر", "Tabs": "تب‌ها", "New tab": "تب جدید",
+    "Close all": "بستن همه", "Tap again to close all": "برای بستن همه دوباره بزن",
+    "Add bookmark": "افزودن نشانک", "Remove bookmark": "حذف نشانک", "Bookmark added": "نشانک اضافه شد",
+    "Bookmark removed": "نشانک حذف شد", "Open a page first": "اول یک صفحه باز کن", "Bookmarks": "نشانک‌ها",
+    "Bookmark": "نشانک", "History": "تاریخچه", "Search history": "جست‌وجو در تاریخچه",
+    "Search bookmarks": "جست‌وجو در نشانک‌ها", "Clear all": "پاک کردن همه",
+    "Tap again to clear all": "برای پاک‌کردن همه دوباره بزن", "No history yet.": "هنوز تاریخچه‌ای نیست.",
+    "No bookmarks yet.": "هنوز نشانکی نیست.", "Nothing matches your search.": "چیزی پیدا نشد.",
+    "Edit": "ویرایش", "Open in new tab": "باز کردن در تب جدید", "Title": "عنوان",
+    "Title can't be empty": "عنوان نمی‌تواند خالی باشد", "Renamed": "نام تغییر کرد",
+    "Back to the menu": "بازگشت به منو", "Back to bookmarks": "بازگشت به نشانک‌ها",
+}
+for _en, _fa in _TABS_FA.items():
+    MORE_EXACT.setdefault(_en, _fa)
+MORE_PATTERNS.extend([
+    (r"Tabs \((\d+)\)", "تب‌ها ({0})"),
+    (r"Open tabs: (\d+) of (\d+)", "تب‌های باز: {0} از {1}"),
+    (r"Tab limit reached \((\d+)\)", "به حداکثر تعداد تب رسیدی ({0})"),
+    (r"(\d+) pages?", "{0} صفحه"),
+    (r"(\d+) bookmarks?", "{0} نشانک"),
+    (r"(\d+) of (\d+) pages?", "{0} از {1} صفحه"),
+    (r"(\d+) of (\d+) bookmarks?", "{0} از {1} نشانک"),
+])

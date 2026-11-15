@@ -1,11 +1,12 @@
 """Background work of the in-app browser: file sizes and types (from the server's headers), HLS qualities and the
 yt-dlp quality list; also the saved file-type rules."""
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from api import browser_prefs
-from core import browser_media as bm, segmented_download
+from core import browser_media as bm, browser_tabs as bt, segmented_download
 from core.async_utils import run_in_background
 from services import phone_youtube_service
 
@@ -124,3 +125,59 @@ def start_ytdlp(page_url, on_done):
         except Exception as e:
             on_done({"ok": False, "error": str(e)[:80]})
     run_in_background(work)
+
+
+# -- tabs, history and bookmarks (they stay after the app is closed) -----------------------------------------------
+class BrowserState:
+    """The open tabs, the history and the bookmarks. Changes are written at most every few seconds
+    (``save_if_due``, called by the browser screen's timer) and at once on ``flush`` (after a user action)."""
+
+    def __init__(self):
+        self.tabs = bt.Tabs.from_data(_read("tabs"))
+        self.history = bt.LinkList.from_data(_read("history"), bt.MAX_HISTORY)
+        self.bookmarks = bt.LinkList.from_data(_read("bookmarks"), bt.MAX_BOOKMARKS)
+        self._last = 0.0
+
+    def _parts(self):
+        return (("tabs", self.tabs), ("history", self.history), ("bookmarks", self.bookmarks))
+
+    def page_seen(self, tab_id, url, title):
+        """The page of a tab reported its address / title: the tab and the history follow."""
+        moved, retitled = self.tabs.update(tab_id, url, title)
+        if moved:
+            self.history.put(url, title)
+        elif retitled:
+            self.history.retitle(url, title)
+
+    def save_if_due(self, gap=2.0):
+        if time.time() - self._last >= gap and any(obj.dirty for _name, obj in self._parts()):
+            self.flush()
+
+    def flush(self):
+        for name, obj in self._parts():
+            if not obj.dirty:
+                continue
+            try:
+                browser_prefs.set_data(name, obj.to_data())
+                obj.dirty = False
+            except Exception:
+                pass            # the next change tries again
+        self._last = time.time()
+
+
+def _read(name):
+    try:
+        return browser_prefs.get_data(name)
+    except Exception:
+        return None
+
+
+_state = None
+
+
+def state():
+    """The one BrowserState of the app (read from the phone the first time it is asked for)."""
+    global _state
+    if _state is None:
+        _state = BrowserState()
+    return _state

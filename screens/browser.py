@@ -16,6 +16,7 @@ from kivy.uix.widget import Widget
 from core import android_actions, android_browser, browser_media as bm
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, PAD, back_button, card_box, content_width,
                             fa_font_kwargs, fa_text, paint_card, wrapped_label, wrapped_label_height)
+from screens import browser_pages
 from services import browser_service
 
 START_PAGE = "https://www.google.com"
@@ -36,19 +37,26 @@ def build(nav, url=None):
         return
     if nav.browser is None:
         nav.browser = android_browser.Browser()
-    br, sess = nav.browser, nav.browser_session
+    br = nav.browser
+    state = browser_service.state()         # tabs, history and bookmarks (they stay after the app is closed)
+    tab = state.tabs.current()
+    tab_id = tab["id"]
+    sess = state.tabs.session_for(tab_id)   # the files found in this tab only
+    nav.browser_session = sess
     sess.set_rules(browser_service.load_rules())        # the file types chosen in Browser settings
+    state.flush()
 
     bar = BoxLayout(orientation="vertical", size_hint_y=None, height=2 * BTN_H + GAP, spacing=GAP)
     row1 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-    url_box = TextInput(text=sess.page or "", hint_text="Search or type a link", multiline=False, size_hint_x=0.76)
+    url_box = TextInput(text=sess.page or tab.get("url") or "", hint_text="Search or type a link", multiline=False, size_hint_x=0.76)
     go_btn = Button(text="Go", size_hint_x=0.24)
     row1.add_widget(url_box)
     row1.add_widget(go_btn)
     row2 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
     buttons = {}
-    for key, text, width in (("back", "<", 0.12), ("forward", ">", 0.12), ("reload", "Reload", 0.24),
-                             ("settings", "Settings", 0.28), ("close", "Close", 0.24)):
+    for key, text, width in (("back", "<", 0.09), ("forward", ">", 0.09), ("reload", "Reload", 0.19),
+                             ("tabs", f"Tabs ({state.tabs.count()})", 0.23), ("menu", "Menu", 0.20),
+                             ("close", "Close", 0.20)):
         buttons[key] = Button(text=text, size_hint_x=width)
         row2.add_widget(buttons[key])
     bar.add_widget(row1)
@@ -66,8 +74,9 @@ def build(nav, url=None):
     buttons["back"].bind(on_press=lambda i: br.back())
     buttons["forward"].bind(on_press=lambda i: br.forward())
     buttons["reload"].bind(on_press=lambda i: br.reload())
-    buttons["settings"].bind(on_press=lambda i: open_settings(nav, nav.show_browser, "Back to browser"))
-    buttons["close"].bind(on_press=lambda i: nav.show_home())
+    buttons["tabs"].bind(on_press=lambda i: browser_pages.open_tabs(nav))
+    buttons["menu"].bind(on_press=lambda i: browser_pages.open_menu(nav))
+    buttons["close"].bind(on_press=lambda i: (state.flush(), nav.show_home()))
 
     def place(_dt=None):
         # the WebView starts right under the bar; skip when another screen replaced this one meanwhile
@@ -85,10 +94,11 @@ def build(nav, url=None):
     place()
     Clock.schedule_once(place, 0.2)
     Clock.schedule_once(place, 0.8)
-    if url:
+    if br.tab_id != tab_id or not br.started:
+        # another tab (or the first start): the helper keeps the page of the tab we leave and shows this one
+        br.switch_tab(br.tab_id, tab_id, url or tab.get("url") or START_PAGE)
+    elif url:
         br.load(url)
-    elif not br.started:
-        br.load(START_PAGE)
     if sess.needs_rescan and br.started and sess.page:
         sess.needs_rescan = False           # a file type was switched on: look at the page again
         Clock.schedule_once(lambda dt: br.rescan(sess.page), 0.5)
@@ -104,10 +114,12 @@ def build(nav, url=None):
     def tick():
         if bar.parent is None:
             return
+        state.save_if_due()
         data = br.poll()
         if not data:
             return
         sess.merge(data)
+        state.page_seen(tab_id, sess.page, sess.title)
         if sess.notice and not data.get("tapped"):
             nav.show_browser_list()         # a download started on the page: its file is in the list now
             return

@@ -556,6 +556,16 @@ class Session:
         self.clear()
         self.ytdlp_for = None
 
+    def trim(self, limit=300):
+        """A tab left in the background keeps only its newest files (less memory with many tabs)."""
+        if len(self.items) > limit:
+            keep = sorted(self.items.values(), key=lambda i: i["seq"], reverse=True)[:limit]
+            self.items = {i["key"]: i for i in keep}
+            self.selected = set()
+            self.open_groups = set()
+            self.version += 1
+        self._cache = None
+
     def _new_item(self, key, url, kind, ext, rec, caught):
         size = clean_length(rec.get("len"))
         return {

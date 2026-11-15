@@ -316,6 +316,50 @@ public class BrowserHelper {
         return out.toString();
     }
 
+    // ---- tabs: one WebView; the page state (history, scroll) of every other tab is kept as a small Bundle ----
+    private static final java.util.Map<String, android.os.Bundle> tabStates =
+        new java.util.HashMap<String, android.os.Bundle>();
+    private static boolean clearPending = false;   // UI thread only: the next finished page empties the back stack
+
+    /** Leaves tab `from` (its page state is kept) and shows tab `to`: its saved state, else a fresh load of `url`. */
+    public static void switchTab(final String from, final String to, final String url) {
+        synchronized (LOCK) {
+            seen.clear();
+            pending.clear();
+            pageUrl = "";
+            pageTitle = "";
+            epoch++;
+        }
+        ui(new Runnable() {
+            public void run() {
+                if (web == null) return;
+                web.stopLoading();
+                if (from != null && from.length() > 0) {
+                    android.os.Bundle b = new android.os.Bundle();
+                    web.saveState(b);
+                    tabStates.put(from, b);
+                }
+                android.os.Bundle saved = tabStates.get(to);
+                if (saved != null && web.restoreState(saved) != null) {
+                    canBack = web.canGoBack();
+                    return;
+                }
+                clearPending = true;
+                web.loadUrl(url);
+            }
+        });
+    }
+
+    /** A tab was closed (all tabs when `id` is empty): its saved page state goes. */
+    public static void forgetTab(final String id) {
+        ui(new Runnable() {
+            public void run() {
+                if (id == null || id.length() == 0) tabStates.clear();
+                else tabStates.remove(id);
+            }
+        });
+    }
+
     static class Client extends WebViewClient {
         @Override
         public void onPageStarted(WebView v, String url, Bitmap favicon) {
@@ -327,6 +371,10 @@ public class BrowserHelper {
         public void onPageFinished(WebView v, String url) {
             String t = v.getTitle();
             pageTitle = t == null ? "" : t;
+            if (clearPending) {
+                clearPending = false;
+                v.clearHistory();   // a tab opened fresh starts with its own back stack
+            }
             canBack = v.canGoBack();
             scan();
             v.postDelayed(SCAN_LATER, 2500);

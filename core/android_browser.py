@@ -5,6 +5,7 @@ pyjnius cannot subclass WebViewClient, so a small Java class (added to the APK w
 Everything returns quietly on desktop: ``supported()`` is False there.
 """
 import json
+import time
 
 _CLASS = "org.redi2213.ytbridge.BrowserHelper"
 _supported = None
@@ -28,6 +29,8 @@ class Browser:
         self._created = False
         self.started = False        # a first page was already loaded
         self._exts = None           # the extensions the helper was last told to report
+        self.tab_id = ""            # the tab whose page the WebView shows now
+        self._guard = None          # (epoch, url, until): after a tab switch on an APK without switchTab()
 
     def _helper(self):
         if self._h is None:
@@ -104,6 +107,38 @@ class Browser:
         except Exception:
             pass
 
+    def switch_tab(self, from_id, to_id, url):
+        """Shows another tab: the helper keeps the page state (history, scroll) of the tab we leave and
+        restores the state of the new one, or loads ``url``. An APK built before switchTab() existed just
+        loads ``url`` (the back stack is then shared by the tabs) and ignores what the old page still reports."""
+        if not self._created:
+            return
+        self.started = True
+        self.tab_id = str(to_id or "")
+        try:
+            self._helper().switchTab(str(from_id or ""), str(to_id or ""), str(url or ""))
+            self._guard = None
+            return
+        except Exception:
+            pass
+        try:
+            old = json.loads(str(self._helper().poll()))      # drops what the old page reported
+            self._guard = (old.get("epoch"), str(url or ""), time.monotonic() + 4.0)
+        except Exception:
+            self._guard = None
+        self._helper().load(str(url or ""))
+
+    def forget_tab(self, tab_id=None):
+        """A tab was closed (all tabs when ``tab_id`` is empty): the helper drops its saved page state."""
+        if not tab_id or tab_id == self.tab_id:
+            self.tab_id = ""
+        if not self._created:
+            return
+        try:
+            self._helper().forgetTab(str(tab_id or ""))
+        except Exception:
+            pass            # an APK built before tabs existed has nothing saved
+
     def can_back(self):
         try:
             return bool(self._created and self._helper().canBack())
@@ -115,6 +150,12 @@ class Browser:
         if not self._created:
             return None
         try:
-            return json.loads(str(self._helper().poll()))
+            data = json.loads(str(self._helper().poll()))
         except Exception:
             return None
+        g = self._guard
+        if g is not None:
+            if data.get("epoch") == g[0] and data.get("page") != g[1] and time.monotonic() < g[2]:
+                return None         # still the page of the tab we left
+            self._guard = None
+        return data

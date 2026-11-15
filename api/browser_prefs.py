@@ -45,3 +45,18 @@ def set_custom(value) -> None:
     data = _load()
     data["custom"] = str(value or "")
     _settings_store.put(_KEY, **data)
+
+
+def get_data(name):
+    """A saved list or dict of the browser (\"tabs\", \"history\", \"bookmarks\"), or None when nothing was saved."""
+    try:
+        key = "browser_" + name
+        if _settings_store.exists(key):
+            return _settings_store.get(key).get("data")
+    except Exception:
+        pass
+    return None
+
+
+def set_data(name, value) -> None:
+    _settings_store.put("browser_" + name, data=value)
