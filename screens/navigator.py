@@ -2420,14 +2420,16 @@ class Navigator(ArvanController):
 
     def browser_download(self, entries):
         """The chosen rows of the browser list.
-        * video / audio files: the app's own download manager on the phone (with the Referer / cookies the
-          page used); when that fails the link goes to GitHub (Any site) instead
+        * files (video, audio, archive, APK, package, document, custom type, unknown): the app's own download
+          manager on the phone (with the Referer / cookies the page used); when that fails the link goes to
+          GitHub (Any site) instead
         * HLS (.m3u8) streams: the phone joins the segments into one video file (core/hls_download.py);
           when that fails the link goes to GitHub (Any site) instead
         * DASH streams: GitHub (Any site)
         * YouTube qualities: GitHub (the normal YouTube download with that quality)"""
         from core.async_utils import run_in_background
-        direct = [e for e in entries if e["kind"] in ("video", "audio", "hls")]
+        from core.browser_media import DIRECT_KINDS
+        direct = [e for e in entries if e["kind"] in DIRECT_KINDS]
         streams = [e["url"] for e in entries if e["kind"] == "dash"]
         youtube = [e for e in entries if e["kind"] == "ytdlp"]
         for e in direct:
@@ -2450,10 +2452,11 @@ class Navigator(ArvanController):
 
     def browser_upload(self, entries):
         """\"Upload to GitHub with this link\" (actions menu of the browser list).
-        * video / audio files: the existing Upload File (upload-file.yml), all links into one release,
-          with the page as Referer
+        * files (video, audio, archive, APK, package, document, custom type, unknown): the existing Upload File
+          (upload-file.yml), all links into one release, with the page as Referer
         * HLS / DASH streams and YouTube qualities have no direct file: they go the way Download does (GitHub)"""
-        direct = [e for e in entries if e["kind"] in ("video", "audio")]
+        from core.browser_media import FILE_KINDS
+        direct = [e for e in entries if e["kind"] in FILE_KINDS]
         streams = [e["url"] for e in entries if e["kind"] in ("hls", "dash")]
         self._browser_youtube([e for e in entries if e["kind"] == "ytdlp"])
         if streams:

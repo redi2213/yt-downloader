@@ -813,3 +813,40 @@ MORE_PATTERNS.extend([
     (r"(\d+) links copied", "{0} لینک کپی شد"),
     (r"Selected: (\d+) of (\d+)", "انتخاب\u200cشده: {0} از {1}"),
 ])
+
+# --- update 14: browser file types (Browser settings, type filter, caught downloads)
+MORE_EXACT.update({
+    "Browser settings": "تنظیمات مرورگر",
+    "File types the browser looks for. Turn a type off to hide it from the results.":
+        "نوع فایل‌هایی که مرورگر دنبالشان می‌گردد. با خاموش‌کردن هر نوع، از نتایج پنهان می‌شود.",
+    "Custom extensions": "پسوندهای سفارشی",
+    "Extension, e.g. torrent": "پسوند، مثلاً torrent",
+    "Add": "افزودن",
+    "No custom extensions yet.": "هنوز پسوند سفارشی‌ای نیست.",
+    "Not a valid extension (letters and digits only, up to 8)": "پسوند معتبر نیست (فقط حرف و عدد انگلیسی، حداکثر ۸ کاراکتر)",
+    "This type is already built in": "این نوع از قبل در برنامه هست",
+    "Already in the list": "از قبل در فهرست هست",
+    "A type you turn on is looked for when you go back (the page loads again). These choices stay after the app is closed.":
+        "نوعی که روشن کنی بعد از بازگشت جستجو می‌شود (صفحه دوباره بارگذاری می‌شود). این انتخاب‌ها بعد از بستن برنامه هم می‌مانند.",
+    "No files found yet. Play a video or open a file link on the page, then tap the badge again.":
+        "هنوز فایلی پیدا نشده. ویدیو را پخش کن یا روی لینک فایل بزن، بعد دوباره روی نشان بزن.",
+    "Type: All": "نوع: همه",
+})
+_BROWSER_CATS = {"Videos": "ویدیوها", "Audio": "صدا", "Archives": "فایل‌های فشرده", "APK files": "فایل‌های APK",
+                 "Packages": "بسته‌ها", "Documents": "اسناد", "Custom": "سفارشی", "Other": "سایر"}
+for _en, _fa in _BROWSER_CATS.items():
+    MORE_EXACT[f"{_en}: ON"] = f"{_fa}: روشن"
+    MORE_EXACT[f"{_en}: OFF"] = f"{_fa}: خاموش"
+    MORE_EXACT[f"Type: {_en}"] = f"نوع: {_fa}"
+MORE_PATTERNS.extend([
+    (r"Added: (.+)", "اضافه شد: {0}"),
+    (r"Removed: (.+)", "حذف شد: {0}"),
+    (r"Remove: (.+)", "حذف: {0}"),
+    (r"(\d+) download\(s\) caught from the page - find them below", "{0} دانلود از صفحه گرفته شد - پایین فهرست را ببین"),
+])
+PHRASES.extend([
+    ("Video file", "فایل ویدیو"), ("Audio file", "فایل صدا"), ("HLS stream", "استریم HLS"),
+    ("DASH stream", "استریم DASH"), ("Archive file", "فایل فشرده"), ("APK file", "فایل APK"),
+    ("Package file", "فایل بسته"), ("Document", "سند"), ("Custom file", "فایل سفارشی"),
+    ("Unknown file", "فایل ناشناخته"), ("via GitHub", "از طریق GitHub"),
+])

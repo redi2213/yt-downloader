@@ -1,4 +1,5 @@
-"""Background work of the in-app browser: file sizes, HLS qualities and the yt-dlp quality list."""
+"""Background work of the in-app browser: file sizes and types (from the server's headers), HLS qualities and the
+yt-dlp quality list; also the saved file-type rules."""
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -24,6 +25,30 @@ def save_default_sort(mode):
         pass
 
 
+def load_rules():
+    """The file-type rules saved on this phone (all types on when nothing was saved yet)."""
+    try:
+        raw = browser_prefs.get_types()
+        custom = [c for c in browser_prefs.get_custom().split(",") if c]
+    except Exception:
+        raw, custom = "", []
+    if not raw:
+        enabled = set(bm.CATEGORIES)
+    elif raw == "none":
+        enabled = set()
+    else:
+        enabled = {c for c in raw.split(",") if c in bm.CATEGORIES}
+    return bm.Rules(enabled, custom)
+
+
+def save_rules(rules):
+    try:
+        browser_prefs.set_types(",".join(c for c in bm.CATEGORIES if c in rules.enabled) or "none")
+        browser_prefs.set_custom(",".join(e.lstrip(".") for e in rules.custom))
+    except Exception:
+        pass
+
+
 def start_probe(session, on_update=None):
     """Looks up the size of the next files (and the qualities of HLS master playlists) not looked at yet."""
     if session.probing:
@@ -37,7 +62,7 @@ def start_probe(session, on_update=None):
 
 def _probe_all(session, items, on_update):
     def work(item):
-        _probe_one(item)
+        _probe_one(item, session.rules)
         session.touch()
 
     try:
@@ -50,7 +75,30 @@ def _probe_all(session, items, on_update):
         on_update()
 
 
-def _probe_one(item):
+def fetch_headers(url, headers=None):
+    """What the server says about a file: {mime, disp, length} (HEAD; a one-byte GET when HEAD says nothing)."""
+    h = dict(headers or {})
+    try:
+        r = requests.head(url, headers=h, allow_redirects=True, timeout=10)
+        if r.status_code < 400 and (r.headers.get("Content-Type") or r.headers.get("Content-Length")):
+            return {"mime": r.headers.get("Content-Type", ""), "disp": r.headers.get("Content-Disposition", ""),
+                    "length": r.headers.get("Content-Length")}
+    except Exception:
+        pass
+    h["Range"] = "bytes=0-0"
+    r = requests.get(url, headers=h, allow_redirects=True, timeout=10, stream=True)
+    try:
+        total = r.headers.get("Content-Length")
+        whole = (r.headers.get("Content-Range") or "").rpartition("/")[2]
+        if whole.isdigit():
+            total = whole          # "bytes 0-0/12345": the whole file, not the one byte
+        return {"mime": r.headers.get("Content-Type", ""), "disp": r.headers.get("Content-Disposition", ""),
+                "length": total}
+    finally:
+        r.close()
+
+
+def _probe_one(item, rules=None):
     headers = item.get("headers") or None
     try:
         if item["kind"] in ("video", "audio"):
@@ -60,6 +108,8 @@ def _probe_one(item):
             r = requests.get(item["url"], headers=headers, timeout=10)
             r.raise_for_status()
             item["variants"] = bm.parse_m3u8_variants(r.text, item["url"]) or None
+        else:       # archive, APK, package, document, custom, unknown: name, type and size come from the headers
+            bm.apply_headers(item, fetch_headers(item["url"], headers), rules or bm.Rules())
     except Exception:
         pass     # the size stays unknown: the file can still be downloaded
     finally:

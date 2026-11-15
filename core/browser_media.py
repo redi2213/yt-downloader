@@ -4,14 +4,31 @@
 and the quality list read by yt-dlp for supported pages (YouTube). The screens only draw it.
 """
 import re
-from urllib.parse import quote_plus, unquote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlsplit
 
 VIDEO_EXT = {".mp4", ".m4v", ".webm", ".mkv", ".mov"}
 AUDIO_EXT = {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".wav"}
 HEIGHTS = (144, 240, 360, 480, 540, 576, 720, 1080, 1440, 2160)
 SORT_MODES = ("newest", "oldest", "size", "quality", "name", "type")
 MAX_ITEMS = 3000          # a safety cap: the list stays light even on a page that never stops loading
-_KIND_RANK = {"ytdlp": 0, "video": 1, "audio": 2, "hls": 3, "dash": 4}
+
+# -- file types the browser looks for (the rules live here, in Python: changing them needs no new build) ---------
+# A category groups some kinds: "video" = video files + HLS / DASH streams + YouTube qualities. "other" is a file
+# the server called a download but whose type is unknown (always shown, it has no switch).
+CATEGORIES = ("video", "audio", "archive", "apk", "pkg", "doc", "custom")
+CATEGORY_EXT = {
+    "video": VIDEO_EXT | {".m3u8", ".mpd"},
+    "audio": AUDIO_EXT,
+    "archive": {".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz"},
+    "apk": {".apk", ".apks", ".xapk", ".aab"},
+    "pkg": {".pkg", ".deb", ".rpm"},
+    "doc": {".pdf", ".epub", ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt"},
+}
+FILE_KINDS = ("video", "audio", "archive", "apk", "pkg", "doc", "custom", "other")     # one direct link each
+DIRECT_KINDS = FILE_KINDS + ("hls",)        # what the phone can download itself (HLS: joined into one file)
+_STREAM_CATEGORY = {"hls": "video", "dash": "video", "ytdlp": "video"}
+_KIND_RANK = {"ytdlp": 0, "video": 1, "audio": 2, "hls": 3, "dash": 4, "archive": 5, "apk": 6, "pkg": 7,
+              "doc": 8, "custom": 9, "other": 10}
 _YT_PAGE = re.compile(r"(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|shorts/|live/)|youtu\.be/)[\w-]{6,}", re.I)
 
 
@@ -21,8 +38,202 @@ def is_ytdlp_page(url):
 
 
 def ext_of(url):
-    m = re.search(r"(\.[a-z0-9]{2,5})$", urlsplit(url or "").path.lower())
+    m = re.search(r"(\.[a-z0-9]{2,8})$", urlsplit(url or "").path.lower())
     return m.group(1) if m else ""
+
+
+_TAIL_EXT = re.compile(r"(\.[a-z0-9]{1,8})$")
+
+
+def tail_ext(text):
+    """".ZIP" from "Archive.ZIP" (a file name or a query value), or ""."""
+    m = _TAIL_EXT.search((text or "").strip().lower())
+    return m.group(1) if m else ""
+
+
+def category_of(entry):
+    """The category (see CATEGORIES, or "other") of a row: streams and YouTube qualities are "video"."""
+    kind = (entry or {}).get("kind")
+    if kind in _STREAM_CATEGORY:
+        return _STREAM_CATEGORY[kind]
+    return kind if kind in CATEGORIES else "other"
+
+
+def filter_entries(entries, category):
+    return list(entries) if category in (None, "", "all") else [e for e in entries if category_of(e) == category]
+
+
+def count_by_category(entries):
+    out = {}
+    for e in entries:
+        cat = category_of(e)
+        out[cat] = out.get(cat, 0) + 1
+    return out
+
+
+def disposition_name(disp):
+    """The file name a server gives in a Content-Disposition header (filename*= first), or ""."""
+    disp = (disp or "").strip()
+    if not disp:
+        return ""
+    name = ""
+    m = re.search(r"filename\*\s*=\s*([^;]+)", disp, re.I)
+    if m:
+        val = m.group(1).strip().strip('"')
+        parts = val.split("'", 2)
+        name = unquote(parts[2] if len(parts) == 3 else val)
+    else:
+        m = re.search(r'filename\s*=\s*(?:"([^"]*)"|([^;]+))', disp, re.I)
+        if m:
+            name = (m.group(1) if m.group(1) is not None else m.group(2)).strip()
+            try:        # a UTF-8 name that arrived as Latin-1 characters
+                name = name.encode("latin-1").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+    return name.replace("\\", "/").rsplit("/", 1)[-1].strip().strip(".")
+
+
+_MIME_KIND = {
+    "application/vnd.apple.mpegurl": "hls", "application/x-mpegurl": "hls", "audio/mpegurl": "hls",
+    "audio/x-mpegurl": "hls", "application/dash+xml": "dash",
+    "application/zip": "archive", "application/x-zip-compressed": "archive",
+    "application/x-rar-compressed": "archive", "application/vnd.rar": "archive",
+    "application/x-7z-compressed": "archive", "application/x-tar": "archive", "application/gzip": "archive",
+    "application/x-gzip": "archive", "application/x-bzip2": "archive", "application/x-xz": "archive",
+    "application/vnd.android.package-archive": "apk", "application/xapk-package-archive": "apk",
+    "application/x-debian-package": "pkg", "application/vnd.debian.binary-package": "pkg",
+    "application/x-rpm": "pkg", "application/x-redhat-package-manager": "pkg",
+    "application/pdf": "doc", "application/epub+zip": "doc", "application/msword": "doc",
+    "application/vnd.ms-excel": "doc", "application/vnd.ms-powerpoint": "doc",
+}
+
+
+def kind_from_mime(mime):
+    """The kind a Content-Type points to ("" when it says nothing, like application/octet-stream)."""
+    mime = (mime or "").split(";")[0].strip().lower()
+    if mime in _MIME_KIND:
+        return _MIME_KIND[mime]
+    if mime.startswith("application/vnd.openxmlformats-officedocument."):
+        return "doc"
+    if mime.startswith("video/"):
+        return "video"
+    if mime.startswith("audio/"):
+        return "audio"
+    return ""
+
+
+def clean_length(value):
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def check_custom(text):
+    """A custom extension typed by hand -> (".ext", error). error: "" ok, "invalid", "builtin"."""
+    t = (text or "").strip().lower().lstrip(".")
+    if not re.fullmatch(r"[a-z0-9]{1,8}", t):
+        return "", "invalid"
+    ext = "." + t
+    if any(ext in exts for exts in CATEGORY_EXT.values()):
+        return ext, "builtin"
+    return ext, ""
+
+
+class Rules:
+    """Which file types the browser looks for: the switched-on categories plus the custom extensions.
+    Immutable: a change makes a new Rules (Session.set_rules)."""
+
+    def __init__(self, enabled=None, custom=()):
+        self.enabled = frozenset(CATEGORIES if enabled is None else (c for c in enabled if c in CATEGORIES))
+        out = []
+        for c in custom or ():
+            ext, err = check_custom(c)
+            if not err and ext not in out:
+                out.append(ext)
+        self.custom = tuple(out)
+
+    def with_enabled(self, enabled):
+        return Rules(enabled, self.custom)
+
+    def with_custom(self, custom):
+        return Rules(self.enabled, custom)
+
+    def signature(self):
+        return (tuple(sorted(self.enabled)), self.custom)
+
+    def ext_category(self, ext):
+        """The category an extension belongs to (switched on or not), or ""."""
+        for cat, exts in CATEGORY_EXT.items():
+            if ext in exts:
+                return cat
+        return "custom" if ext in self.custom else ""
+
+    def ext_for(self, url):
+        """The extension of a link: its path first; else a known one inside a query value (?file=a.zip)."""
+        ext = ext_of(url)
+        if ext and self.ext_category(ext):
+            return ext
+        try:
+            for vals in parse_qs(urlsplit(url or "").query).values():
+                for v in vals:
+                    e = tail_ext(unquote(v))
+                    if e and self.ext_category(e):
+                        return e
+        except ValueError:
+            pass
+        return ext
+
+    def classify(self, url, mime="", disp=""):
+        """(kind, ext) of a file. The name the server gives wins, then the link, then the Content-Type."""
+        ext = tail_ext(disposition_name(disp))
+        cat = self.ext_category(ext) if ext else ""
+        if not cat:
+            ext = self.ext_for(url)
+            cat = self.ext_category(ext) if ext else ""
+        if cat == "video":
+            return ("hls" if ext == ".m3u8" else "dash" if ext == ".mpd" else "video"), ext
+        if cat:
+            return cat, ext
+        kind = kind_from_mime(mime)
+        return (kind or "other"), ""
+
+    def allows(self, kind):
+        cat = category_of({"kind": kind})
+        return cat == "other" or cat in self.enabled
+
+    def active_exts(self):
+        """The extensions to look for, without dots (what the native helper is told)."""
+        exts = set()
+        for cat in self.enabled:
+            if cat == "custom":
+                exts.update(c.lstrip(".") for c in self.custom)
+            else:
+                exts.update(e.lstrip(".") for e in CATEGORY_EXT[cat])
+        return exts
+
+    def csv(self):
+        return ",".join(sorted(self.active_exts()))
+
+
+def apply_headers(item, info, rules):
+    """A file's answer to HEAD (or a one-byte GET): {mime, disp, length} -> name, kind and size of the row.
+    Streams and YouTube rows keep their kind."""
+    info = info or {}
+    if info.get("mime"):
+        item["mime"] = info["mime"]
+    dname = disposition_name(info.get("disp"))
+    if item.get("kind") not in ("hls", "dash", "ytdlp"):
+        kind, ext = rules.classify(item.get("url"), info.get("mime"), info.get("disp"))
+        if kind not in ("hls", "dash") and (kind != "other" or item.get("kind") == "other"):
+            item["kind"] = kind
+            item["ext"] = ext or item.get("ext") or ""
+    if dname:
+        item["name"] = dname
+    size = clean_length(info.get("length"))
+    if size:
+        item["size"] = size
 
 
 def kind_of(url):
@@ -61,6 +272,8 @@ def name_from_url(url, kind, title=""):
     seg = unquote(urlsplit(url or "").path.rstrip("/").rsplit("/", 1)[-1]).strip()
     if kind in ("hls", "dash"):
         return (title or urlsplit(url).netloc or "stream").strip()
+    if kind not in ("video", "audio"):
+        return seg or title or "file"
     if not seg or "." not in seg[-6:]:
         seg = (seg or title or "video") + (".mp3" if kind == "audio" else ".mp4")
     return seg
@@ -109,7 +322,7 @@ def sort_entries(entries, mode):
     elif mode == "name":
         key = lambda e: _natural(e.get("name"))                                               # noqa: E731
     elif mode == "type":
-        key = lambda e: (_KIND_RANK.get(e.get("kind"), 9), e.get("ext") or "", _natural(e.get("name")))  # noqa: E731
+        key = lambda e: (_KIND_RANK.get(e.get("kind"), 11), e.get("ext") or "", _natural(e.get("name")))  # noqa: E731
     else:
         key = lambda e: -e.get("seq", 0)                                                      # noqa: E731
     return sorted(entries, key=key)
@@ -279,7 +492,11 @@ def headers_from(rec):
 class Session:
     """Everything the browser knows about the pages visited. What was found stays until Clear / Refresh."""
 
-    def __init__(self):
+    def __init__(self, rules=None):
+        self.rules = rules or Rules()
+        self.needs_rescan = False   # a file type was switched on: the page is scanned again when the browser opens
+        self.type_filter = "all"    # the list's filter: "all" or a category
+        self.notice = []            # names of downloads the page started (shown once, when the list opens)
         self.epoch = None
         self.page = ""
         self.title = ""
@@ -301,6 +518,25 @@ class Session:
         self._seq += 1
         return self._seq
 
+    def set_rules(self, rules):
+        """New file-type rules (Browser settings). A type that was switched on needs a new scan of the page."""
+        if rules.signature() == self.rules.signature():
+            return
+        if rules.active_exts() - self.rules.active_exts():
+            self.needs_rescan = True
+        self.rules = rules
+        self.version += 1
+        keys = {e["key"] for e in self.all_entries()}
+        self.selected = {k for k in self.selected if k in keys}
+
+    def take_notice(self):
+        out, self.notice = self.notice, []
+        return out
+
+    def visible(self, e):
+        """A row is shown when its type is switched on; a download the page started and YouTube rows always are."""
+        return e.get("kind") == "ytdlp" or bool(e.get("caught")) or self.rules.allows(e.get("kind"))
+
     def _reset_page(self):
         """A new page: only the yt-dlp qualities belong to one page. Found files are kept."""
         self.selected = {k for k in self.selected if not k.startswith("yt:")}
@@ -311,6 +547,7 @@ class Session:
         """The list's Clear: everything found and selected goes."""
         self.items, self.selected, self.open_groups = {}, set(), set()
         self.ytdlp, self.ytdlp_error = [], ""
+        self.notice = []
         self.ytdlp_for = self.page if is_ytdlp_page(self.page) else None    # not read again by itself
         self.version += 1
 
@@ -318,6 +555,27 @@ class Session:
         """The list's Refresh: like Clear, and the qualities of a YouTube page are read again."""
         self.clear()
         self.ytdlp_for = None
+
+    def _new_item(self, key, url, kind, ext, rec, caught):
+        size = clean_length(rec.get("len"))
+        return {
+            "key": key, "url": url, "kind": kind, "src": rec.get("src", ""), "ext": ext or ext_of(url),
+            "name": disposition_name(rec.get("disp")) or name_from_url(url, kind, self.title),
+            "quality": quality_hint(url) if kind in ("video", "audio") else "",
+            "size": size, "size_label": "", "headers": headers_from(rec), "mime": rec.get("mime") or "",
+            "variants": None, "probed": bool(caught and size),
+            "caught": bool(caught),
+            "seq": self._next_seq(), "found_on": rec.get("referer") or self.page,
+        }
+
+    def _catch(self, item, rec):
+        """The page started a download of a file the list already has: now the server's headers are known."""
+        apply_headers(item, {"mime": rec.get("mime"), "disp": rec.get("disp"), "length": rec.get("len")}, self.rules)
+        if clean_length(rec.get("len")):
+            item["probed"] = True
+        item["caught"] = True
+        item["seq"] = self._next_seq()      # the newest row
+        self.notice.append(item["name"])
 
     def merge(self, data):
         """Adds one poll of the Java helper. True when something new appeared."""
@@ -329,26 +587,32 @@ class Session:
         changed = False
         for rec in data.get("items") or []:
             url = rec.get("url") or ""
+            if not url:
+                continue
             key = dedupe_key(url)
-            if not url or key in self.items:
+            caught = rec.get("src") == "download"
+            old = self.items.get(key)
+            if old is not None:
+                if caught:
+                    self._catch(old, rec)
+                    changed = True
                 continue
             if len(self.items) >= MAX_ITEMS:
                 break
-            kind = kind_of(url)
-            self.items[key] = {
-                "key": key, "url": url, "kind": kind, "src": rec.get("src", ""), "ext": ext_of(url),
-                "name": name_from_url(url, kind, self.title), "quality": quality_hint(url),
-                "size": None, "size_label": "", "headers": headers_from(rec),
-                "variants": None, "probed": False,
-                "seq": self._next_seq(), "found_on": rec.get("referer") or self.page,
-            }
+            kind, ext = self.rules.classify(url, rec.get("mime"), rec.get("disp"))
+            if not caught and not self.rules.allows(kind):
+                continue            # its type is switched off in Browser settings
+            item = self._new_item(key, url, kind, ext, rec, caught)
+            self.items[key] = item
+            if caught:
+                self.notice.append(item["name"])
             changed = True
         if changed:
             self.version += 1
         return changed
 
     def count(self):
-        return len(self.items)
+        return sum(1 for item in self.items.values() if self.visible(item))
 
     def entries(self):
         """What the list shows: one row per file, an HLS master playlist as one row per quality.
@@ -370,12 +634,12 @@ class Session:
         return out
 
     def all_entries(self):
-        """Every row, each once (kept until the next change, so the list can ask every second)."""
+        """Every row that is shown, each once (kept until the next change, so the list can ask every second)."""
         if self._cache is not None and self._cache[0] == self.version:
             return self._cache[1]
         out, seen = [], set()
         for e in list(self.ytdlp) + self.entries():
-            if e["key"] not in seen:
+            if e["key"] not in seen and self.visible(e):
                 seen.add(e["key"])
                 out.append(e)
         self._cache = (self.version, out)

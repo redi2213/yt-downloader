@@ -27,6 +27,7 @@ class Browser:
         self._h = None
         self._created = False
         self.started = False        # a first page was already loaded
+        self._exts = None           # the extensions the helper was last told to report
 
     def _helper(self):
         if self._h is None:
@@ -40,6 +41,17 @@ class Browser:
         from jnius import autoclass
         self._helper().create(autoclass("org.kivy.android.PythonActivity").mActivity, int(top_px))
         self._created = True
+
+    def set_extensions(self, csv):
+        """The file extensions the helper reports (core/browser_media.Rules.csv()). An APK built before this
+        existed keeps reporting video and audio only."""
+        if not self._created or csv == self._exts:
+            return
+        try:
+            self._helper().setExtensions(str(csv or ""))
+            self._exts = csv
+        except Exception:
+            pass
 
     def set_top(self, top_px):
         if self._created:

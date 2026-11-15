@@ -19,7 +19,13 @@ from screens.common import (BTN_H, CARD, CARD_ON, GAP, PAD, back_button, card_bo
 from services import browser_service
 
 START_PAGE = "https://www.google.com"
-_KIND = {"video": "Video file", "audio": "Audio file", "hls": "HLS stream", "dash": "DASH stream"}
+_KIND = {"video": "Video file", "audio": "Audio file", "hls": "HLS stream", "dash": "DASH stream",
+         "archive": "Archive file", "apk": "APK file", "pkg": "Package file", "doc": "Document",
+         "custom": "Custom file", "other": "Unknown file"}
+_CAT_LABEL = {"video": "Videos", "audio": "Audio", "archive": "Archives", "apk": "APK files",
+              "pkg": "Packages", "doc": "Documents", "custom": "Custom", "other": "Other"}
+_CUSTOM_ERRORS = {"invalid": "Not a valid extension (letters and digits only, up to 8)",
+                  "builtin": "This type is already built in", "duplicate": "Already in the list"}
 
 
 def build(nav, url=None):
@@ -31,6 +37,7 @@ def build(nav, url=None):
     if nav.browser is None:
         nav.browser = android_browser.Browser()
     br, sess = nav.browser, nav.browser_session
+    sess.set_rules(browser_service.load_rules())        # the file types chosen in Browser settings
 
     bar = BoxLayout(orientation="vertical", size_hint_y=None, height=2 * BTN_H + GAP, spacing=GAP)
     row1 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
@@ -40,8 +47,9 @@ def build(nav, url=None):
     row1.add_widget(go_btn)
     row2 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
     buttons = {}
-    for key, text in (("back", "<"), ("forward", ">"), ("reload", "Reload"), ("close", "Close")):
-        buttons[key] = Button(text=text)
+    for key, text, width in (("back", "<", 0.12), ("forward", ">", 0.12), ("reload", "Reload", 0.24),
+                             ("settings", "Settings", 0.28), ("close", "Close", 0.24)):
+        buttons[key] = Button(text=text, size_hint_x=width)
         row2.add_widget(buttons[key])
     bar.add_widget(row1)
     bar.add_widget(row2)
@@ -58,6 +66,7 @@ def build(nav, url=None):
     buttons["back"].bind(on_press=lambda i: br.back())
     buttons["forward"].bind(on_press=lambda i: br.forward())
     buttons["reload"].bind(on_press=lambda i: br.reload())
+    buttons["settings"].bind(on_press=lambda i: open_settings(nav, nav.show_browser, "Back to browser"))
     buttons["close"].bind(on_press=lambda i: nav.show_home())
 
     def place(_dt=None):
@@ -69,6 +78,7 @@ def build(nav, url=None):
         except Exception:
             top = int(PAD + bar.height + GAP)
         br.ensure(top)
+        br.set_extensions(sess.rules.csv())         # the helper reports the file types switched on
         br.set_top(top)
         br.show(True)
 
@@ -79,6 +89,9 @@ def build(nav, url=None):
         br.load(url)
     elif not br.started:
         br.load(START_PAGE)
+    if sess.needs_rescan and br.started and sess.page:
+        sess.needs_rescan = False           # a file type was switched on: look at the page again
+        Clock.schedule_once(lambda dt: br.rescan(sess.page), 0.5)
 
     def on_back():
         if br.can_back():
@@ -95,6 +108,9 @@ def build(nav, url=None):
         if not data:
             return
         sess.merge(data)
+        if sess.notice and not data.get("tapped"):
+            nav.show_browser_list()         # a download started on the page: its file is in the list now
+            return
         page = sess.page
         if page and not url_box.focus and url_box.text != page:
             url_box.text = page
@@ -118,8 +134,8 @@ def _sub(e):
     if e["kind"] == "ytdlp":
         bits = [e.get("quality"), e.get("size_label"), e.get("codec"), "via GitHub"]
     else:
-        bits = [_KIND.get(e["kind"], "File"), e.get("quality")]
-        if e["kind"] in ("video", "audio"):
+        bits = [_KIND.get(e["kind"], "Unknown file"), e.get("quality")]
+        if e["kind"] in bm.FILE_KINDS:
             bits.append(bm.fmt_size(e.get("size")) or ("size ?" if e.get("probed") else "..."))
         else:
             bits.append("via GitHub")
@@ -146,11 +162,15 @@ CARD_PART = [0.13, 0.28, 0.20, 1]       # some (not all) qualities of a group ar
 _MARKS = {0: "[   ]", 1: "[ - ]", 2: "[ x ]"}
 _SORT_NAMES = {"newest": "Newest", "oldest": "Oldest", "size": "Size", "quality": "Quality",
                "name": "Name", "type": "Type"}
-_EMPTY = "No video found yet. Start playing the video on the page, then tap the badge again."
+_EMPTY = "No files found yet. Play a video or open a file link on the page, then tap the badge again."
 
 
 def _sort_text(mode):
     return "Sort: " + _SORT_NAMES.get(mode, "Newest")
+
+
+def _filter_text(cat):
+    return "Type: " + ("All" if cat == "all" else _CAT_LABEL.get(cat, "Other"))
 
 
 def _info_text(entries, selected):
@@ -174,6 +194,9 @@ def build_list(nav):
     token = object()
     nav.browser_list_token = token
     nav.add(Label(text="Found files", size_hint_y=None, height=BTN_H))
+    caught = sess.take_notice()
+    if caught:
+        nav.add(wrapped_label(f"{len(caught)} download(s) caught from the page - find them below"))
 
     if bm.is_ytdlp_page(sess.page) and sess.ytdlp_for != sess.page:
         sess.ytdlp_for = sess.page
@@ -207,6 +230,9 @@ def build_list(nav):
     refresh_btn = Button(text="Refresh", size_hint_x=0.29)
     clear_btn = Button(text="Clear", size_hint_x=0.29)
     nav.add(_row([sort_btn, refresh_btn, clear_btn]))
+    filter_btn = Button(text=_filter_text(sess.type_filter), size_hint_x=0.5)
+    settings_btn = Button(text="Browser settings", size_hint_x=0.5)
+    nav.add(_row([filter_btn, settings_btn]))
     all_btn = Button(text="Select all")
     none_btn = Button(text="Deselect all")
     nav.add(_row([all_btn, none_btn]))
@@ -258,7 +284,7 @@ def build_list(nav):
         if on:
             sess.selected |= {e["key"] for e in state["entries"]}
         else:
-            sess.selected.clear()
+            sess.selected -= {e["key"] for e in state["entries"]}
         refresh_marks()
         update_info()
 
@@ -314,9 +340,13 @@ def build_list(nav):
         render(force=True)
 
     def render(force=False):
-        entries = sess.all_entries()
-        sess.selected &= {e["key"] for e in entries}        # a row that is gone cannot stay selected
+        every = sess.all_entries()
+        sess.selected &= {e["key"] for e in every}          # a row that is gone cannot stay selected
+        if sess.type_filter != "all" and not any(bm.category_of(e) == sess.type_filter for e in every):
+            sess.type_filter = "all"                        # nothing of that type is left
+        entries = bm.filter_entries(every, sess.type_filter)
         state["entries"] = entries
+        filter_btn.text = _filter_text(sess.type_filter)
         units = bm.sort_units(bm.group_units(entries), state["mode"])
         shown = units[:state["shown"]]
         layout = tuple((u["key"], u["key"] in sess.open_groups,
@@ -364,6 +394,14 @@ def build_list(nav):
         state["shown"] = PAGE
         render(force=True)
 
+    def cycle_filter(_i):
+        have = bm.count_by_category(sess.all_entries())
+        modes = ["all"] + [c for c in bm.CATEGORIES + ("other",) if have.get(c)]
+        cur = sess.type_filter if sess.type_filter in modes else "all"
+        sess.type_filter = modes[(modes.index(cur) + 1) % len(modes)]
+        state["shown"] = PAGE
+        render(force=True)
+
     def do_clear(_i):
         sess.clear()
         state["shown"] = PAGE
@@ -382,14 +420,14 @@ def build_list(nav):
         render(force=True)
 
     def chosen_keys():
-        return [e["key"] for e in sess.all_entries() if e["key"] in sess.selected]
+        return [e["key"] for e in state["entries"] if e["key"] in sess.selected]
 
     def go(_i):
         keys = set(chosen_keys())
         if not keys:
             info.text = "Tap the files you want first"
             return
-        nav.browser_download([e for e in sess.all_entries() if e["key"] in keys])
+        nav.browser_download([e for e in state["entries"] if e["key"] in keys])
 
     def actions(_i):
         keys = chosen_keys()
@@ -399,6 +437,8 @@ def build_list(nav):
         open_actions(nav, keys)
 
     sort_btn.bind(on_press=cycle_sort)
+    filter_btn.bind(on_press=cycle_filter)
+    settings_btn.bind(on_press=lambda i: open_settings(nav, nav.show_browser_list, "Back to the list"))
     refresh_btn.bind(on_press=do_refresh)
     clear_btn.bind(on_press=do_clear)
     all_btn.bind(on_press=lambda i: select_all(True))
@@ -530,6 +570,89 @@ def build_details(nav, key):
 
     nav.add(button_row(nav, "Copy page link" if e["kind"] == "ytdlp" else "Copy direct link", copy_link))
     nav.add(button_row(nav, "Back to the actions", lambda: open_actions(nav, [key])))
+
+
+# -- Browser settings: which file types the browser looks for ---------------------------------------------------
+def open_settings(nav, back, back_text):
+    nav.remember(lambda: open_settings(nav, back, back_text))
+    build_settings(nav, back, back_text)
+
+
+def _use_rules(nav, rules):
+    """New rules take effect now and stay after the app is closed."""
+    nav.browser_session.set_rules(rules)
+    browser_service.save_rules(rules)
+
+
+def build_settings(nav, back, back_text):
+    sess = nav.browser_session
+    nav.clear()
+    nav.add(Label(text="Browser settings", size_hint_y=None, height=BTN_H))
+    nav.add(wrapped_label("File types the browser looks for. Turn a type off to hide it from the results."))
+    status = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
+    status.text_size = (content_width(), None)
+    toggles = {}
+
+    def refresh():
+        for cat, btn in toggles.items():
+            btn.text = f"{_CAT_LABEL[cat]}: " + ("ON" if cat in sess.rules.enabled else "OFF")
+
+    def flip(cat):
+        _use_rules(nav, sess.rules.with_enabled(set(sess.rules.enabled) ^ {cat}))
+        refresh()
+
+    for cat in bm.CATEGORIES:
+        btn = Button(text="", size_hint_y=None, height=BTN_H)
+        btn.bind(on_press=lambda i, c=cat: flip(c))
+        toggles[cat] = btn
+        nav.add(btn)
+        if cat != "custom":
+            nav.add(wrapped_label(", ".join(x.lstrip(".") for x in sorted(bm.CATEGORY_EXT[cat]))))
+    refresh()
+
+    nav.add(wrapped_label("Custom extensions"))
+    box = TextInput(hint_text="Extension, e.g. torrent", multiline=False, size_hint_x=0.7)
+    add_btn = Button(text="Add", size_hint_x=0.3)
+    nav.add(_row([box, add_btn]))
+    nav.add(status)
+    custom_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(4))
+    custom_box.bind(minimum_height=custom_box.setter("height"))
+    nav.add(custom_box)
+
+    def draw_custom():
+        custom_box.clear_widgets()
+        if not sess.rules.custom:
+            custom_box.add_widget(wrapped_label("No custom extensions yet."))
+        for ext in sess.rules.custom:
+            btn = Button(text=f"Remove: {ext.lstrip('.')}", size_hint_y=None, height=BTN_H)
+            btn.bind(on_press=lambda i, x=ext: drop(x))
+            custom_box.add_widget(btn)
+
+    def add(_i=None):
+        ext, err = bm.check_custom(box.text)
+        if not err and ext in sess.rules.custom:
+            err = "duplicate"
+        if err:
+            status.text = _CUSTOM_ERRORS[err]
+            return
+        rules = sess.rules.with_custom(list(sess.rules.custom) + [ext])
+        _use_rules(nav, rules.with_enabled(set(rules.enabled) | {"custom"}))
+        box.text = ""
+        status.text = f"Added: {ext.lstrip('.')}"
+        refresh()
+        draw_custom()
+
+    def drop(ext):
+        _use_rules(nav, sess.rules.with_custom([x for x in sess.rules.custom if x != ext]))
+        status.text = f"Removed: {ext.lstrip('.')}"
+        draw_custom()
+
+    add_btn.bind(on_press=add)
+    box.bind(on_text_validate=add)
+    draw_custom()
+    nav.add(wrapped_label("A type you turn on is looked for when you go back (the page loads again). "
+                          "These choices stay after the app is closed."))
+    nav.add(button_row(nav, back_text, back))
 
 
 def button_row(nav, text, action):

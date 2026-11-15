@@ -9,6 +9,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
 import android.webkit.ValueCallback;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -52,15 +53,30 @@ public class BrowserHelper {
     private static volatile boolean canBack = false;
     private static String ua = "";
 
-    private static final Pattern MEDIA = Pattern.compile(
-        "(?i)\\.(mp4|m4v|webm|mkv|mov|m3u8|mpd|mp3|m4a|aac|ogg|opus|flac|wav)(?:$|[?#&])");
+    // The extensions to report. Python tells the list (setExtensions: the file types switched on in Browser
+    // settings); until then only video and audio, as before.
+    private static final String DEFAULT_EXTS = "mp4|m4v|webm|mkv|mov|m3u8|mpd|mp3|m4a|aac|ogg|opus|flac|wav";
+    private static volatile String extAlt = DEFAULT_EXTS;
+    private static volatile Pattern extPattern = Pattern.compile("(?i)\\.(" + DEFAULT_EXTS + ")(?:$|[?#&;])");
 
-    private static final String SCAN_JS =
+    private static final String SCAN_HEAD =
         "(function(){var o=[];"
       + "function add(u){if(u&&typeof u==='string'&&u.indexOf('blob:')!==0&&u.indexOf('data:')!==0){try{o.push(new URL(u,location.href).href)}catch(e){}}}"
       + "document.querySelectorAll('video,audio,source').forEach(function(e){add(e.currentSrc||e.src)});"
-      + "document.querySelectorAll(\"meta[property='og:video'],meta[property='og:video:url'],meta[property='og:video:secure_url'],meta[property='og:audio']\").forEach(function(m){add(m.content)});"
-      + "return JSON.stringify(o.filter(function(x,i){return o.indexOf(x)===i}))})()";
+      + "document.querySelectorAll(\"meta[property='og:video'],meta[property='og:video:url'],meta[property='og:video:secure_url'],meta[property='og:audio']\").forEach(function(m){add(m.content)});";
+    private static final String SCAN_TAIL =
+        "return JSON.stringify(o.filter(function(x,i){return o.indexOf(x)===i}))})()";
+
+    /** The page scan: media elements, plus links (a[href]) to a file of a switched-on type or with a download attribute. */
+    private static String scanJs() {
+        String alt = extAlt;
+        String links = "document.querySelectorAll('a[download]').forEach(function(a){add(a.href)});";
+        if (alt != null && alt.length() > 0) {
+            links += "var re=new RegExp('\\\\.(" + alt + ")($|[?#&;])','i');"
+                   + "document.querySelectorAll('a[href]').forEach(function(a){var h=a.href;if(h&&re.test(h))add(h)});";
+        }
+        return SCAN_HEAD + links + SCAN_TAIL;
+    }
 
     private static final Runnable SCAN_LATER = new Runnable() {
         public void run() { scan(); }
@@ -93,6 +109,14 @@ public class BrowserHelper {
                 cm.setAcceptCookie(true);
                 cm.setAcceptThirdPartyCookies(web, true);
                 web.setWebViewClient(new Client());
+                // a download the page starts (a clicked link, an attachment) is reported to the list with the
+                // server's headers (type, name, size)
+                web.setDownloadListener(new DownloadListener() {
+                    public void onDownloadStart(String url, String userAgent, String contentDisposition,
+                                                String mimetype, long contentLength) {
+                        recordDownload(url, contentDisposition, mimetype, contentLength);
+                    }
+                });
                 web.setVisibility(View.GONE);
                 FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -208,11 +232,21 @@ public class BrowserHelper {
     }
 
     private static void record(String u, String src) {
-        if (u == null || u.startsWith("blob:") || u.startsWith("data:")) return;
+        add(u, src, null, null, -1, false);
+    }
+
+    private static void recordDownload(String u, String disp, String mime, long len) {
+        add(u, "download", mime, disp, len, true);
+    }
+
+    /** Remembers one link for poll(). A download event (force) is reported even when the link was seen before:
+     *  it carries the server's headers, and the list moves the file to the top. */
+    private static void add(String u, String src, String mime, String disp, long len, boolean force) {
+        if (u == null || !(u.startsWith("http://") || u.startsWith("https://"))) return;
         Uri p = Uri.parse(u);
         String key = (p.getHost() == null ? "" : p.getHost()) + (p.getPath() == null ? "" : p.getPath());
         synchronized (LOCK) {
-            if (!seen.add(key)) return;
+            if (!seen.add(key) && !force) return;
             try {
                 JSONObject o = new JSONObject();
                 o.put("url", u);
@@ -221,15 +255,35 @@ public class BrowserHelper {
                 o.put("ua", ua);
                 String c = CookieManager.getInstance().getCookie(u);
                 o.put("cookie", c == null ? "" : c);
+                o.put("mime", mime == null ? "" : mime);
+                o.put("disp", disp == null ? "" : disp);
+                o.put("len", len);
                 pending.add(o);
             } catch (Exception e) { }
         }
     }
 
+    /** The file types to report, as extensions without dots ("zip,pdf,mp4"): see core/browser_media.Rules.csv(). */
+    public static void setExtensions(String csv) {
+        StringBuilder alt = new StringBuilder();
+        if (csv != null) {
+            for (String s : csv.split(",")) {
+                s = s.trim().toLowerCase();
+                if (s.startsWith(".")) s = s.substring(1);
+                if (s.matches("[a-z0-9]{1,8}")) {
+                    if (alt.length() > 0) alt.append('|');
+                    alt.append(s);
+                }
+            }
+        }
+        extAlt = alt.toString();
+        extPattern = alt.length() == 0 ? null : Pattern.compile("(?i)\\.(" + alt + ")(?:$|[?#&;])");
+    }
+
     static void scan() {
         final WebView w = web;
         if (w == null) return;
-        w.evaluateJavascript(SCAN_JS, new ValueCallback<String>() {
+        w.evaluateJavascript(scanJs(), new ValueCallback<String>() {
             public void onReceiveValue(String value) {
                 try {
                     if (value == null || value.equals("null")) return;
@@ -242,7 +296,7 @@ public class BrowserHelper {
         });
     }
 
-    /** JSON: {epoch, page, title, tapped, can_back, items:[{url, src, referer, ua, cookie}]} - new items only. */
+    /** JSON: {epoch, page, title, tapped, can_back, items:[{url, src, referer, ua, cookie, mime, disp, len}]} - new items only. */
     public static String poll() {
         JSONObject out = new JSONObject();
         synchronized (LOCK) {
@@ -288,7 +342,8 @@ public class BrowserHelper {
         public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
             try {
                 String u = r.getUrl().toString();
-                if ("GET".equalsIgnoreCase(r.getMethod()) && MEDIA.matcher(u).find()) record(u, "net");
+                Pattern pt = extPattern;
+                if (pt != null && "GET".equalsIgnoreCase(r.getMethod()) && pt.matcher(u).find()) record(u, "net");
             } catch (Exception e) { }
             return null;
         }
