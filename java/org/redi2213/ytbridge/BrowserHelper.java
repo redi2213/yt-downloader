@@ -558,6 +558,31 @@ public class BrowserHelper {
         });
     }
 
+    /** Cookie export (core/browser_cookies.py): the cookies the WebView would send to each address (one per line):
+     *  {ua, page, queries:[{url, cookie}]}. HttpOnly cookies are included; CookieManager does not tell the domain,
+     *  path, expiry or flags of a cookie, so Python works the domain out from the addresses it asked about. */
+    public static String exportCookies(String urls) {
+        JSONObject out = new JSONObject();
+        try {
+            JSONArray arr = new JSONArray();
+            CookieManager cm = CookieManager.getInstance();
+            String[] list = urls == null ? new String[0] : urls.split("\n");
+            for (int i = 0; i < list.length && i < 40; i++) {
+                String u = list[i].trim();
+                if (!(u.startsWith("https://") || u.startsWith("http://"))) continue;
+                String c = cm.getCookie(u);
+                JSONObject o = new JSONObject();
+                o.put("url", u);
+                o.put("cookie", c == null ? "" : c);
+                arr.put(o);
+            }
+            out.put("ua", ua);
+            out.put("page", pageUrl);
+            out.put("queries", arr);
+        } catch (Exception e) { }
+        return out.toString();
+    }
+
     // ---- tabs: one WebView; the page state (history, scroll) of every other tab is kept as a small Bundle ----
     private static final java.util.Map<String, android.os.Bundle> tabStates =
         new java.util.HashMap<String, android.os.Bundle>();

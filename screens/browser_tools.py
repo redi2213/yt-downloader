@@ -137,6 +137,14 @@ def add_menu(nav, status):
     button("Clear this site's data", lambda b: open_confirm(nav, "site"))
     button("Clear data of all sites", lambda b: open_confirm(nav, "all"))
 
+    _title(nav, "Cookies and headers")
+    button("Export cookies", lambda b: _open_cookies(nav))
+
+
+def _open_cookies(nav):
+    from screens import browser_cookies         # a screen of its own (it imports this module)
+    browser_cookies.open_export(nav)
+
 
 # -- confirm before clearing cookies and site data --------------------------------------------------------------------
 def open_confirm(nav, scope):

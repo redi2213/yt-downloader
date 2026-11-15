@@ -16,7 +16,7 @@
   - history.py (Release History)، downloads.py (Downloads)، youtube_download.py، playlist.py
   - settings.py، appearance.py، app_update.py، follow.py، health.py، lab.py، plugin_host.py، arvan.py، storage.py، browser.py
   - actions_dynamic.py / actions_status.py (دکمه‌های Download Anything و وضعیت اجرا)
-- services/: منطق و ارتباط با GitHub (download_service، history_service، runs_service، playlist_service، follow_service، file_download_service، repo_update_service، health_service، arvan_service، ...)
+- services/: منطق و ارتباط با GitHub (download_service، history_service، runs_service، playlist_service، follow_service، file_download_service، repo_update_service، health_service، arvan_service، cookie_secret_service، ...)
 - api/: GitHub API و تنظیمات ذخیره‌شده
   - api/github/: client، releases (بزرگ)، workflows، logs، remote_config، repo_files، auth
   - *_prefs.py: تنظیمات کاربر (appearance، download_folder، storage، watched_folders، ntfy، ...)
@@ -40,7 +40,7 @@
 - منوی Download Anything/دکمه‌ها: config.json (شاخه config) + screens/actions_dynamic.py
 - Release History / حذف / انتخاب: screens/history.py + api/github/releases.py
 - Downloads (مدیر دانلود): screens/downloads.py + core/download_manager.py + services/file_download_service.py
-- مرورگر داخلی: screens/browser.py (UI، تنظیمات، فیلتر) + core/browser_media.py (قوانین نوع فایل و Session؛ بدون Build) + services/browser_service.py (probe هدرها) + screens/browser_pages.py (منو، تب‌ها، History، Bookmark) + core/browser_tabs.py (داده‌ی تب‌ها/History/Bookmark؛ بدون Build) + api/browser_prefs.py + core/android_browser.py + java/.../BrowserHelper.java (تغییر جاوا = Build؛ switchTab/forgetTab برای حفظ وضعیت صفحه‌ی تب‌ها) + tests/browser_tabs_test.py + core/browser_tools.py (ترجمه‌ی لینک با translate.goog؛ بدون Build) + screens/browser_tools.py (بخش Page tools منو، نوار Find، تأیید پاک‌سازی) + tests/browser_tools_test.py؛ BrowserHelper.java حالا Desktop view/Dark/Find/Block images-videos/Clear cache-data هم دارد (Build)
+- مرورگر داخلی: screens/browser.py (UI، تنظیمات، فیلتر) + core/browser_media.py (قوانین نوع فایل و Session؛ بدون Build) + services/browser_service.py (probe هدرها) + screens/browser_pages.py (منو، تب‌ها، History، Bookmark) + core/browser_tabs.py (داده‌ی تب‌ها/History/Bookmark؛ بدون Build) + api/browser_prefs.py + core/android_browser.py + java/.../BrowserHelper.java (تغییر جاوا = Build؛ switchTab/forgetTab برای حفظ وضعیت صفحه‌ی تب‌ها) + tests/browser_tabs_test.py + core/browser_tools.py (ترجمه‌ی لینک با translate.goog؛ بدون Build) + screens/browser_tools.py (بخش Page tools منو، نوار Find، تأیید پاک‌سازی) + tests/browser_tools_test.py + screens/browser_cookies.py (Export cookies: انتخاب دامنه، cookies.txt، هدرهای yt-dlp/curl، ارسال به Secret؛ بدون Build) + core/browser_cookies.py (منطق خالص کوکی/هدر) + services/cookie_secret_service.py (Secretهای YTDLP_COOKIES و COOKIES_TXT) + tests/browser_cookies_test.py؛ BrowserHelper.exportCookies (Build: خواندن کوکی از CookieManager)؛ BrowserHelper.java حالا Desktop view/Dark/Find/Block images-videos/Clear cache-data هم دارد (Build)
 - خطای workflow: .github/workflows/<n>.yml + scripts/<n>.py + core/error_help.py
 - Lab و Promote: شاخه lab → lab/promote.py، lab/lib/promote_*.py، lab/wf_import.py
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec

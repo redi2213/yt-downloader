@@ -916,3 +916,58 @@ for _en, _fa in {"Desktop view": "نمای دسکتاپ", "Dark mode": "حالت
 MORE_PATTERNS.extend([
     (r"Site: (.+)", "سایت: {0}"),
 ])
+
+
+# --- update 17: export cookies (screens/browser_cookies.py)
+_COOKIES_FA = {
+    "Cookies and headers": "کوکی\u200cها و هدرها", "Export cookies": "خروجی کوکی\u200cها",
+    "Cookies sign in as you: anyone who gets them can use your accounts. Choose only the domains you need. Nothing is sent anywhere without your confirmation.":
+        "کوکی\u200cها به\u200cجای تو وارد حساب می\u200cشوند: هر کسی که آن\u200cها را بگیرد می\u200cتواند از حساب\u200cهایت استفاده کند. فقط دامنه\u200cهایی را انتخاب کن که لازم داری. بدون تأیید تو چیزی به جایی فرستاده نمی\u200cشود.",
+    "Open a page first": "اول یک صفحه باز کن",
+    "Only the cookies sent with the files found on this page are available. All the cookies of the site need the latest app update (a new build).":
+        "فقط کوکی\u200cهایی در دسترس است که همراه فایل\u200cهای پیداشده\u200cی این صفحه فرستاده شده\u200cاند. برای همه\u200cی کوکی\u200cهای سایت به آخرین نسخه\u200cی برنامه (بیلد جدید) نیاز است.",
+    "No cookies were found for this site. Sign in on the page first, then try again.":
+        "برای این سایت کوکی\u200cای پیدا نشد. اول در صفحه وارد حساب شو، بعد دوباره امتحان کن.",
+    "Add another domain (for example google.com)": "افزودن دامنه\u200cی دیگر (مثلاً google.com)",
+    "Add domain": "افزودن دامنه", "Type a domain like google.com": "یک دامنه مثل google.com بنویس",
+    "Domain added": "دامنه اضافه شد", "No cookies were found for this domain": "برای این دامنه کوکی\u200cای پیدا نشد",
+    "Choose at least one domain": "حداقل یک دامنه را انتخاب کن", "Continue": "ادامه",
+    "Android WebView limits: HttpOnly cookies are included, but the expiry, path and Secure / HttpOnly flags of a cookie cannot be read, so cookies.txt keeps every cookie as a session cookie for the whole site (path /). Cookies set only for another path, or for a domain that is not listed here, are not available: use Add domain for sign-in domains (for example google.com).":
+        "محدودیت\u200cهای WebView اندروید: کوکی\u200cهای HttpOnly هم گرفته می\u200cشوند، اما تاریخ انقضا، مسیر و پرچم\u200cهای Secure و HttpOnly هر کوکی خوانده نمی\u200cشود؛ برای همین cookies.txt همه\u200cی کوکی\u200cها را به\u200cصورت کوکی نشست برای کل سایت (مسیر /) نگه می\u200cدارد. کوکی\u200cهایی که فقط برای مسیر دیگری یا برای دامنه\u200cای خارج از این فهرست ساخته شده\u200cاند در دسترس نیستند: برای دامنه\u200cهای ورود (مثلاً google.com) از «افزودن دامنه» استفاده کن.",
+    "Back to domains": "بازگشت به دامنه\u200cها", "Back to the cookies": "بازگشت به کوکی\u200cها",
+    "Cookies": "کوکی\u200cها", "Headers for yt-dlp and curl": "هدرها برای yt-dlp و curl",
+    "Copy cookies (Netscape format)": "کپی کوکی\u200cها (فرمت Netscape)", "Cookies copied": "کوکی\u200cها کپی شد",
+    "Save cookies.txt on the phone": "ذخیره\u200cی cookies.txt در گوشی", "Saving...": "در حال ذخیره...",
+    "Could not save the file": "ذخیره\u200cی فایل انجام نشد",
+    "This file signs in as you: delete it when you are done.": "این فایل به\u200cجای تو وارد حساب می\u200cشود: بعد از کارت پاکش کن.",
+    "Send to a GitHub secret": "ارسال به GitHub Secret",
+    "Copy yt-dlp options": "کپی گزینه\u200cهای yt-dlp", "Copy curl command (cookies.txt)": "کپی دستور curl (با cookies.txt)",
+    "Copy curl command (Cookie header)": "کپی دستور curl (با هدر Cookie)", "Copy Cookie header": "کپی هدر Cookie",
+    "Copy User-Agent": "کپی User-Agent", "Copy Referer": "کپی Referer", "Copied": "کپی شد",
+    "Nothing to copy": "چیزی برای کپی نیست",
+    "The Cookie header and the curl command with it hold the cookie values: share them with care.":
+        "هدر Cookie و دستور curl همراه آن مقدار کوکی\u200cها را دارند: با احتیاط به اشتراک بگذار.",
+    "The workflows read cookies from a GitHub secret of your repository. The secret is replaced by these cookies; what is saved now cannot be read back. Choose where they go:":
+        "workflowها کوکی را از یک Secret گیت\u200cهاب مخزن تو می\u200cخوانند. Secret با این کوکی\u200cها جایگزین می\u200cشود؛ آنچه الان ذخیره است قابل خواندن نیست. انتخاب کن کجا بروند:",
+    "Checking what is saved...": "در حال بررسی آنچه ذخیره شده...", "Saved now: none": "الان چیزی ذخیره نیست",
+    "Could not read what is saved.": "خواندن آنچه ذخیره شده انجام نشد.",
+    "Send cookies to GitHub?": "کوکی\u200cها به GitHub ارسال شود؟",
+    "Sent to GitHub encrypted; only your workflows can read them. This replaces the cookies saved in this secret now, and they cannot be read back.":
+        "رمزشده به GitHub فرستاده می\u200cشود؛ فقط workflowهای تو می\u200cتوانند آن را بخوانند. این کار کوکی\u200cهای فعلیِ این Secret را جایگزین می\u200cکند و قابل بازگرداندن نیست.",
+    "Yes, send to GitHub": "بله، به GitHub ارسال شود", "Cancel": "انصراف",
+    "Sending...": "در حال ارسال...", "Sent. The workflows will use these cookies.": "ارسال شد. workflowها از این کوکی\u200cها استفاده می\u200cکنند.",
+    "Could not send": "ارسال انجام نشد", "There are no cookies to save.": "کوکی\u200cای برای ذخیره نیست.",
+    "These cookies are too long for a GitHub secret. Choose fewer domains.": "این کوکی\u200cها برای یک GitHub Secret زیادی طولانی است. دامنه\u200cهای کمتری انتخاب کن.",
+    "Back to the menu": "بازگشت به منو", "Back to browser": "بازگشت به مرورگر",
+}
+for _en, _fa in _COOKIES_FA.items():
+    MORE_EXACT.setdefault(_en, _fa)
+MORE_PATTERNS.extend([
+    (r"(.+) \((\d+)\): ON", "{0} ({1}): روشن"),
+    (r"(.+) \((\d+)\): OFF", "{0} ({1}): خاموش"),
+    (r"Cookies: (\d+)", "کوکی\u200cها: {0}"),
+    (r"Domains: (.+)", "دامنه\u200cها: {0}"),
+    (r"Secret: (.+)", "Secret: {0}"),
+    (r"Saved now: (.+)", "الان ذخیره است: {0}"),
+    (r"Saved: (.+)", "ذخیره شد: {0}"),
+])

@@ -202,6 +202,26 @@ class Browser:
     def clear_all_site(self):
         return self._call("clearAllSiteData")
 
+    # -- cookie export (screens/browser_cookies.py): native too, an older APK answers "not ready" / None.
+    def cookies_ready(self):
+        if not self._created:
+            return False
+        try:
+            getattr(self._helper(), "exportCookies")
+            return True
+        except Exception:
+            return False
+
+    def export_cookies(self, urls):
+        """What the WebView would send to each address of ``urls``: {ua, page, queries: [{url, cookie}]}, or None
+        (not created / an older APK / any failure). The values go to core/browser_cookies.py only."""
+        if not self._created:
+            return None
+        try:
+            return json.loads(str(self._helper().exportCookies("\n".join(urls))))
+        except Exception:
+            return None
+
     def can_back(self):
         try:
             return bool(self._created and self._helper().canBack())
