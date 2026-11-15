@@ -877,3 +877,42 @@ MORE_PATTERNS.extend([
     (r"(\d+) of (\d+) pages?", "{0} از {1} صفحه"),
     (r"(\d+) of (\d+) bookmarks?", "{0} از {1} نشانک"),
 ])
+
+
+# --- update 16: browser page tools (screens/browser_tools.py)
+_TOOLS_FA = {
+    "Page tools": "ابزارهای صفحه", "Data saving": "صرفه\u200cجویی در اینترنت", "Clean up": "پاک\u200cسازی",
+    "Some page tools need the latest app update (a new build).":
+        "بعضی ابزارها به آخرین نسخه\u200cی برنامه (بیلد جدید) نیاز دارند.",
+    "Needs the latest app update": "به آخرین نسخه\u200cی برنامه (بیلد جدید) نیاز دارد",
+    "Translate page (Persian)": "ترجمه\u200cی صفحه (فارسی)", "Show original page": "نمایش صفحه\u200cی اصلی",
+    "Translate opens the page through Google Translate: it needs Google to be reachable, and pages that need a sign-in may not work.":
+        "ترجمه، صفحه را از طریق Google Translate باز می\u200cکند: به در دسترس بودن گوگل نیاز دارد و صفحه\u200cهایی که ورود لازم دارند ممکن است کار نکنند.",
+    "This page cannot be translated": "این صفحه قابل ترجمه نیست",
+    "Find in page": "جست\u200cوجو در صفحه", "Done": "تمام",
+    "Desktop view on for this tab": "نمای دسکتاپ برای این تب روشن شد",
+    "Desktop view off for this tab": "نمای دسکتاپ برای این تب خاموش شد",
+    "Dark mode on": "حالت تاریک روشن شد", "Dark mode off": "حالت تاریک خاموش شد",
+    "Images are blocked now; the page reloads": "تصاویر مسدود شد؛ صفحه دوباره بارگذاری می\u200cشود",
+    "Images are loaded again; the page reloads": "تصاویر دوباره بارگذاری می\u200cشوند؛ صفحه دوباره بارگذاری می\u200cشود",
+    "Videos are blocked now; the page reloads": "ویدیوها مسدود شد؛ صفحه دوباره بارگذاری می\u200cشود",
+    "Videos are loaded again; the page reloads": "ویدیوها دوباره بارگذاری می\u200cشوند؛ صفحه دوباره بارگذاری می\u200cشود",
+    "Clear cache": "پاک\u200cکردن کش", "Cache cleared": "کش پاک شد",
+    "Clear this site's data": "پاک\u200cکردن اطلاعات این سایت",
+    "Clear data of all sites": "پاک\u200cکردن اطلاعات همه\u200cی سایت\u200cها",
+    "Cookies and saved data (sign-in, preferences) of this site are deleted. You will be signed out of it.":
+        "کوکی\u200cها و داده\u200cهای ذخیره\u200cشده (ورود، تنظیمات) این سایت پاک می\u200cشود. از این سایت خارج می\u200cشوی.",
+    "Cookies and saved data of ALL sites are deleted. You will be signed out of every site.":
+        "کوکی\u200cها و داده\u200cهای ذخیره\u200cشده\u200cی همه\u200cی سایت\u200cها پاک می\u200cشود. از همه\u200cی سایت\u200cها خارج می\u200cشوی.",
+    "Yes, clear": "بله، پاک شود", "Cancel": "انصراف",
+    "Done. The page reloads.": "انجام شد. صفحه دوباره بارگذاری می\u200cشود.",
+}
+for _en, _fa in _TOOLS_FA.items():
+    MORE_EXACT.setdefault(_en, _fa)
+for _en, _fa in {"Desktop view": "نمای دسکتاپ", "Dark mode": "حالت تاریک", "Images disabled": "تصاویر غیرفعال",
+                 "Videos disabled": "ویدیوها غیرفعال"}.items():
+    MORE_EXACT[f"{_en}: ON"] = f"{_fa}: روشن"
+    MORE_EXACT[f"{_en}: OFF"] = f"{_fa}: خاموش"
+MORE_PATTERNS.extend([
+    (r"Site: (.+)", "سایت: {0}"),
+])

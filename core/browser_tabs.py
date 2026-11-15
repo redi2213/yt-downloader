@@ -71,8 +71,10 @@ class Tabs:
                 continue
             seen.add(str(t["id"]))
             url = _clip(t.get("url"), _MAX_URL)
-            self.tabs.append({"id": str(t["id"]), "url": url if is_web(url) else "",
-                              "title": _clip(t.get("title"), _MAX_TITLE)})
+            tab = {"id": str(t["id"]), "url": url if is_web(url) else "", "title": _clip(t.get("title"), _MAX_TITLE)}
+            if t.get("desktop"):
+                tab["desktop"] = True       # the tab shows the desktop version of sites
+            self.tabs.append(tab)
         if not self.tabs:
             self.tabs.append(self._blank())
         ids = [t["id"] for t in self.tabs]
@@ -102,6 +104,23 @@ class Tabs:
 
     def current(self):
         return self.find(self.active)
+
+    def is_desktop(self, tab_id):
+        tab = self.find(tab_id)
+        return bool(tab and tab.get("desktop"))
+
+    def set_desktop(self, tab_id, on):
+        """Desktop view of one tab (kept with the tab, so it stays after the app is closed)."""
+        tab = self.find(tab_id)
+        if tab is None:
+            return False
+        if bool(tab.get("desktop")) != bool(on):
+            if on:
+                tab["desktop"] = True
+            else:
+                tab.pop("desktop", None)
+            self.dirty = True
+        return True
 
     def count(self):
         return len(self.tabs)

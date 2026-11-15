@@ -50,6 +50,29 @@ def save_rules(rules):
         pass
 
 
+TOOL_FLAGS = ("dark", "no_images", "no_videos")
+
+
+def load_tools():
+    """The saved page-tool choices {"dark", "no_images", "no_videos"} (all off when nothing was saved yet)."""
+    out = {}
+    for name in TOOL_FLAGS:
+        try:
+            out[name] = browser_prefs.get_flag(name)
+        except Exception:
+            out[name] = False
+    return out
+
+
+def save_tool(name, on):
+    if name not in TOOL_FLAGS:
+        return
+    try:
+        browser_prefs.set_flag(name, on)
+    except Exception:
+        pass
+
+
 def start_probe(session, on_update=None):
     """Looks up the size of the next files (and the qualities of HLS master playlists) not looked at yet."""
     if session.probing:

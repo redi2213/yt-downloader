@@ -60,3 +60,14 @@ def get_data(name):
 
 def set_data(name, value) -> None:
     _settings_store.put("browser_" + name, data=value)
+
+
+def get_flag(name) -> bool:
+    """A saved on/off choice of the page tools ("dark", "no_images", "no_videos"); off when never chosen."""
+    return bool(_load().get("flag_" + str(name)))
+
+
+def set_flag(name, on) -> None:
+    data = _load()
+    data["flag_" + str(name)] = bool(on)
+    _settings_store.put(_KEY, **data)

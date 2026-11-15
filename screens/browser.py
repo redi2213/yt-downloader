@@ -16,7 +16,7 @@ from kivy.uix.widget import Widget
 from core import android_actions, android_browser, browser_media as bm
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, PAD, back_button, card_box, content_width,
                             fa_font_kwargs, fa_text, paint_card, wrapped_label, wrapped_label_height)
-from screens import browser_pages
+from screens import browser_pages, browser_tools
 from services import browser_service
 
 START_PAGE = "https://www.google.com"
@@ -94,6 +94,23 @@ def build(nav, url=None):
     place()
     Clock.schedule_once(place, 0.2)
     Clock.schedule_once(place, 0.8)
+    browser_tools.apply_saved(br, state, tab_id)    # dark mode, blocking and this tab's desktop view reach the helper first
+
+    def relayout(on):
+        # the Find row makes the bar one row taller; the WebView moves down with it
+        if on and find.row.parent is None:
+            bar.add_widget(find.row)
+            bar.height = 3 * BTN_H + 2 * GAP
+        elif not on and find.row.parent is bar:
+            bar.remove_widget(find.row)
+            bar.height = 2 * BTN_H + GAP
+        Clock.schedule_once(place, 0.1)
+        Clock.schedule_once(place, 0.5)
+
+    find = browser_tools.FindBar(nav, br, relayout)
+    wanted = getattr(nav, "browser_find", None) or {}
+    if wanted.get("on"):
+        find.show(wanted.get("q", ""))      # from the menu's "Find in page", or back from another screen
     if br.tab_id != tab_id or not br.started:
         # another tab (or the first start): the helper keeps the page of the tab we leave and shows this one
         br.switch_tab(br.tab_id, tab_id, url or tab.get("url") or START_PAGE)
@@ -119,6 +136,7 @@ def build(nav, url=None):
         if not data:
             return
         sess.merge(data)
+        find.update(data)
         state.page_seen(tab_id, sess.page, sess.title)
         if sess.notice and not data.get("tapped"):
             nav.show_browser_list()         # a download started on the page: its file is in the list now

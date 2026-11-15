@@ -14,6 +14,7 @@ import android.webkit.ValueCallback;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
@@ -23,9 +24,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
+import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -52,6 +56,14 @@ public class BrowserHelper {
     private static volatile boolean badgeTapped = false;
     private static volatile boolean canBack = false;
     private static String ua = "";
+    private static String baseUa = "";
+    private static String desktopUa = "";
+    private static volatile boolean desktop = false;
+    private static volatile boolean darkOn = false;
+    private static volatile boolean noImages = false;
+    private static volatile boolean noVideos = false;
+    private static volatile int findIdx = 0;
+    private static volatile int findCount = 0;
 
     // The extensions to report. Python tells the list (setExtensions: the file types switched on in Browser
     // settings); until then only video and audio, as before.
@@ -105,10 +117,18 @@ public class BrowserHelper {
                 // a "wv" WebView user agent is refused by some sites (Google, YouTube)
                 ua = s.getUserAgentString().replace("; wv", "");
                 s.setUserAgentString(ua);
+                baseUa = ua;
+                desktopUa = makeDesktopUa(ua);
                 CookieManager cm = CookieManager.getInstance();
                 cm.setAcceptCookie(true);
                 cm.setAcceptThirdPartyCookies(web, true);
                 web.setWebViewClient(new Client());
+                web.setFindListener(new WebView.FindListener() {
+                    public void onFindResultReceived(int active, int total, boolean done) {
+                        findCount = total;
+                        findIdx = total > 0 ? active + 1 : 0;
+                    }
+                });
                 // a download the page starts (a clicked link, an attachment) is reported to the list with the
                 // server's headers (type, name, size)
                 web.setDownloadListener(new DownloadListener() {
@@ -309,11 +329,233 @@ public class BrowserHelper {
                 out.put("title", pageTitle);
                 out.put("tapped", badgeTapped);
                 out.put("can_back", canBack);
+                out.put("find_idx", findIdx);
+                out.put("find_n", findCount);
                 out.put("items", arr);
             } catch (Exception e) { }
             badgeTapped = false;
         }
         return out.toString();
+    }
+
+    // ---- page tools: desktop view, dark mode, find, blocking images / videos, cleaning ------------------
+    private static final String DARK_ON =
+        "(function(){try{var d=document;if(d.getElementById('ytb-dark'))return;var s=d.createElement('style');s.id='ytb-dark';"
+      + "s.textContent='html{background:#fff!important;filter:invert(1) hue-rotate(180deg)!important}"
+      + "img,video,canvas,iframe{filter:invert(1) hue-rotate(180deg)!important}';"
+      + "(d.head||d.documentElement).appendChild(s)}catch(e){}})()";
+    private static final String DARK_OFF =
+        "(function(){try{var s=document.getElementById('ytb-dark');if(s)s.remove()}catch(e){}})()";
+    private static final String DESKTOP_JS =
+        "(function(){try{var m=document.querySelector('meta[name=viewport]');"
+      + "if(!m){m=document.createElement('meta');m.name='viewport';(document.head||document.documentElement).appendChild(m)}"
+      + "m.setAttribute('content','width=1280')}catch(e){}})()";
+    private static final String NOVIDEO_JS =
+        "(function(){try{function k(v){try{v.autoplay=false;v.removeAttribute('autoplay');v.preload='none';if(!v.paused)v.pause()}catch(e){}}"
+      + "function all(){document.querySelectorAll('video').forEach(k)}all();"
+      + "if(!window.__ytbNoVid){window.__ytbNoVid=true;"
+      + "document.addEventListener('play',function(e){var t=e.target;if(t&&t.tagName==='VIDEO')t.pause()},true);"
+      + "new MutationObserver(all).observe(document.documentElement,{childList:true,subtree:true})}}catch(e){}})()";
+    private static final String CLEAR_STORAGE_JS =
+        "(function(){try{localStorage.clear()}catch(e){}try{sessionStorage.clear()}catch(e){}"
+      + "try{if(indexedDB.databases)indexedDB.databases().then(function(l){l.forEach(function(d){indexedDB.deleteDatabase(d.name)})})}catch(e){}"
+      + "try{if(window.caches)caches.keys().then(function(k){k.forEach(function(n){caches.delete(n)})})}catch(e){}})()";
+
+    private static String makeDesktopUa(String phone) {
+        return phone.replaceAll("\\(Linux; Android[^)]*\\)", "(X11; Linux x86_64)")
+                    .replace(" Version/4.0", "").replace(" Mobile Safari", " Safari");
+    }
+
+    /** Desktop version of sites: desktop user agent + a wide viewport (set again after the page loads). */
+    public static void setDesktop(final boolean on, final boolean doReload) {
+        ui(new Runnable() {
+            public void run() {
+                if (web == null) return;
+                boolean changed = desktop != on;
+                desktop = on;
+                ua = on ? desktopUa : baseUa;
+                WebSettings s = web.getSettings();
+                s.setUserAgentString(ua);
+                s.setUseWideViewPort(true);
+                s.setLoadWithOverviewMode(true);
+                if (changed && doReload) web.reload();
+            }
+        });
+    }
+
+    /** Dark pages: the page is inverted by CSS (images, video and frames are inverted back). Works on any Android version. */
+    public static void setDark(final boolean on) {
+        darkOn = on;
+        ui(new Runnable() {
+            public void run() {
+                if (web != null) web.evaluateJavascript(on ? DARK_ON : DARK_OFF, null);
+            }
+        });
+    }
+
+    /** Images / videos are not requested at all (see shouldInterceptRequest); the page should be loaded again. */
+    public static void setBlock(final boolean images, final boolean videos) {
+        noImages = images;
+        noVideos = videos;
+        ui(new Runnable() {
+            public void run() {
+                if (web == null) return;
+                WebSettings s = web.getSettings();
+                s.setBlockNetworkImage(images);
+                if (videos) s.setMediaPlaybackRequiresUserGesture(true);
+            }
+        });
+    }
+
+    static void applyPageTools(WebView v) {
+        if (darkOn) v.evaluateJavascript(DARK_ON, null);
+        if (desktop) v.evaluateJavascript(DESKTOP_JS, null);
+        if (noVideos) v.evaluateJavascript(NOVIDEO_JS, null);
+    }
+
+    private static WebResourceResponse blockedResponse() {
+        return new WebResourceResponse("text/plain", "utf-8", 204, "No Content",
+            new HashMap<String, String>(), new ByteArrayInputStream(new byte[0]));
+    }
+
+    private static boolean isImageRequest(WebResourceRequest r, String u) {
+        if (r.isForMainFrame()) return false;
+        Map<String, String> h = r.getRequestHeaders();
+        String a = h == null ? null : h.get("Accept");
+        if (a != null && a.startsWith("image/")) return true;
+        String p = Uri.parse(u).getPath();
+        return p != null && p.toLowerCase().matches(".*\\.(jpe?g|png|gif|webp|avif|bmp|ico)$");
+    }
+
+    private static boolean isVideoRequest(WebResourceRequest r, String u) {
+        if (r.isForMainFrame()) return false;
+        Uri p = Uri.parse(u);
+        String path = p.getPath() == null ? "" : p.getPath().toLowerCase();
+        if (path.matches(".*\\.(mp4|m4v|webm|mkv|mov|avi|flv|3gp|m3u8|mpd|m4s)$")) return true;
+        if (path.contains("/videoplayback")) return true;
+        String q = p.getQuery();
+        return q != null && q.contains("mime=video");
+    }
+
+    // find in page: the counter goes to Python with poll()
+    public static void find(final String q) {
+        ui(new Runnable() {
+            public void run() {
+                if (web == null) return;
+                if (q == null || q.trim().length() == 0) {
+                    web.clearMatches();
+                    findIdx = 0;
+                    findCount = 0;
+                } else {
+                    web.findAllAsync(q.trim());
+                }
+            }
+        });
+    }
+
+    public static void findNext(final boolean forward) {
+        ui(new Runnable() { public void run() { if (web != null) web.findNext(forward); } });
+    }
+
+    public static void clearFind() {
+        ui(new Runnable() {
+            public void run() {
+                if (web != null) web.clearMatches();
+                findIdx = 0;
+                findCount = 0;
+            }
+        });
+    }
+
+    public static void clearCache() {
+        ui(new Runnable() { public void run() { if (web != null) web.clearCache(true); } });
+    }
+
+    /** All cookies and saved site data (local storage...) of every site; the page loads again. */
+    public static void clearAllSiteData() {
+        ui(new Runnable() {
+            public void run() {
+                CookieManager cm = CookieManager.getInstance();
+                cm.removeAllCookies(null);
+                cm.flush();
+                WebStorage.getInstance().deleteAllData();
+                if (web != null) {
+                    web.clearFormData();
+                    web.reload();
+                }
+            }
+        });
+    }
+
+    /** Cookies of one site (its host and parent domains, any path of the page address) and, when that site is the
+     *  page shown, its local storage / IndexedDB / cache storage; the page loads again. */
+    public static void clearSiteData(final String url) {
+        ui(new Runnable() {
+            public void run() {
+                Uri u = Uri.parse(url == null ? "" : url);
+                String host = u.getHost();
+                if (host == null || host.length() == 0) return;
+                CookieManager cm = CookieManager.getInstance();
+                List<String> domains = new ArrayList<String>();
+                String d = host;
+                domains.add(d);
+                if (!host.matches("[0-9.]+")) {
+                    while (true) {
+                        int dot = d.indexOf('.');
+                        if (dot < 0) break;
+                        String rest = d.substring(dot + 1);
+                        if (rest.indexOf('.') < 0) break;      // never the bare suffix (com)
+                        d = rest;
+                        domains.add(d);
+                    }
+                }
+                Set<String> names = new HashSet<String>();
+                List<String> asked = new ArrayList<String>();
+                asked.add(url);
+                for (String dm : domains) {
+                    asked.add("https://" + dm + "/");
+                    asked.add("http://" + dm + "/");
+                }
+                for (String a : asked) {
+                    String cs = cm.getCookie(a);
+                    if (cs == null) continue;
+                    for (String part : cs.split(";")) {
+                        int eq = part.indexOf('=');
+                        String n = (eq < 0 ? part : part.substring(0, eq)).trim();
+                        if (n.length() > 0) names.add(n);
+                    }
+                }
+                List<String> paths = new ArrayList<String>();
+                paths.add("/");
+                String path = u.getPath();
+                if (path != null) {
+                    StringBuilder sb = new StringBuilder();
+                    for (String seg : path.split("/")) {
+                        if (seg.length() == 0) continue;
+                        sb.append('/').append(seg);
+                        paths.add(sb.toString());
+                    }
+                }
+                String exp = "=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Path=";
+                for (String n : names) {
+                    for (String pa : paths) {
+                        String base = n + exp + pa;
+                        cm.setCookie("https://" + host + "/", base);
+                        cm.setCookie("https://" + host + "/", base + "; Secure");
+                        cm.setCookie("http://" + host + "/", base);
+                        for (String dm : domains) cm.setCookie("https://" + host + "/", base + "; Domain=" + dm);
+                    }
+                }
+                cm.flush();
+                if (web == null) return;
+                String cur = web.getUrl();
+                String curHost = cur == null ? null : Uri.parse(cur).getHost();
+                if (host.equals(curHost)) web.evaluateJavascript(CLEAR_STORAGE_JS, null);
+                web.postDelayed(new Runnable() {
+                    public void run() { if (web != null) web.reload(); }
+                }, 500);
+            }
+        });
     }
 
     // ---- tabs: one WebView; the page state (history, scroll) of every other tab is kept as a small Bundle ----
@@ -365,10 +607,17 @@ public class BrowserHelper {
         public void onPageStarted(WebView v, String url, Bitmap favicon) {
             newPage(url);
             canBack = v.canGoBack();
+            if (darkOn) v.evaluateJavascript(DARK_ON, null);
+        }
+
+        @Override
+        public void onPageCommitVisible(WebView v, String url) {
+            applyPageTools(v);
         }
 
         @Override
         public void onPageFinished(WebView v, String url) {
+            applyPageTools(v);
             String t = v.getTitle();
             pageTitle = t == null ? "" : t;
             if (clearPending) {
@@ -392,6 +641,8 @@ public class BrowserHelper {
                 String u = r.getUrl().toString();
                 Pattern pt = extPattern;
                 if (pt != null && "GET".equalsIgnoreCase(r.getMethod()) && pt.matcher(u).find()) record(u, "net");
+                if (noVideos && isVideoRequest(r, u)) return blockedResponse();      // seen above, so still listed
+                if (noImages && isImageRequest(r, u)) return blockedResponse();
             } catch (Exception e) { }
             return null;
         }

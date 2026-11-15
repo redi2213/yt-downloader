@@ -40,7 +40,7 @@
 - منوی Download Anything/دکمه‌ها: config.json (شاخه config) + screens/actions_dynamic.py
 - Release History / حذف / انتخاب: screens/history.py + api/github/releases.py
 - Downloads (مدیر دانلود): screens/downloads.py + core/download_manager.py + services/file_download_service.py
-- مرورگر داخلی: screens/browser.py (UI، تنظیمات، فیلتر) + core/browser_media.py (قوانین نوع فایل و Session؛ بدون Build) + services/browser_service.py (probe هدرها) + screens/browser_pages.py (منو، تب‌ها، History، Bookmark) + core/browser_tabs.py (داده‌ی تب‌ها/History/Bookmark؛ بدون Build) + api/browser_prefs.py + core/android_browser.py + java/.../BrowserHelper.java (تغییر جاوا = Build؛ switchTab/forgetTab برای حفظ وضعیت صفحه‌ی تب‌ها) + tests/browser_tabs_test.py
+- مرورگر داخلی: screens/browser.py (UI، تنظیمات، فیلتر) + core/browser_media.py (قوانین نوع فایل و Session؛ بدون Build) + services/browser_service.py (probe هدرها) + screens/browser_pages.py (منو، تب‌ها، History، Bookmark) + core/browser_tabs.py (داده‌ی تب‌ها/History/Bookmark؛ بدون Build) + api/browser_prefs.py + core/android_browser.py + java/.../BrowserHelper.java (تغییر جاوا = Build؛ switchTab/forgetTab برای حفظ وضعیت صفحه‌ی تب‌ها) + tests/browser_tabs_test.py + core/browser_tools.py (ترجمه‌ی لینک با translate.goog؛ بدون Build) + screens/browser_tools.py (بخش Page tools منو، نوار Find، تأیید پاک‌سازی) + tests/browser_tools_test.py؛ BrowserHelper.java حالا Desktop view/Dark/Find/Block images-videos/Clear cache-data هم دارد (Build)
 - خطای workflow: .github/workflows/<n>.yml + scripts/<n>.py + core/error_help.py
 - Lab و Promote: شاخه lab → lab/promote.py، lab/lib/promote_*.py، lab/wf_import.py
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec

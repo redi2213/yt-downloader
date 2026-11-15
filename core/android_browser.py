@@ -31,6 +31,8 @@ class Browser:
         self._exts = None           # the extensions the helper was last told to report
         self.tab_id = ""            # the tab whose page the WebView shows now
         self._guard = None          # (epoch, url, until): after a tab switch on an APK without switchTab()
+        self._sent = {}             # page-tool values the helper already has (sent again only when they change)
+        self._native = None
 
     def _helper(self):
         if self._h is None:
@@ -138,6 +140,67 @@ class Browser:
             self._helper().forgetTab(str(tab_id or ""))
         except Exception:
             pass            # an APK built before tabs existed has nothing saved
+
+    # -- page tools (Desktop view, Dark mode, Find, blocking, cleaning): native, so an APK built before they existed
+    #    has none of them; every call then returns False and the screen says a new build is needed.
+    def native_ready(self):
+        if self._native is None:
+            try:
+                getattr(self._helper(), "setDark")
+                self._native = True
+            except Exception:
+                self._native = False
+        return self._native
+
+    def _call(self, name, *args):
+        if not self._created:
+            return False
+        try:
+            getattr(self._helper(), name)(*args)
+            return True
+        except Exception:
+            return False
+
+    def _push(self, key, value, name, *args):
+        if self._sent.get(key) == value:
+            return True
+        ok = self._call(name, *args)
+        if ok:
+            self._sent[key] = value
+        return ok
+
+    def set_desktop(self, on, reload=False):
+        """Desktop version of sites (user agent + wide viewport); ``reload`` loads the page again to show it."""
+        on = bool(on)
+        return self._push("desktop", on, "setDesktop", on, bool(reload))
+
+    def set_dark(self, on):
+        on = bool(on)
+        return self._push("dark", on, "setDark", on)
+
+    def set_block(self, images, videos):
+        """Images / videos are not loaded at all (no network request for them), not only hidden."""
+        images, videos = bool(images), bool(videos)
+        return self._push("block", (images, videos), "setBlock", images, videos)
+
+    def find(self, text):
+        return self._call("find", str(text or ""))
+
+    def find_next(self, forward=True):
+        return self._call("findNext", bool(forward))
+
+    def clear_find(self):
+        return self._call("clearFind")
+
+    def clear_cache(self):
+        return self._call("clearCache")
+
+    def clear_site(self, url):
+        """Cookies and saved data of the site of ``url``; the page loads again."""
+        return self._call("clearSiteData", str(url or ""))
+
+    def clear_all_site(self):
+        return self._call("clearAllSiteData")
 
     def can_back(self):
         try:

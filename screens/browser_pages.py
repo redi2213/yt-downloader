@@ -85,7 +85,7 @@ def open_menu(nav):
 
 
 def build_menu(nav):
-    from screens import browser
+    from screens import browser, browser_tools
     nav.clear()
     st = browser_service.state()
     tab = st.tabs.current()
@@ -125,6 +125,7 @@ def build_menu(nav):
     nav.add(_button("Bookmarks", lambda: open_bookmarks(nav)))
     nav.add(_button("History", lambda: open_history(nav)))
     nav.add(_button("Browser settings", lambda: browser.open_settings(nav, nav.show_browser, "Back to browser")))
+    browser_tools.add_menu(nav, status)         # Desktop view, Dark mode, Translate, Find, Reload, data saving, clean up
     nav.add(_button("Back to browser", nav.show_browser))
 
 
