@@ -60,6 +60,11 @@ class Navigator(ArvanController):
         self.browser_session = Session()
         self.browser_list_token = None
         self.back_hook = None
+        try:        # waiting (Adding / Scheduler) downloads come back and the scheduler starts watching the clock
+            from core import download_manager
+            download_manager.ensure_scheduler()
+        except Exception:
+            pass
 
     # -- low level content/status plumbing (delegates to the Kivy App) ----
     def clear(self):

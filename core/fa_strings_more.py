@@ -993,3 +993,59 @@ _RUNMODE_FA = {
 }
 for _en, _fa in _RUNMODE_FA.items():
     MORE_EXACT.setdefault(_en, _fa)
+
+
+# --- update: Downloads tabs (Adding / Error / Scheduler), add-to-list and the download scheduler
+_SCHED_FA = {
+    "Adding": "افزوده\u200cشده",
+    "Error": "خطا",
+    "Scheduler": "زمان\u200cبندی",
+    "Added - waiting for you to start it": "اضافه شد - منتظر شروع تو است",
+    "Paused until the next start time": "متوقف تا ساعت شروع بعدی",
+    "Scheduled - the scheduler is OFF": "زمان\u200cبندی\u200cشده - زمان\u200cبند خاموش است",
+    "Start now": "شروع همین الان",
+    "Stop now": "توقف همین الان",
+    "Add to scheduler": "افزودن به زمان\u200cبندی",
+    "Back to Adding": "بازگشت به افزوده\u200cشده\u200cها",
+    "Scheduler: ON": "زمان\u200cبند: روشن",
+    "Scheduler: OFF": "زمان\u200cبند: خاموش",
+    "Stop time: not set": "ساعت پایان: تعیین نشده",
+    "Scheduler is off": "زمان\u200cبند خاموش است",
+    "Inside the time window - scheduled files run": "داخل بازه\u200cی زمانی - فایل\u200cهای زمان\u200cبندی\u200cشده اجرا می\u200cشوند",
+    "Outside the time window - waiting for the start time": "خارج از بازه\u200cی زمانی - منتظر ساعت شروع",
+    "The time is the phone's clock. Scheduled files run between the start and stop time every day, while the app is open.":
+        "ساعت، ساعت گوشی است. فایل\u200cهای زمان\u200cبندی\u200cشده هر روز بین ساعت شروع و پایان اجرا می\u200cشوند، تا وقتی برنامه باز است.",
+    "Start time": "ساعت شروع",
+    "Stop time": "ساعت پایان",
+    "No stop time": "بدون ساعت پایان",
+    "Save": "ذخیره",
+    "Cancel": "انصراف",
+    "Type the hour and the minutes": "ساعت و دقیقه را بنویس",
+    "Hour 0-23, minutes 0-59": "ساعت ۰ تا ۲۳، دقیقه ۰ تا ۵۹",
+    "Scheduled files started": "فایل\u200cهای زمان\u200cبندی\u200cشده شروع شدند",
+    "Scheduled downloads paused": "دانلودهای زمان\u200cبندی\u200cشده متوقف شدند",
+    "Add to the list (don't start)": "افزودن به فهرست (شروع نشود)",
+    "Add to the scheduler": "افزودن به زمان\u200cبندی",
+    "These files need GitHub - use Download in the app": "این فایل\u200cها باید از GitHub بروند - «دانلود در برنامه» را بزن",
+    "Update the app to use this": "برای استفاده از این، برنامه را به\u200cروز کن",
+}
+for _en, _fa in _SCHED_FA.items():
+    MORE_EXACT.setdefault(_en, _fa)
+    MORE_EXACT.setdefault("\u25cf " + _en, "\u25cf " + _fa)
+_TAB_FA = {"All": "همه", "Downloading": "در حال دانلود", "Adding": "افزوده\u200cشده", "Finished": "تمام\u200cشده",
+           "Error": "خطا", "Scheduler": "زمان\u200cبندی"}
+for _en, _fa in _TAB_FA.items():
+    MORE_PATTERNS.append((_en + r" \((\d+)\)", _fa + " ({0})"))
+    MORE_PATTERNS.append(("\u25cf " + _en + r" \((\d+)\)", "\u25cf " + _fa + " ({0})"))
+MORE_PATTERNS.extend([
+    (r"Scheduled - starts at (.+)", "زمان\u200cبندی\u200cشده - شروع در ساعت {0}"),
+    (r"Start time: (.+)", "ساعت شروع: {0}"),
+    (r"Stop time: (.+)", "ساعت پایان: {0}"),
+    (r"Phone time: (.+)", "ساعت گوشی: {0}"),
+    (r"Started (\d+) file\(s\)", "{0} فایل شروع شد"),
+    (r"Added (\d+) file\(s\) to the scheduler", "{0} فایل به زمان\u200cبندی اضافه شد"),
+    (r"Moved (\d+) file\(s\) back to Adding", "{0} فایل به افزوده\u200cشده\u200cها برگشت"),
+    (r"Removed (\d+) waiting file\(s\)", "{0} فایل منتظر حذف شد"),
+    (r"(\d+) file\(s\) added to the scheduler", "{0} فایل به زمان\u200cبندی اضافه شد"),
+    (r"(\d+) file\(s\) added to the list", "{0} فایل به فهرست اضافه شد"),
+])

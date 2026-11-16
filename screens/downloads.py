@@ -1,9 +1,12 @@
-"""Downloads: one compact list like 1DM+ - tabs (All / Downloading / Finished / Failed), one small
+"""Downloads: one compact list like 1DM+ - tabs (All / Downloading / Adding / Finished / Error / Scheduler), one small
 row per file with a "..." menu, tap = select, hold = menu, group delete.
 
 Live part: what "Download in app" is saving now (Pause / Resume / Stop), updated in place once a
 second (core/download_manager.py). Finished part: the files saved on the phone (Open / Share /
 Delete). Deleting asks first and can remove the real file from the phone or only the list entry.
+
+Files can also be only added (Adding tab: tap to select, then Start now / Add to scheduler) or scheduled
+(Scheduler tab: a daily start / stop time by the phone's clock, core/download_manager.py).
 
 The "+ Add link" panel takes one or more direct links (one per line); every link goes through the
 same download manager (segments, Pause / Resume / Stop).
@@ -19,8 +22,8 @@ from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.textinput import TextInput
 
-from api import downloads_history, release_delete_prefs
-from core import (android_downloads, android_open, download_manager as dm, file_types, phone_files,
+from api import download_queue_prefs, downloads_history, release_delete_prefs
+from core import (android_downloads, android_open, download_manager as dm, download_schedule, file_types, phone_files,
                   release_links, segmented_download)
 from core.async_utils import run_in_background
 from core.links import split_links
@@ -34,7 +37,7 @@ _FAILED = (0.30, 0.12, 0.12, 1)
 _BUSY = (0.45, 0.12, 0.12, 1)
 PAGE = 30
 ROW_H = dp(62)
-TABS = ("All", "Downloading", "Finished", "Failed")
+TABS = ("All", "Downloading", "Adding", "Finished", "Error", "Scheduler")
 _state = {"kind": "All", "query": "", "shown": PAGE, "link": "", "tab": "All", "link_open": False}
 
 _CD_NAME = re.compile(r"filename\*\s*=\s*[^']*''([^;]+)|filename\s*=\s*\"?([^\";]+)\"?", re.IGNORECASE)
@@ -77,14 +80,31 @@ def _task_in_tab(t):
     tab = _state["tab"]
     if tab == "Finished":
         return False
-    if tab == "Failed":
+    if tab == "Error":
         return _is_failed(t)
+    if tab == "Adding":
+        return t.state == dm.ADDED
+    if tab == "Scheduler":
+        return t.scheduled and not _is_failed(t)
     if tab == "Downloading":
-        return not _is_failed(t)
+        return t.state in (dm.QUEUED, dm.RUNNING, dm.PAUSED, dm.SAVING)
     return True
 
 
+def _schedule_hint():
+    cfg = download_queue_prefs.schedule()
+    if not cfg["enabled"]:
+        return "Scheduled - the scheduler is OFF"
+    return f"Scheduled - starts at {cfg['start']}"
+
+
 def _task_meta(t):
+    if t.state == dm.ADDED:
+        return "Added - waiting for you to start it"
+    if t.state == dm.SCHEDULED:
+        return _schedule_hint()
+    if t.state == dm.PAUSED and t.sched_paused:
+        return "Paused until the next start time"
     if t.state == dm.QUEUED:
         return "Waiting for a free slot"
     if t.state == dm.PAUSED:
@@ -149,6 +169,51 @@ def _download_link(url):
             [("Download again", lambda: run_in_background(_save_link, url, name), False)]), 0)
         return
     _save_link(url, name)
+
+
+def _time_dialog(title, current, on_save, allow_off=False):
+    """A small popup to type an hour and minutes (the phone's clock). ``on_save("HH:MM")``; with
+    ``allow_off`` a third button calls ``on_save("")`` (no time)."""
+    hm = download_schedule.parse_hm(current) or (0, 0)
+    box = BoxLayout(orientation="vertical", padding=dp(12), spacing=GAP)
+    box.add_widget(Label(text=title, size_hint_y=None, height=dp(40)))
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    hour = TextInput(text=f"{hm[0]:02d}", multiline=False, input_filter="int", halign="center", hint_text="HH")
+    mins = TextInput(text=f"{hm[1]:02d}", multiline=False, input_filter="int", halign="center", hint_text="MM")
+    row.add_widget(hour)
+    row.add_widget(Label(text=":", size_hint_x=None, width=dp(16)))
+    row.add_widget(mins)
+    box.add_widget(row)
+    msg = Label(text="", size_hint_y=None, height=dp(30), color=_DANGER)
+    box.add_widget(msg)
+    dialog = ModalView(size_hint=(0.92, None), height=dp(190) + (2 if allow_off else 1) * (BTN_H + GAP),
+                       background="", background_color=(0.13, 0.10, 0.09, 1))
+
+    def save(_i):
+        try:
+            h, m = int(hour.text), int(mins.text)
+        except ValueError:
+            msg.text = "Type the hour and the minutes"
+            return
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            msg.text = "Hour 0-23, minutes 0-59"
+            return
+        dialog.dismiss()
+        on_save(f"{h:02d}:{m:02d}")
+
+    buttons = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    cancel_btn, save_btn = Button(text="Cancel"), Button(text="Save")
+    cancel_btn.bind(on_press=lambda i: dialog.dismiss())
+    save_btn.bind(on_press=save)
+    buttons.add_widget(cancel_btn)
+    buttons.add_widget(save_btn)
+    box.add_widget(buttons)
+    if allow_off:
+        off_btn = Button(text="No stop time", size_hint_y=None, height=BTN_H)
+        off_btn.bind(on_press=lambda i: (dialog.dismiss(), on_save("")))
+        box.add_widget(off_btn)
+    dialog.add_widget(box)
+    dialog.open()
 
 
 def _menu(title, buttons):
@@ -233,15 +298,85 @@ def build(nav):
         _state["link_open"] = True
     show_link_panel()
 
+    # -- scheduler panel (Scheduler tab only) ---------------------------------------------------------
+    sched_w = {}
+
+    def sched_status_text():
+        cfg = download_queue_prefs.schedule()
+        if not cfg["enabled"]:
+            return "Scheduler is off"
+        inside = download_schedule.in_window(download_schedule.parse_hm(cfg["start"]),
+                                             download_schedule.parse_hm(cfg["stop"]))
+        return ("Inside the time window - scheduled files run" if inside
+                else "Outside the time window - waiting for the start time")
+
+    def make_scheduler_panel():
+        box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP)
+        box.bind(minimum_height=box.setter("height"))
+        clock = Label(text="", size_hint_y=None, height=dp(30), color=(1, 0.75, 0.4, 1))
+        status_lbl = Label(text="", size_hint_y=None, height=dp(44), halign="center", valign="middle")
+        status_lbl.text_size = (content_width(), None)
+        sched_w["clock"], sched_w["status"] = clock, status_lbl
+        on_btn = Button(text="", size_hint_y=None, height=BTN_H)
+        time_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP / 2)
+        start_btn, stop_btn = Button(text=""), Button(text="")
+        time_row.add_widget(start_btn)
+        time_row.add_widget(stop_btn)
+        go_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP / 2)
+        go_btn, halt_btn = Button(text="Start now"), Button(text="Stop now")
+        go_row.add_widget(go_btn)
+        go_row.add_widget(halt_btn)
+        hint = Label(text="The time is the phone's clock. Scheduled files run between the start and stop time "
+                          "every day, while the app is open.", size_hint_y=None, halign="center", valign="middle")
+        hint.text_size = (content_width(), None)
+        hint.height = max(dp(44), wrapped_label_height(hint.text))
+
+        def paint():
+            cfg = download_queue_prefs.schedule()
+            on_btn.text = "Scheduler: ON" if cfg["enabled"] else "Scheduler: OFF"
+            start_btn.text = f"Start time: {cfg['start']}"
+            stop_btn.text = f"Stop time: {cfg['stop']}" if cfg["stop"] else "Stop time: not set"
+            _set(status_lbl, sched_status_text())
+
+        def kick():
+            paint()
+            dm.ensure_scheduler()
+            run_in_background(dm.scheduler_tick)
+
+        def toggle(_i):
+            download_queue_prefs.set_schedule(enabled=not download_queue_prefs.schedule()["enabled"])
+            kick()
+
+        def pick_start(_i):
+            _time_dialog("Start time", download_queue_prefs.schedule()["start"],
+                         lambda v: (download_queue_prefs.set_schedule(start=v), kick()))
+
+        def pick_stop(_i):
+            _time_dialog("Stop time", download_queue_prefs.schedule()["stop"] or "06:00",
+                         lambda v: (download_queue_prefs.set_schedule(stop=v), kick()), allow_off=True)
+
+        on_btn.bind(on_press=toggle)
+        start_btn.bind(on_press=pick_start)
+        stop_btn.bind(on_press=pick_stop)
+        go_btn.bind(on_press=lambda i: (dm.scheduler_start_now(), say("Scheduled files started")))
+        halt_btn.bind(on_press=lambda i: (dm.scheduler_stop_now(), say("Scheduled downloads paused")))
+        for w in (clock, status_lbl, on_btn, time_row, go_row, hint):
+            box.add_widget(w)
+        paint()
+        return box
+
     # -- tabs ------------------------------------------------------------------------------------
-    tab_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=dp(4))
     tab_buttons = {}
-    for tab in TABS:
-        btn = Button(text=tab)
-        btn.bind(on_press=lambda i, t=tab: set_tab(t))
-        tab_buttons[tab] = btn
-        tab_row.add_widget(btn)
-    nav.add(tab_row)
+    for group in (TABS[:3], TABS[3:]):
+        tab_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=dp(4))
+        for tab in group:
+            btn = Button(text=tab)
+            btn.bind(on_press=lambda i, t=tab: set_tab(t))
+            tab_buttons[tab] = btn
+            tab_row.add_widget(btn)
+        nav.add(tab_row)
+    if _state["tab"] == "Scheduler":
+        nav.add(make_scheduler_panel())
 
     # -- search + type -----------------------------------------------------------------------------
     sr = BoxLayout(orientation="horizontal", size_hint_y=None, height=SMALL_BTN_H, spacing=GAP)
@@ -266,6 +401,8 @@ def build(nav):
     entry_color = {}      # entry id -> Color
     entry_row = {}        # entry id -> row widget
     busy = set()          # entry ids being deleted
+    sel_tasks = set()     # ids of selected waiting files (Adding / Scheduler tabs)
+    pending_ids = []      # ids of the waiting files shown now (what "Select all" selects)
     shown_ids = []        # entry ids matching the search / type (what "Select all" selects)
     footer_state = {"mode": "nav"}
     back_row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
@@ -326,13 +463,34 @@ def build(nav):
     sel_info = Label(text="", size_hint_y=None, height=dp(34), halign="center", valign="middle")
     sel_info.text_size = (content_width(), None)
 
+    def make_task_footer():
+        bar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP / 2)
+        bar.height = dp(34) + 2 * BTN_H + GAP
+        tsel_info.parent.remove_widget(tsel_info) if tsel_info.parent is not None else None
+        bar.add_widget(tsel_info)
+        bar.add_widget(row_of([("Select all", lambda i: select_all_tasks(True)),
+                               ("Clear", lambda i: select_all_tasks(False))]))
+        if _state["tab"] == "Scheduler":
+            second = ("Back to Adding", lambda i: schedule_selected(False))
+        else:
+            second = ("Add to scheduler", lambda i: schedule_selected(True))
+        bar.add_widget(row_of([("Start now", lambda i: start_selected()), second,
+                               ("Remove from list", lambda i: remove_selected())]))
+        return bar
+
+    tsel_info = Label(text="", size_hint_y=None, height=dp(34), halign="center", valign="middle")
+    tsel_info.text_size = (content_width(), None)
+
     def refresh_footer():
-        want = "sel" if selected else "nav"
+        want = "tsel" if sel_tasks else ("sel" if selected else "nav")
         sel_info.text = f"Selected: {len(selected)} of {len(shown_ids)}"
+        tsel_info.text = f"Selected: {len(sel_tasks)} of {len(pending_ids)}"
         if want == footer_state["mode"]:
             return
         footer_state["mode"] = want
-        if want == "sel":
+        if want == "tsel":
+            nav.set_footer(make_task_footer())
+        elif want == "sel":
             nav.set_footer(make_sel_footer())
         else:
             if back_row.parent is not None:
@@ -362,10 +520,10 @@ def build(nav):
         row = card_box([ROW_H], padding=dp(4), spacing=0)
         color = paint_card(row, CARD)
         line = BoxLayout(orientation="horizontal", size_hint_y=None, height=ROW_H, spacing=dp(4))
-        main = Button(text="", size_hint_x=0.80, halign="left", valign="middle",
-                      background_normal="", background_color=(0, 0, 0, 0))
+        main = _PressCard(on_tap=lambda tid=t.id: task_tap(tid), on_hold=lambda tid=t.id: task_menu(tid),
+                          text="", size_hint_x=0.80, halign="left", valign="middle",
+                          background_normal="", background_color=(0, 0, 0, 0))
         main.text_size = (row_w, None)
-        main.bind(on_press=lambda i, tid=t.id: task_menu(tid))
         more = Button(text="\u2022\u2022\u2022", size_hint_x=0.20)
         more.bind(on_press=lambda i, tid=t.id: task_menu(tid))
         line.add_widget(main)
@@ -373,9 +531,58 @@ def build(nav):
         row.add_widget(line)
         return row, main, more, color
 
+    def task_tap(task_id):
+        t = dm.get(task_id)
+        if t is None:
+            return
+        if t.pending:                       # a waiting file: tap = select
+            (sel_tasks.discard if task_id in sel_tasks else sel_tasks.add)(task_id)
+            if task_id in cards:
+                cards[task_id][3].rgba = CARD_ON if task_id in sel_tasks else CARD
+            refresh_footer()
+        else:
+            task_menu(task_id)
+
+    def select_all_tasks(value):
+        for tid in list(pending_ids):
+            (sel_tasks.add if value else sel_tasks.discard)(tid)
+            if tid in cards:
+                cards[tid][3].rgba = CARD_ON if value else CARD
+        refresh_footer()
+
+    def selected_pending():
+        return [t.id for t in (dm.get(i) for i in list(sel_tasks)) if t is not None and t.pending]
+
+    def finish_selection(text):
+        sel_tasks.clear()
+        say(text)
+        refresh_active()
+        refresh_footer()
+
+    def start_selected():
+        n = sum(1 for tid in selected_pending() if dm.start_task(tid))
+        finish_selection(f"Started {n} file(s)")
+
+    def schedule_selected(on):
+        n = dm.set_scheduled(selected_pending(), on)
+        finish_selection(f"Added {n} file(s) to the scheduler" if on else f"Moved {n} file(s) back to Adding")
+
+    def remove_selected():
+        finish_selection(f"Removed {dm.remove_pending(selected_pending())} waiting file(s)")
+
     def task_menu(task_id):
         t = dm.get(task_id)
         if t is None:
+            return
+        if t.pending:
+            def one(fn, text):
+                return lambda: (fn(), say(text), refresh_active())
+            move = (("Back to Adding", one(lambda: dm.set_scheduled([task_id], False), "Moved 1 file(s) back to Adding"))
+                    if t.state == dm.SCHEDULED else
+                    ("Add to scheduler", one(lambda: dm.set_scheduled([task_id], True), "Added 1 file(s) to the scheduler")))
+            _menu(t.name, [("Start now", one(lambda: dm.start_task(task_id), "Started 1 file(s)"), False),
+                           (move[0], move[1], False),
+                           ("Remove from list", one(lambda: dm.remove_pending([task_id]), "Removed 1 waiting file(s)"), True)])
             return
         buttons = []
         if t.active and t.state not in (dm.SAVING,):
@@ -407,9 +614,12 @@ def build(nav):
     def refresh_tabs(all_tasks):
         live = [t for t in all_tasks if t.state != dm.DONE]
         n_fail = sum(1 for t in live if _is_failed(t))
-        n_down = len(live) - n_fail
+        n_down = sum(1 for t in live if t.state in (dm.QUEUED, dm.RUNNING, dm.PAUSED, dm.SAVING))
+        n_add = sum(1 for t in live if t.state == dm.ADDED)
+        n_sch = sum(1 for t in live if t.scheduled and not _is_failed(t))
         n_done = len(downloads_history.load()) if not hasattr(refresh_tabs, "n") else refresh_tabs.n
-        counts = {"All": len(live) + n_done, "Downloading": n_down, "Finished": n_done, "Failed": n_fail}
+        counts = {"All": len(live) + n_done, "Downloading": n_down, "Adding": n_add, "Finished": n_done,
+                  "Error": n_fail, "Scheduler": n_sch}
         for tab, btn in tab_buttons.items():
             _set(btn, ("\u25cf " if tab == _state["tab"] else "") + (f"{tab} ({counts[tab]})" if counts[tab] else tab))
 
@@ -423,10 +633,16 @@ def build(nav):
             if t.id not in cards:
                 cards[t.id] = make_card(t)
                 active_box.add_widget(cards[t.id][0])
+        pending_ids[:] = [t.id for t in shown if t.pending]
+        sel_tasks.intersection_update(pending_ids)
         for t in shown:
             _row, main, _more, color = cards[t.id]
             _set(main, f"{_short(t.name, row_w)}\n{_task_meta(t)}")
-            color.rgba = _FAILED if _is_failed(t) else CARD
+            color.rgba = _FAILED if _is_failed(t) else (CARD_ON if t.id in sel_tasks else CARD)
+        if sched_w:
+            _set(sched_w["clock"], f"Phone time: {download_schedule.phone_time_text()}")
+            _set(sched_w["status"], sched_status_text())
+        refresh_footer()
         if not shown:
             active_box.height = 0
         done_now = {t.id for t in all_tasks if t.state == dm.DONE}
@@ -444,7 +660,7 @@ def build(nav):
         shown_ids[:] = []
         all_entries = downloads_history.load()
         refresh_tabs.n = len(all_entries)
-        if _state["tab"] in ("Downloading", "Failed"):
+        if _state["tab"] in ("Downloading", "Adding", "Error", "Scheduler"):
             finished_box.height = 0
             return
         entries = [e for e in all_entries if _matches(e.get("name", ""))]
