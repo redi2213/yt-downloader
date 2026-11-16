@@ -643,6 +643,27 @@ def _copy(text):
         pass
 
 
+def _add_waiting(entries, status, scheduled):
+    """Puts the files in the Downloads list WITHOUT starting them (Adding tab), or in the Scheduler tab.
+    Only files the phone downloads itself can wait; YouTube qualities and DASH streams go through GitHub."""
+    try:
+        from core import download_manager as dm
+        add = dm.add_pending
+    except Exception:
+        _set(status, "Update the app to use this")
+        return
+    added = 0
+    for e in entries:
+        if e["kind"] in bm.DIRECT_KINDS:
+            add(e["url"], name=e.get("name"), headers=e.get("headers") or None, category="Browser",
+                hls=True if e["kind"] == "hls" else None, scheduled=scheduled)
+            added += 1
+    if not added:
+        _set(status, "These files need GitHub - use Download in the app")
+    else:
+        _set(status, f"{added} file(s) added to the scheduler" if scheduled else f"{added} file(s) added to the list")
+
+
 def build_actions(nav, keys):
     sess = nav.browser_session
     wanted = set(keys)
@@ -682,6 +703,8 @@ def build_actions(nav, keys):
         ("Download in the app", lambda: start_action(nav, "download", entries, status=lambda t: _set(status, t))),
         ("Add to the queue (download in background)",
          lambda: (run_background(nav, "download", entries), _set(status, _QUEUED))),
+        ("Add to the list (don't start)", lambda: _add_waiting(entries, status, False)),
+        ("Add to the scheduler", lambda: _add_waiting(entries, status, True)),
         (copy_text, copy_links),
         ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
          lambda: start_action(nav, "upload", entries, status=lambda t: _set(status, t))),
