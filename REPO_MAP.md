@@ -30,7 +30,7 @@
 ## main: workflowها (.github/workflows/)
 - دانلود: download.yml، download-batch.yml، list-formats.yml، list-playlist.yml، aparat-download.yml، telegram-download.yml، instagram-downloader.yml، filimo-direct-link.yml، google-play-download.yml، Series-Links.yml، mornye-from-links.yml
 - آپلود/ذخیره: Any-Site-Upload.yml، upload-file.yml، drive-to-release.yml، arvan-from-link.yml، arvan-manage.yml، arvan-upload.yml، zip-release.yml
-- خودکار: Auto-Follow.yml، backup-project.yml (zip از main + config در Release)، build-apk.yml
+- خودکار: graph-report.yml (روزانه؛ اگر چیزی بیرون docs/ عوض نشده باشد اجرا نمی‌شود؛ docs/GRAPH_REPORT.md و docs/GRAPH_SOURCE_SHA.txt را به‌روز می‌کند؛ دستی هم قابل اجراست)، Auto-Follow.yml، backup-project.yml (zip از main + config در Release)، build-apk.yml
 - پاک‌سازی: cleanup-artifacts.yml، cleanup-releases.yml، standalone-cleanup-all-artifacts.yml
 - پروکسی: find-proxies.yml
 - Lab: lab-*.yml (download، find-proxies، free-iran-proxy-list، links، pornhub-search-scraper، refresh-configs، run، schedule، site-suj-mobi، workflow)
@@ -50,7 +50,7 @@
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
 ## گزارش گراف کد (Graphify)
-- docs/GRAPH_REPORT.md (~۵۶KB، ساخته‌شده ۲۰۲۶-۱۱-۱۸، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، و فقط بخش لازم را بخوان؛ با تغییرات بزرگ ممکن است قدیمی شود.
+- docs/GRAPH_REPORT.md (~۵۶KB، ساخته‌شده ۲۰۲۶-۱۱-۱۸، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، و فقط بخش لازم را بخوان؛ روزانه خودکار با graph-report.yml به‌روز می‌شود.
 
 ## قوانین کار
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
