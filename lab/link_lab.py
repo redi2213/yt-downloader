@@ -626,6 +626,7 @@ def _phone_add_sizes(res):
     with ThreadPoolExecutor(max_workers=4) as ex:
         list(ex.map(one, rows))
     dur = res.get("duration") or 0
+    _TWIN = []
     # The mp4 links are tied to the IP and answer 403 to a size request. Their HLS twin is not: same path with
     # "<h>p.h264.mp4.m3u8" (xHamster-style). Read that playlist the way the 1080p one is read.
     try:
@@ -637,7 +638,10 @@ def _phone_add_sizes(res):
                     return
                 for codec in ("h264", "av1"):
                     cand = pat.sub("/%dp.%s.mp4.m3u8" % (row["h"], codec), hls["url"], count=1)
+                    _NET["err"] = ""
                     n = _phone_hls_estimate(cand, row["h"], hls.get("_hdr"))
+                    _TWIN.append("%dp.%s -> %s%s" % (row["h"], codec, n if n else "none",
+                                                      "" if n else " (%s)" % (_NET["err"] or "no segments")))
                     if n:
                         row["size"] = "~" + _phone_size(n) + " (HLS)"
                         return
@@ -668,7 +672,8 @@ def _phone_add_sizes(res):
             except Exception:
                 pass
     why = _NET["err"] or "no size in the playlist"
-    res["size_debug"] = "size errors: %s; duration=%s; master=%s" % (why, dur, bool(locals().get("bw")))
+    res["size_debug"] = "size errors: %s; duration=%s; master=%s; code=v3\ntwin: %s" % (
+        why, dur, bool(locals().get("bw")), "; ".join(_TWIN) or "not tried")
     if any(not r.get("size") for r in rows):
         res["note"] = ((res.get("note") or "") + " Size not found for some qualities (%s)." % why).strip()
     elif any("(est.)" in r["size"] or "(bitrate)" in r["size"] or "(HLS)" in r["size"] for r in rows if r.get("size")):
