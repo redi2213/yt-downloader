@@ -213,8 +213,9 @@ def phone_result(host, results):
     host.status()
     host.text("Copy uses the link this phone just read. Download still runs lab-download.yml on GitHub.")
     report = "\n\n".join(blocks)
-    if any(r.get("rows") for r in results):
-        host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
+    host.log("phone read:\n" + report[:3000])
+    host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
+    host.button("Show log", host.show_log)
     host.back_button()
 
 
@@ -328,6 +329,8 @@ def _phone_one(yt_dlp, opts, url):
     rows, video_heights = _phone_formats(info)
     if not rows and video_heights:
         note = (note + " " if note else "") + "Picture and sound come as separate streams."
+    if not rows and not video_heights:
+        note = (note + " " if note else "") + _phone_debug(info)
     return {"url": url, "title": info.get("title") or url,
             "extractor": info.get("extractor") or info.get("extractor_key") or "",
             "note": note.strip(), "rows": rows, "video_heights": video_heights,
@@ -346,8 +349,10 @@ def _phone_formats(info):
         proto = (f.get("protocol") or "").lower()
         if any(b in proto for b in _PHONE_SKIP):
             continue
-        v = f.get("vcodec") not in (None, "none")
-        a = f.get("acodec") not in (None, "none")
+        # A direct file often has no codec info (None = unknown): that is one file with picture and
+        # sound (the GitHub links.py accepts it too). Only an explicit "none" means a part is missing.
+        v = f.get("vcodec") != "none"
+        a = f.get("acodec") != "none"
         h = _phone_height(f)
         if v and a:
             both.append({"h": h, "ext": "mp4" if "m3u8" in proto else (f.get("ext") or "mp4"),
@@ -367,6 +372,15 @@ def _phone_formats(info):
         row.pop("_bytes", None)
         chosen.append(row)
     return chosen, sorted(set(video), reverse=True)
+
+
+def _phone_debug(info):
+    """Why nothing was listed: what yt-dlp returned (ext/vcodec/acodec/height of the first formats)."""
+    fs = list((info or {}).get("formats") or [])
+    if not fs:
+        return "yt-dlp returned no formats."
+    bits = ["%s/%s/%s/%sp" % (f.get("ext"), f.get("vcodec"), f.get("acodec"), f.get("height")) for f in fs[:6]]
+    return "yt-dlp saw %d format(s): %s" % (len(fs), ", ".join(bits))
 
 
 def _phone_height(f):
