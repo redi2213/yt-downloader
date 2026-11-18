@@ -202,6 +202,10 @@ def phone_result(host, results):
         extra = len(r.get("rows") or []) - 12
         if extra > 0:
             host.text("(%d more qualities not shown)" % extra)
+        if not (r.get("rows") or []) and r.get("url"):
+            # Nothing found on this phone: run lab-download.yml right here (GitHub tries its proxies).
+            host.button("Download on GitHub (lab-download)",
+                        lambda r=r: _run_download(host, r["url"], "best"))
     host.status()
     host.text("Tap a quality for: copy, download in the app, upload to a release, share.")
     report = "\n\n".join(blocks)
