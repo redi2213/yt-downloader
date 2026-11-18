@@ -703,10 +703,42 @@ def download_screen(host, url, quality, link="", title=""):
         inputs["direct_title"] = (title or "")[:200]
         host.text("Using the link found on this phone: GitHub skips the extract step.")
 
+    state = {"run": None}
+
+    def refresh():
+        # Re-reads the run and its jobs right now (the screen also updates by itself every few seconds).
+        rid = state["run"]
+        if not rid:
+            host.set_status("The run has not started yet...")
+            return
+
+        def read():
+            run = host.gh.request("GET", "/actions/runs/%s" % rid).json()
+            jobs = []
+            try:
+                jobs = host.gh.request("GET", "/actions/runs/%s/jobs?per_page=30" % rid).json().get("jobs") or []
+            except Exception as e:
+                host.log("jobs read:", e)
+            return run, jobs
+
+        def shown(res, err):
+            if err is not None:
+                host.set_status("Refresh failed: %s" % err)
+                return
+            run, jobs = res
+            try:
+                from labx import lab_jobs
+                host.set_status(lab_jobs.format_text(rid, run, jobs))
+            except Exception:
+                host.set_status("Run %s - %s" % (rid, run.get("conclusion") or run.get("status")))
+
+        host.background(read, done=shown)
+
     def work():
         run_id = host.gh.dispatch("lab-download.yml", inputs)
         if not run_id:
             raise RuntimeError("Could not find the workflow run on GitHub")
+        state["run"] = run_id
         host.log("lab-download run", run_id)
         host.set_status("Run %s started..." % run_id)
         conclusion = _wait(host, run_id)
@@ -725,6 +757,7 @@ def download_screen(host, url, quality, link="", title=""):
         host.replace(download_result, *res)
 
     host.background(work, done=done)
+    host.button("Refresh", refresh)
     host.back_button()
 
 
