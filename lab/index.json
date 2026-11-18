@@ -196,6 +196,16 @@
         "fixes": [],
         "added": "2026-11-12T23:05:55Z"
       }
+    },
+    {
+      "id": "dlna_tv",
+      "title": "TV cast (DLNA/UPnP)",
+      "file": "dlna_tv.py",
+      "modules": [
+        "lib/dlna_core.py"
+      ],
+      "description": "Test: find TVs (SSDP), play a phone file on the TV from a small server on the phone (Range/Seek), Pause/Stop/Seek/Volume. Not promoted yet.",
+      "min_host": 1
     }
   ]
 }
