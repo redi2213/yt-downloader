@@ -148,17 +148,15 @@ def links_result(host, run_id, conclusion, body):
     host.status()
     picks = _parse_qualities(body) if conclusion == "success" else []
     if picks:
-        host.text("Download one quality (runs lab-download.yml and makes a GitHub release):")
+        host.text("Tap a quality for: copy, download in the app, add to the list, upload to a release, share.")
+        many = len({p[1] for p in picks}) > 1
         for title, page, height, link, size in picks[:12]:
-            sfx = (" \u2022 " + size) if size else ""
-            label = "Download %dp%s" % (height, sfx)
-            if len({p[1] for p in picks}) > 1:
+            r = {"url": page, "title": title}
+            row = {"h": height, "ext": "mp4", "hls": ".m3u8" in link.lower(), "size": size, "url": link, "gh": True}
+            label = _phone_label(row)
+            if many:
                 label += " - " + (title[:22] or page[:22])
-            host.row([
-                (label, lambda p=page, h=height: _run_download(host, p, str(h))),
-                ("Copy %dp link%s" % (height, sfx),
-                 lambda u=link, h=height: (host.copy(u), host.set_status("Copied %dp link" % h))),
-            ])
+            host.button(label, lambda r=r, row=row: host.show(quality_screen, r, row))
         if len(picks) > 12:
             host.text("(%d more not shown)" % (len(picks) - 12))
     if links:
@@ -220,9 +218,13 @@ def quality_screen(host, r, row):
     title = r.get("title") or ""
     host.title(_phone_label(row))
     host.text(title)
+    if row.get("gh"):
+        host.text("This link was read on GitHub. It may be tied to GitHub's IP and fail on this phone; "
+                  "Upload to release always works.")
     host.status()
     host.button("Copy direct link", lambda: (host.copy(link), host.set_status("Copied")))
     host.button("Download direct link", lambda: _phone_app_download(host, r, row))
+    host.button("Add to download list", lambda: _phone_app_download(host, r, row, start=False))
     host.button("Upload to release",
                 lambda: _run_download(host, page, str(row.get("h") or "best"), link, title))
     host.button("Share direct link",
@@ -239,12 +241,17 @@ def _phone_file_name(title, row):
     return name + (".mp4" if row.get("hls") else "." + (row.get("ext") or "mp4").lstrip("."))
 
 
-def _phone_app_download(host, r, row):
-    """Starts the download now with the app's own download manager (it shows in Downloads)."""
+def _phone_app_download(host, r, row, start=True):
+    """Starts the download now with the app's own download manager (it shows in Downloads), or only
+    puts it in the list (tab Adding) when ``start`` is False."""
     try:
         from core import download_manager as dm
         name = _phone_file_name(r.get("title"), row)
         task = dm.add_pending(row["url"], name=name, category="Any-site", hls=True if row.get("hls") else None)
+        if not start:
+            host.log("app download added to the list:", name)
+            host.set_status("Added to the download list (%s)" % name)
+            return
         if not dm.start_task(task.id):
             raise RuntimeError("could not start")
         host.log("app download started:", name)
