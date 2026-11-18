@@ -620,6 +620,39 @@ def list_dir(path, limit=300):
     return dirs[:limit], files[:limit], len(dirs) > limit or len(files) > limit
 
 
+def _norm(text):
+    """Lower-case and unify Arabic/Persian letter variants so search matches any spelling."""
+    return (text or "").lower().replace("\u064a", "\u06cc").replace("\u0643", "\u06a9")
+
+
+def search_media(query, root=None, limit=100, max_depth=8):
+    """Media files whose name contains every word of query (any part of the name, any case).
+    Newest first: [(path, size)]. Skips hidden folders and Android/ (not readable anyway)."""
+    words = _norm(query).split()
+    if not words:
+        return []
+    root = root or storage_root()
+    base_depth = root.rstrip(os.sep).count(os.sep)
+    rows = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and not (d == "Android" and dirpath == root)]
+        if dirpath.count(os.sep) - base_depth >= max_depth:
+            dirs[:] = []
+        for fn in files:
+            if os.path.splitext(fn)[1].lower() not in MIME or fn.startswith("."):
+                continue
+            low = _norm(fn)
+            if all(w in low for w in words):
+                p = os.path.join(dirpath, fn)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                rows.append((st.st_mtime, p, st.st_size))
+    rows.sort(reverse=True)
+    return [(p, s) for _m, p, s in rows[:limit]]
+
+
 def human_size(n):
     v = float(n)
     for u in ("B", "KB", "MB", "GB"):
@@ -717,6 +750,15 @@ def _selftest():
     except DlnaError:
         pass
     assert os.path.isdir(storage_root()) and isinstance(shortcuts(), list)
+    os.makedirs(os.path.join(d, "a sub", "deep"))
+    open(os.path.join(d, "a sub", "deep", "My Holiday 2024.mkv"), "wb").write(b"1")
+    open(os.path.join(d, "\u0641\u06cc\u0644\u0645 \u062a\u0633\u062a.mp4"), "wb").write(b"1")
+    got = [os.path.basename(p) for p, _s in search_media("holi 24", d)]
+    assert got == ["My Holiday 2024.mkv"], got
+    assert [os.path.basename(p) for p, _s in search_media("HOLIDAY", d)] == ["My Holiday 2024.mkv"]
+    assert len(search_media("\u062a\u0633\u062a", d)) == 1 and len(search_media("\u0641\u064a\u0644\u0645", d)) == 1
+    assert search_media("   ", d) == [] and search_media("nothing", d) == [] and len(search_media(".mp", d, limit=1)) == 1
+    assert [os.path.basename(p) for p, _s in search_media("z", d)] == ["z.mp4"]
     print("ok")
 
 
