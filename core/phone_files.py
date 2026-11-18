@@ -10,9 +10,10 @@ import time
 from api import downloads_history, watched_folders_prefs
 
 TTL = 120
-MAX_FILES = 4000
+MAX_FILES = 30000
+MAX_DEPTH = 12
 _SUFFIX = re.compile(r"\s\(\d+\)(?=\.[^./\\]*$|$)")
-_cache = {"files": [], "time": 0.0, "busy": False}
+_cache = {"files": [], "time": 0.0, "busy": False, "counts": {}}
 _DIR = "vnd.android.document/directory"
 
 
@@ -49,10 +50,20 @@ def watched_count():
     return len(_cache["files"])
 
 
+def is_scanning():
+    return bool(_cache["busy"])
+
+
+def folder_count(uri):
+    """Files found in one watched folder (and all its sub folders) by the last scan."""
+    return _cache["counts"].get(str(uri), 0)
+
+
 def refresh_watched(force=False):
     folders = watched_folders_prefs.load()
     if not folders:
         _cache["files"] = []
+        _cache["counts"] = {}
         return
     if _cache["busy"] or (not force and time.time() - _cache["time"] < TTL):
         return
@@ -60,36 +71,42 @@ def refresh_watched(force=False):
 
     def work():
         files = []
+        counts = {}
         try:
             for folder in folders:
                 try:
-                    files.extend(_scan_tree(folder["uri"], MAX_FILES - len(files)))
+                    found = _scan_tree(folder["uri"], MAX_FILES - len(files))
+                    counts[str(folder["uri"])] = len(found)
+                    files.extend(found)
                 except Exception:
                     pass
         finally:
             _cache["files"] = files
+            _cache["counts"] = counts
             _cache["time"] = time.time()
             _cache["busy"] = False
 
     threading.Thread(target=work, daemon=True).start()
 
 
-def _scan_tree(tree_uri, cap, depth=3):
-    """[(name, size)] of the files inside a picked folder (and its sub folders, 3 levels)."""
+def _scan_tree(tree_uri, cap, depth=MAX_DEPTH):
+    """[(name, size)] of the files inside a picked folder and ALL its sub folders (up to ``depth``
+    levels), level by level so the sub folders are never skipped because the top one is big."""
     from jnius import autoclass
     Uri = autoclass("android.net.Uri")
     Docs = autoclass("android.provider.DocumentsContract")
     resolver = autoclass("org.kivy.android.PythonActivity").mActivity.getContentResolver()
     tree = Uri.parse(str(tree_uri))
     out = []
-
-    def walk(doc_id, level):
-        if len(out) >= cap:
-            return
-        cursor = resolver.query(Docs.buildChildDocumentsUriUsingTree(tree, doc_id), None, None, None, None)
+    queue = [(Docs.getTreeDocumentId(tree), 0)]
+    while queue and len(out) < cap:
+        doc_id, level = queue.pop(0)
+        try:
+            cursor = resolver.query(Docs.buildChildDocumentsUriUsingTree(tree, doc_id), None, None, None, None)
+        except Exception:
+            continue
         if cursor is None:
-            return
-        subdirs = []
+            continue
         try:
             id_i = cursor.getColumnIndex("document_id")
             name_i = cursor.getColumnIndex("_display_name")
@@ -97,14 +114,10 @@ def _scan_tree(tree_uri, cap, depth=3):
             size_i = cursor.getColumnIndex("_size")
             while cursor.moveToNext() and len(out) < cap:
                 if str(cursor.getString(mime_i)) == _DIR:
-                    subdirs.append(cursor.getString(id_i))
+                    if level < depth:
+                        queue.append((cursor.getString(id_i), level + 1))
                 else:
                     out.append((str(cursor.getString(name_i)), int(cursor.getLong(size_i))))
         finally:
             cursor.close()
-        if level < depth:
-            for child in subdirs:
-                walk(child, level + 1)
-
-    walk(Docs.getTreeDocumentId(tree), 0)
     return out
