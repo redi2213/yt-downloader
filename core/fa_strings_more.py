@@ -739,6 +739,8 @@ MORE_EXACT.update({
     "Yes, delete from release": "بله، از ریلیز حذف شود",
     "Watched folders": "پوشه‌های نظارت‌شده",
     "Add folder": "افزودن پوشه",
+    "Scan again": "اسکن دوباره",
+    "Scanning folders...": "در حال اسکن پوشه‌ها...",
     "Watched folders (files saved by other apps)": "پوشه‌های نظارت‌شده (فایل‌های برنامه‌های دیگر)",
     "Add the folders where other download apps save files. Release History and Downloads then show a file that is already on the phone, and warn before it is downloaded again.":
         "پوشه‌هایی را اضافه کن که برنامه‌های دانلود دیگر فایل‌ها را در آن ذخیره می‌کنند. تاریخچه ریلیز و دانلودها فایلی را که از قبل روی گوشی هست نشان می‌دهند و قبل از دانلود دوباره هشدار می‌دهند.",
