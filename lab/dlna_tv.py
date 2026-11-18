@@ -44,7 +44,7 @@ def build(host):
                 lambda: _toggle_multi(host))
     host.button("3) Choose file(s) (phone or link)", lambda: host.show(file_screen))
     host.button("4) Play on TV", go)
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.back_button("Back")
 
 
@@ -295,7 +295,7 @@ def player_screen(host):
     host.button("Volume +5", lambda: run("Volume", lambda: _vol_rel(tv, 5)))
     host.button("Refresh status", lambda: run("Status", lambda: _status(tv)))
     host.button("Stop TV and close the phone server", lambda: run("Close", _close_all))
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.back_button("Back")
 
 
@@ -473,3 +473,14 @@ def _watch(gen):
             except (D.DlnaError, OSError):
                 return
             return
+
+
+def _copy_log(host):
+    """The button that used to open the log screen: it only copies the log now."""
+    try:
+        text = host._log.text()
+    except Exception:
+        host.show_log()
+        return
+    host.copy(text or "(empty)")
+    host.set_status("Log copied")

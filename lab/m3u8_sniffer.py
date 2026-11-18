@@ -154,7 +154,7 @@ def build(host):
     if S["found"]:
         host.button("Found links (%d)" % len(S["found"]), lambda: host.show(found_screen))
     host.button("Log out of all sites (clear cookies)", lambda: _clear_cookies(host))
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.back_button("Back")
 
 
@@ -424,3 +424,14 @@ def download_result(host, run_id, conclusion, links):
         host.button("Copy link%s" % ("" if len(links) == 1 else "s"),
                     lambda: (host.copy("\n".join(links)), host.set_status("Copied")))
     host.back_button()
+
+
+def _copy_log(host):
+    """The button that used to open the log screen: it only copies the log now."""
+    try:
+        text = host._log.text()
+    except Exception:
+        host.show_log()
+        return
+    host.copy(text or "(empty)")
+    host.set_status("Log copied")

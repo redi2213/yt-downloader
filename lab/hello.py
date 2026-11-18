@@ -10,7 +10,7 @@ def build(host):
     host.button("Input and choice", lambda: host.show(form))
     host.button("Ask GitHub for a quote (background HTTP)", lambda: host.show(quote))
     host.button("Saved counter", lambda: host.show(counter))
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.status()
     host.back_button("Back")            # leaves the plugin
 
@@ -64,3 +64,14 @@ def counter(host):
     host.set_status(f"Opened {host.store.get('opened', 0)} times before")
     host.store.set("opened", host.store.get("opened", 0) + 1)
     host.back_button()
+
+
+def _copy_log(host):
+    """The button that used to open the log screen: it only copies the log now."""
+    try:
+        text = host._log.text()
+    except Exception:
+        host.show_log()
+        return
+    host.copy(text or "(empty)")
+    host.set_status("Log copied")

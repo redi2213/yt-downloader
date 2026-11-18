@@ -43,7 +43,7 @@ def build(host):
         host.show(reading_screen, lines)
 
     host.button("Read qualities on this phone", go)
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.back_button("Back")
 
 
@@ -254,3 +254,14 @@ def _size(n):
         v /= 1024.0
         i += 1
     return "%d B" % n if i == 0 else "%.1f %s" % (v, units[i])
+
+
+def _copy_log(host):
+    """The button that used to open the log screen: it only copies the log now."""
+    try:
+        text = host._log.text()
+    except Exception:
+        host.show_log()
+        return
+    host.copy(text or "(empty)")
+    host.set_status("Log copied")

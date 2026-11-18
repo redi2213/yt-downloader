@@ -56,7 +56,7 @@ def build(host):
     host.button("Download to a GitHub release", lambda: need() and start_download(host))
     host.button("Options (proxy / v2ray)", lambda: (grab(), host.show(options_screen)))
     host.button("Free proxies", lambda: (grab(), host.show(proxies_screen)))
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.back_button("Back")
 
 
@@ -230,7 +230,7 @@ def phone_result(host, results):
         if r.get("size_debug"):
             host.log(r["size_debug"])
     host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
-    host.button("Show log", host.show_log)
+    host.button("Copy log", lambda: _copy_log(host))
     host.back_button()
 
 
@@ -911,3 +911,14 @@ def configs_view(host, heading, info):
             host.text("%d configs (updated %s):\n%s" % (len(items), updated or "?", "\n".join(items)))
     host.status()
     host.back_button()
+
+
+def _copy_log(host):
+    """The button that used to open the log screen: it only copies the log now."""
+    try:
+        text = host._log.text()
+    except Exception:
+        host.show_log()
+        return
+    host.copy(text or "(empty)")
+    host.set_status("Log copied")
