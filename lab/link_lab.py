@@ -626,12 +626,34 @@ def _phone_add_sizes(res):
     with ThreadPoolExecutor(max_workers=4) as ex:
         list(ex.map(one, rows))
     dur = res.get("duration") or 0
+    # The mp4 links are tied to the IP and answer 403 to a size request. Their HLS twin is not: same path with
+    # "<h>p.h264.mp4.m3u8" (xHamster-style). Read that playlist the way the 1080p one is read.
+    try:
+        hls = next((r for r in rows if r.get("hls") or ".m3u8" in (r.get("url") or "")), None)
+        pat = re.compile(r"/\d{3,4}p\.[a-z0-9]+\.mp4\.m3u8")
+        if hls and pat.search(hls["url"]):
+            def twin(row):
+                if row.get("size") or not row.get("h"):
+                    return
+                for codec in ("h264", "av1"):
+                    cand = pat.sub("/%dp.%s.mp4.m3u8" % (row["h"], codec), hls["url"], count=1)
+                    n = _phone_hls_estimate(cand, row["h"], hls.get("_hdr"))
+                    if n:
+                        row["size"] = "~" + _phone_size(n) + " (HLS)"
+                        return
+            from concurrent.futures import ThreadPoolExecutor as _TP
+            with _TP(max_workers=4) as ex2:
+                list(ex2.map(twin, rows))
+    except Exception as e:
+        _phone_err(e)
     if dur and any(not r.get("size") for r in rows):
         # The file itself refused the size request (often HTTP 403): use the HLS master playlist's
         # bandwidth per height x duration, shown with ~ and (est.).
         try:
             hls = next((r for r in rows if r.get("hls") or ".m3u8" in (r.get("url") or "")), None)
             bw = _phone_master_bw(hls["url"], hls.get("_hdr")) if hls else {}
+            if hls and not bw and re.search(r"/\d{3,4}p\.[a-z0-9]+\.mp4\.m3u8", hls["url"]):
+                bw = _phone_master_bw(re.sub(r"/\d{3,4}p\.", "/_TPL_.", hls["url"], count=1), hls.get("_hdr"))
             for row in rows:
                 if not row.get("size") and bw.get(row.get("h")):
                     row["size"] = "~" + _phone_size(int(bw[row["h"]] / 8.0 * float(dur))) + " (est.)"
@@ -649,8 +671,8 @@ def _phone_add_sizes(res):
     res["size_debug"] = "size errors: %s; duration=%s; master=%s" % (why, dur, bool(locals().get("bw")))
     if any(not r.get("size") for r in rows):
         res["note"] = ((res.get("note") or "") + " Size not found for some qualities (%s)." % why).strip()
-    elif any("(est.)" in r["size"] or "(bitrate)" in r["size"] for r in rows if r.get("size")):
-        res["note"] = ((res.get("note") or "") + " Exact size is not available (%s); ~ = estimate." % why).strip()
+    elif any("(est.)" in r["size"] or "(bitrate)" in r["size"] or "(HLS)" in r["size"] for r in rows if r.get("size")):
+        res["note"] = ((res.get("note") or "") + " Exact size is not available for the mp4 file (%s); ~ = size of the HLS stream or an estimate." % why).strip()
 
 
 # ---------------------------------------------------------------- download
