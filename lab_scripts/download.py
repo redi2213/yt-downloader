@@ -171,6 +171,90 @@ def download_hls(url: str, referer: str, out_base: str, out_dir: Path, proxy: st
     return None
 
 
+HERE = Path(__file__).resolve().parent
+MAX_FALLBACK_ROUTES = 8
+
+
+def _norm_proxy(line: str) -> str:
+    line = (line or "").strip()
+    if not line or line.startswith("#"):
+        return ""
+    return line if "://" in line else "http://" + line
+
+
+def collect_proxies() -> list[str]:
+    """Proxy list: the one typed in the app first, then the saved working list."""
+    out: list[str] = []
+    texts = [os.environ.get("PROXY_IN", "")]
+    for p in ("labcfg/lab/working_proxies.txt", "working_proxies.txt"):
+        try:
+            texts.append(Path(p).read_text(encoding="utf-8"))
+        except OSError:
+            pass
+    for t in texts:
+        for ln in t.replace(",", "\n").splitlines():
+            p = _norm_proxy(ln)
+            if p and p not in out:
+                out.append(p)
+    return out[:MAX_FALLBACK_ROUTES]
+
+
+def _run_helper(name: str) -> None:
+    try:
+        subprocess.run([sys.executable, str(HERE / name)], check=False, timeout=240)
+    except Exception as e:  # never fail the workflow because of a helper
+        print(f"{name} failed: {type(e).__name__}", flush=True)
+
+
+def xray_proxies() -> list[str]:
+    """Local SOCKS proxies from the v2ray config, else from the saved default configs."""
+    out: list[str] = []
+    if not os.path.isfile("/tmp/xray_from_config") and os.environ.get("V2RAY_CONFIG", "").strip():
+        _run_helper("xray_setup.py")
+    if os.path.isfile("/tmp/xray_from_config"):
+        out.append("socks5://127.0.0.1:10808")
+    if not out:
+        if not os.path.isfile("/tmp/xray_default_proxies.txt"):
+            _run_helper("xray_default.py")
+        try:
+            for ln in Path("/tmp/xray_default_proxies.txt").read_text().splitlines():
+                if ln.strip():
+                    out.append(ln.strip())
+        except OSError:
+            pass
+    return out[:MAX_FALLBACK_ROUTES]
+
+
+def upgrade_ytdlp_nightly() -> bool:
+    print("last chance: installing yt-dlp nightly", flush=True)
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "-U", "--pre", "yt-dlp[default]"])
+    subprocess.run(["yt-dlp", "--version"])
+    return r.returncode == 0
+
+
+def fallback_routes(page: str, base: str, out_dir: Path, skip: set) -> tuple[Path | None, str]:
+    """Order: 1) proxy list  2) v2ray/default configs  3) yt-dlp nightly (then all again)."""
+    proxies = [p for p in collect_proxies() if p not in skip]
+    for p in proxies:
+        print(f"retry via proxy {p}", flush=True)
+        path = download_hls(page, referer=page, out_base=base, out_dir=out_dir, proxy=p)
+        if path:
+            return path, f"proxy {p}"
+    xs = [p for p in xray_proxies() if p not in skip]
+    for p in xs:
+        print(f"retry via config {p}", flush=True)
+        path = download_hls(page, referer=page, out_base=base, out_dir=out_dir, proxy=p)
+        if path:
+            return path, f"config {p}"
+    if upgrade_ytdlp_nightly():
+        for p in [None] + proxies + xs:
+            print(f"nightly retry via {p or 'GitHub IP (no proxy)'}", flush=True)
+            path = download_hls(page, referer=page, out_base=base, out_dir=out_dir, proxy=p)
+            if path:
+                return path, f"nightly + {p or 'GitHub IP (no proxy)'}"
+    return None, ""
+
+
 def main() -> int:
     if os.environ.get("UPLOAD", "true").lower() not in {"1", "true", "yes"}:
         print("UPLOAD disabled")
@@ -218,6 +302,10 @@ def main() -> int:
             if not path and page and kind != "page":
                 path = download_hls(page, referer=page, out_base=base, out_dir=out_dir, proxy=used_proxy)
             route = f"proxy {used_proxy}"
+        if not path and page:
+            path, route2 = fallback_routes(page, base, out_dir, {used_proxy})
+            if path:
+                route = route2
         if path:
             files.append(path)
             notes.append(f"  route: {route}")

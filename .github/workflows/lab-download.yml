@@ -164,6 +164,8 @@ jobs:
         env:
           UPLOAD: "true"
           QUALITY: ${{ inputs.quality }}
+          PROXY_IN: ${{ inputs.proxy }}
+          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
