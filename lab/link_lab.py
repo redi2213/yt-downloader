@@ -56,7 +56,7 @@ def build(host):
     host.button("Download to a GitHub release", lambda: need() and start_download(host))
     host.button("Options (proxy / v2ray)", lambda: (grab(), host.show(options_screen)))
     host.button("Free proxies", lambda: (grab(), host.show(proxies_screen)))
-    host.button("Copy log", lambda: _copy_log(host))
+    host.row([("Copy log", lambda: _copy_log(host)), ("Clear log", lambda: _clear_log(host))])
     host.back_button("Back")
 
 
@@ -230,7 +230,7 @@ def phone_result(host, results):
         if r.get("size_debug"):
             host.log(r["size_debug"])
     host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
-    host.button("Copy log", lambda: _copy_log(host))
+    host.row([("Copy log", lambda: _copy_log(host)), ("Clear log", lambda: _clear_log(host))])
     host.back_button()
 
 
@@ -918,11 +918,22 @@ def configs_view(host, heading, info):
 
 
 def _copy_log(host):
-    """The button that used to open the log screen: it only copies the log now."""
+    """Copies only the END of the log (the newest lines, at most 60 lines / 7000 characters): the whole
+    log is kept on the phone (400 lines) and is too long to paste."""
     try:
         text = host._log.text()
     except Exception:
         host.show_log()
         return
-    host.copy(text or "(empty)")
-    host.set_status("Log copied")
+    lines = (text or "").splitlines()[-60:]
+    out = "\n".join(lines)[-7000:]
+    host.copy(out or "(empty)")
+    host.set_status("Copied the last %d lines" % len(lines) if lines else "The log is empty")
+
+
+def _clear_log(host):
+    try:
+        host._log.clear()
+        host.set_status("Log cleared")
+    except Exception as e:
+        host.set_status("Could not clear: %s" % str(e)[:60])

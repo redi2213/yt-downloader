@@ -10,7 +10,7 @@ def build(host):
     host.button("Input and choice", lambda: host.show(form))
     host.button("Ask GitHub for a quote (background HTTP)", lambda: host.show(quote))
     host.button("Saved counter", lambda: host.show(counter))
-    host.button("Copy log", lambda: _copy_log(host))
+    host.row([("Copy log", lambda: _copy_log(host)), ("Clear log", lambda: _clear_log(host))])
     host.status()
     host.back_button("Back")            # leaves the plugin
 
@@ -67,11 +67,22 @@ def counter(host):
 
 
 def _copy_log(host):
-    """The button that used to open the log screen: it only copies the log now."""
+    """Copies only the END of the log (the newest lines, at most 60 lines / 7000 characters): the whole
+    log is kept on the phone (400 lines) and is too long to paste."""
     try:
         text = host._log.text()
     except Exception:
         host.show_log()
         return
-    host.copy(text or "(empty)")
-    host.set_status("Log copied")
+    lines = (text or "").splitlines()[-60:]
+    out = "\n".join(lines)[-7000:]
+    host.copy(out or "(empty)")
+    host.set_status("Copied the last %d lines" % len(lines) if lines else "The log is empty")
+
+
+def _clear_log(host):
+    try:
+        host._log.clear()
+        host.set_status("Log cleared")
+    except Exception as e:
+        host.set_status("Could not clear: %s" % str(e)[:60])
