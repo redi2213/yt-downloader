@@ -7,6 +7,7 @@ download-to-phone helper and a media scanner. Self-test: python dlna_core.py (pr
 import mimetypes
 import os
 import re
+import select
 import socket
 import threading
 import time
@@ -128,36 +129,127 @@ def parse_description(content, location):
     }
 
 
-def discover(timeout=6.0):
-    """SSDP M-SEARCH for MediaRenderers. Returns a list of renderer dicts (needs the multicast lock)."""
-    locs = []
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+def _private(ip):
+    p = ip.split(".")
     try:
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
-        sock.settimeout(0.4)
+        a, b = int(p[0]), int(p[1])
+    except (ValueError, IndexError):
+        return False
+    return a == 10 or (a == 192 and b == 168) or (a == 172 and 16 <= b <= 31)
+
+
+def local_ips():
+    """Private IPv4 addresses of this phone: Wi-Fi, and the hotspot address when the hotspot is on."""
+    ips = []
+
+    def add(a):
+        a = (a or "").split("%")[0]
+        if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", a) and _private(a) and a not in ips:
+            ips.append(a)
+
+    try:
+        from jnius import autoclass
+        en = autoclass("java.net.NetworkInterface").getNetworkInterfaces()
+        while en is not None and en.hasMoreElements():
+            ni = en.nextElement()
+            if ni.isLoopback() or not ni.isUp():
+                continue
+            addrs = ni.getInetAddresses()
+            while addrs.hasMoreElements():
+                add(addrs.nextElement().getHostAddress())
+    except Exception:
+        pass
+    try:
+        for a in socket.gethostbyname_ex(socket.gethostname())[2]:
+            add(a)
+    except OSError:
+        pass
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 9))
+        add(s.getsockname()[0])
+    except OSError:
+        pass
+    finally:
+        s.close()
+    return ips
+
+
+def _sweep_targets(ip):
+    """Every other host of the /24 around ip (used in hotspot mode for unicast SSDP)."""
+    base = ip.rsplit(".", 1)[0]
+    return [base + "." + str(i) for i in range(1, 255) if base + "." + str(i) != ip]
+
+
+def _open_socks(ips):
+    """One UDP socket per local address so multicast leaves through every interface (Wi-Fi and hotspot)."""
+    socks = []
+    for ip in ips:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        try:
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+            s.bind((ip, 0))
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+            socks.append((s, ip))
+        except OSError:
+            s.close()
+    if not socks:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+        socks.append((s, None))
+    return socks
+
+
+def _msearch(st):
+    return ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n"
+            "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: %s\r\n\r\n" % st).encode()
+
+
+def _send(sock, msg, addr):
+    try:
+        sock.sendto(msg, addr)
+    except OSError:
+        pass
+
+
+def discover(timeout=6.0, hotspot=False):
+    """SSDP M-SEARCH for MediaRenderers on every interface (needs the multicast lock).
+
+    hotspot=True also sends unicast M-SEARCH to every host of the hotspot subnet, because multicast
+    on the phone's own access point is unreliable on many phones."""
+    locs = []
+    socks = _open_socks(local_ips())
+    try:
         end = time.time() + timeout
         next_send = 0.0
+        sweep = bool(hotspot)
         while time.time() < end:
             if time.time() >= next_send:
-                for st in (ST_RENDERER, ST_AVT):
-                    msg = ("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n"
-                           "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: %s\r\n\r\n" % st).encode()
-                    try:
-                        sock.sendto(msg, SSDP_ADDR)
-                    except OSError:
-                        pass
+                for s, _ip in socks:
+                    for st in (ST_RENDERER, ST_AVT):
+                        _send(s, _msearch(st), SSDP_ADDR)
+                if sweep:
+                    sweep = False
+                    for s, ip in socks:
+                        if ip and (ip.startswith("192.168.") or ip.startswith("172.")):
+                            for t in _sweep_targets(ip):
+                                _send(s, _msearch(ST_RENDERER), (t, 1900))
                 next_send = time.time() + 2.0
             try:
-                data, _addr = sock.recvfrom(65507)
-            except socket.timeout:
-                continue
-            except OSError:
+                ready = select.select([s for s, _ip in socks], [], [], 0.4)[0]
+            except (OSError, ValueError):
                 break
-            m = re.search(r"(?im)^location:\s*(\S+)", data.decode("utf-8", "replace"))
-            if m and m.group(1) not in locs:
-                locs.append(m.group(1))
+            for s in ready:
+                try:
+                    data, _addr = s.recvfrom(65507)
+                except OSError:
+                    continue
+                m = re.search(r"(?im)^location:\s*(\S+)", data.decode("utf-8", "replace"))
+                if m and m.group(1) not in locs:
+                    locs.append(m.group(1))
     finally:
-        sock.close()
+        for s, _ip in socks:
+            s.close()
 
     def one(loc):
         try:
@@ -569,6 +661,12 @@ def _selftest():
     assert any("&lt;DIDL-Lite" in b and "%D9%81" in b for _a, b in fake.log)
     fake.shutdown()
     srv.stop()
+    assert _private("192.168.43.1") and _private("172.20.10.1") and _private("10.1.2.3")
+    assert not _private("8.8.8.8") and not _private("172.32.0.1") and not _private("x")
+    t = _sweep_targets("192.168.43.1")
+    assert len(t) == 253 and "192.168.43.1" not in t and t[0] == "192.168.43.2" and t[-1] == "192.168.43.254"
+    assert isinstance(local_ips(), list)
+    assert discover(0.5) == [] and discover(0.5, hotspot=True) == []
     print("ok")
 
 
