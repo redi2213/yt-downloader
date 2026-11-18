@@ -45,6 +45,7 @@
 - خطای workflow: .github/workflows/<n>.yml + scripts/<n>.py + core/error_help.py
 - پخش روی تلویزیون (DLNA/UPnP، تست در Lab): شاخه lab → lab/dlna_tv.py (UI) + lab/lib/dlna_core.py (SSDP، SOAP، سرور HTTP با Range، دانلود/اسکن)؛ مجوزهای ACCESS_WIFI_STATE/CHANGE_WIFI_MULTICAST_STATE در buildozer.spec (نیاز به Build)
 - Lab و Promote: شاخه lab → lab/promote.py، lab/lib/promote_*.py، lab/wf_import.py
+- Link Lab و «Get links only (this phone)» (اندازه‌ی کیفیت‌ها، پیشنهاد VPN): شاخه lab → lab/link_lab.py (توابع _phone_*)؛ نمایش جاب‌های Action هنگام ران ورکفلو در Lab: lab/lib/lab_jobs.py (در modules فایل lab/index.json ثبت شده)
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
