@@ -740,6 +740,10 @@ MORE_EXACT.update({
     "Watched folders": "پوشه‌های نظارت‌شده",
     "Add folder": "افزودن پوشه",
     "Scan again": "اسکن دوباره",
+    "Keep on phone": "نگه‌داشتن در گوشی",
+    "Delete from phone too": "از گوشی هم حذف شود",
+    "This file is also on the phone.": "این فایل در گوشی هم هست.",
+    "Deleting it from the phone cannot be undone.": "حذف از گوشی برگشت‌پذیر نیست.",
     "Scanning folders...": "در حال اسکن پوشه‌ها...",
     "Watched folders (files saved by other apps)": "پوشه‌های نظارت‌شده (فایل‌های برنامه‌های دیگر)",
     "Add the folders where other download apps save files. Release History and Downloads then show a file that is already on the phone, and warn before it is downloaded again.":
