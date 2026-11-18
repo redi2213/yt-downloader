@@ -98,6 +98,8 @@ def file_screen(host):
     host.text("The TV pulls the file from a small server on this phone, so the file must be on the phone.")
     host.button("Browse phone folders", lambda: host.show(browse_home_screen))
     host.button("Scan phone for videos / audio", lambda: host.show(scan_screen))
+    q = host.input("Search by any part of the name")
+    host.button("Search all storage", lambda: _do_search(host, q))
     path = host.input("File path on the phone", text=S["file"] or "")
     link = host.input("Direct link (downloaded to the phone first)")
     host.status()
@@ -119,6 +121,30 @@ def file_screen(host):
 
     host.button("Use this path", use_path)
     host.button("Download link to the phone", use_link)
+    host.back_button("Back")
+
+
+def _do_search(host, q):
+    text = (q.text or "").strip()
+    if not text:
+        host.set_status("Type part of the file name first")
+        return
+    host.show(search_screen, text)
+
+
+def search_screen(host, query):
+    host.title("Searching: " + query)
+    host.status()
+    host.set_status("Looking through all storage...")
+
+    def done(res, err):
+        if err is not None:
+            host.set_status("Failed: %s" % err)
+            host.log("search failed:", err)
+            return
+        host.replace(scan_result_screen, res)
+
+    host.background(lambda: D.search_media(query), done=done)
     host.back_button("Back")
 
 
