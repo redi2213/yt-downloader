@@ -96,6 +96,7 @@ def _toggle_hotspot(host):
 def file_screen(host):
     host.title("Choose file")
     host.text("The TV pulls the file from a small server on this phone, so the file must be on the phone.")
+    host.button("Browse phone folders", lambda: host.show(browse_home_screen))
     host.button("Scan phone for videos / audio", lambda: host.show(scan_screen))
     path = host.input("File path on the phone", text=S["file"] or "")
     link = host.input("Direct link (downloaded to the phone first)")
@@ -118,6 +119,38 @@ def file_screen(host):
 
     host.button("Use this path", use_path)
     host.button("Download link to the phone", use_link)
+    host.back_button("Back")
+
+
+def browse_home_screen(host):
+    host.title("Browse phone")
+    host.text("Pick a folder, then a video or audio file.")
+    for name, p in D.shortcuts():
+        host.button("[DIR] " + name, lambda x=p: host.show(browse_screen, x))
+    host.button("All storage", lambda: host.show(browse_screen, D.storage_root()))
+    host.back_button("Back")
+
+
+def browse_screen(host, path):
+    path = path.rstrip("/") or "/"
+    host.title(os.path.basename(path) or path)
+    host.text(path)
+    try:
+        dirs, files, cut = D.list_dir(path)
+    except D.DlnaError as e:
+        host.text(str(e))
+        host.back_button("Back")
+        return
+    if path != D.storage_root() and path != "/":
+        host.button("[UP] ..", lambda: host.replace(browse_screen, os.path.dirname(path) or "/"))
+    for name, p in dirs:
+        host.button("[DIR] " + name, lambda x=p: host.show(browse_screen, x))
+    for name, p, size in files:
+        host.button("%s  [%s]" % (name, D.human_size(size)), lambda x=p: _pick_file(host, x))
+    if not dirs and not files:
+        host.text("No folders or media files here.")
+    if cut:
+        host.text("Only the first 300 entries are shown.")
     host.back_button("Back")
 
 
