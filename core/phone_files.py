@@ -31,16 +31,34 @@ def key(name, size):
 
 
 class Index:
+    """``pairs``: (name, size) or (name, size, location, entry_id) - the location lets a copy be deleted."""
+
     def __init__(self, pairs):
-        self._keys = {key(n, s) for n, s in pairs if n and s}
+        self._keys = set()
+        self._where = {}
+        for rec in pairs:
+            name, size = rec[0], rec[1]
+            if not name or not size:
+                continue
+            k = key(name, size)
+            self._keys.add(k)
+            loc = rec[2] if len(rec) > 2 else None
+            if loc:
+                found = self._where.setdefault(k, [])
+                if all(loc != x[0] for x in found):
+                    found.append((str(loc), rec[3] if len(rec) > 3 else None))
 
     def has(self, name, size):
         return bool(size) and key(name, size) in self._keys
 
+    def where(self, name, size):
+        """[(location, downloads-history entry id or None)] of the copies on the phone."""
+        return list(self._where.get(key(name, size), [])) if size else []
+
 
 def index():
-    """An ``Index`` of everything known to be on the phone (``.has(name, size)``)."""
-    pairs = [(e.get("name"), e.get("size")) for e in downloads_history.load()]
+    """An ``Index`` of everything known to be on the phone (``.has(name, size)``, ``.where(...)``)."""
+    pairs = [(e.get("name"), e.get("size"), e.get("location"), e.get("id")) for e in downloads_history.load()]
     pairs += list(_cache["files"])
     refresh_watched()
     return Index(pairs)
@@ -90,7 +108,7 @@ def refresh_watched(force=False):
 
 
 def _scan_tree(tree_uri, cap, depth=MAX_DEPTH):
-    """[(name, size)] of the files inside a picked folder and ALL its sub folders (up to ``depth``
+    """[(name, size, uri)] of the files inside a picked folder and ALL its sub folders (up to ``depth``
     levels), level by level so the sub folders are never skipped because the top one is big."""
     from jnius import autoclass
     Uri = autoclass("android.net.Uri")
@@ -117,7 +135,8 @@ def _scan_tree(tree_uri, cap, depth=MAX_DEPTH):
                     if level < depth:
                         queue.append((cursor.getString(id_i), level + 1))
                 else:
-                    out.append((str(cursor.getString(name_i)), int(cursor.getLong(size_i))))
+                    where = str(Docs.buildDocumentUriUsingTree(tree, cursor.getString(id_i)).toString())
+                    out.append((str(cursor.getString(name_i)), int(cursor.getLong(size_i)), where))
         finally:
             cursor.close()
     return out
