@@ -192,8 +192,10 @@ def _formats(info):
         proto = (f.get("protocol") or "").lower()
         if any(b in proto for b in _SKIP):
             continue
-        v = f.get("vcodec") not in (None, "none")
-        a = f.get("acodec") not in (None, "none")
+        # A direct file often has no codec info (None = unknown): that is one file with picture and
+        # sound (the GitHub links.py accepts it too). Only an explicit "none" means a part is missing.
+        v = f.get("vcodec") != "none"
+        a = f.get("acodec") != "none"
         h = _height(f)
         if v and a:
             both.append({
