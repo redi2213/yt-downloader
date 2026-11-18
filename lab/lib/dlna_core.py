@@ -585,6 +585,41 @@ def scan_media(extra_roots=(), limit=40):
     return [(p, s) for _m, p, s in rows[:limit]]
 
 
+def storage_root():
+    for p in ("/storage/emulated/0", "/sdcard"):
+        if os.path.isdir(p):
+            return p
+    return os.path.expanduser("~")
+
+
+def shortcuts():
+    """Common media folders that exist on this phone: [(name, path)]."""
+    root = storage_root()
+    return [(n, os.path.join(root, n)) for n in ("Download", "Movies", "Music", "DCIM", "Documents", "Telegram")
+            if os.path.isdir(os.path.join(root, n))]
+
+
+def list_dir(path, limit=300):
+    """(folders, media files, cut) of one folder. folders=[(name, path)], files=[(name, path, size)]."""
+    try:
+        names = sorted(os.listdir(path), key=str.lower)
+    except OSError as e:
+        raise DlnaError("cannot open folder: %s" % e)
+    dirs, files = [], []
+    for n in names:
+        if n.startswith("."):
+            continue
+        p = os.path.join(path, n)
+        if os.path.isdir(p):
+            dirs.append((n, p))
+        elif os.path.splitext(n)[1].lower() in MIME:
+            try:
+                files.append((n, p, os.path.getsize(p)))
+            except OSError:
+                pass
+    return dirs[:limit], files[:limit], len(dirs) > limit or len(files) > limit
+
+
 def human_size(n):
     v = float(n)
     for u in ("B", "KB", "MB", "GB"):
@@ -667,6 +702,21 @@ def _selftest():
     assert len(t) == 253 and "192.168.43.1" not in t and t[0] == "192.168.43.2" and t[-1] == "192.168.43.254"
     assert isinstance(local_ips(), list)
     assert discover(0.5) == [] and discover(0.5, hotspot=True) == []
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "B sub"))
+    os.makedirs(os.path.join(d, "a sub"))
+    os.makedirs(os.path.join(d, ".hidden"))
+    for n in ("z.mp4", "m.MP3", "notes.txt", ".h.mp4"):
+        open(os.path.join(d, n), "wb").write(b"123")
+    dirs, files, cut = list_dir(d)
+    assert [x[0] for x in dirs] == ["a sub", "B sub"] and [x[0] for x in files] == ["m.MP3", "z.mp4"] and not cut
+    assert files[0][2] == 3 and list_dir(d, limit=1)[2] is True
+    try:
+        list_dir(os.path.join(d, "nope"))
+        assert False
+    except DlnaError:
+        pass
+    assert os.path.isdir(storage_root()) and isinstance(shortcuts(), list)
     print("ok")
 
 
