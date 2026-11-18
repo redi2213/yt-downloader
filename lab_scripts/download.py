@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+TARGET_H: int | None = None  # max height from QUALITY (set in main); used by yt-dlp -S res:N
+
 
 def safe_name(title: str, idx: int) -> str:
     t = re.sub(r"[^\w\s\-.]+", "", title or "video")
@@ -118,6 +120,9 @@ def download_hls(url: str, referer: str, out_base: str, out_dir: Path, proxy: st
         str(out_dir / f"{out_base}.%(ext)s"),
         url,
     ]
+    if TARGET_H:
+        # page-URL / HLS retries must keep the quality the user chose (not the best one)
+        cmd[1:1] = ["-S", f"res:{TARGET_H}"]
     if "peekvids.com" in (url or ""):
         cmd[1:1] = ["--ies", "Generic,HTML5"]
     if proxy:
@@ -256,6 +261,7 @@ def fallback_routes(page: str, base: str, out_dir: Path, skip: set) -> tuple[Pat
 
 
 def main() -> int:
+    global TARGET_H
     if os.environ.get("UPLOAD", "true").lower() not in {"1", "true", "yes"}:
         print("UPLOAD disabled")
         return 0
@@ -267,6 +273,9 @@ def main() -> int:
 
     results = json.loads(data_path.read_text(encoding="utf-8"))
     quality = os.environ.get("QUALITY", "best")
+    _qm = re.search(r"(\d{3,4})", quality or "")
+    if _qm and (quality or "").strip().lower() not in ("best", "max"):
+        TARGET_H = int(_qm.group(1))
     out_dir = Path("downloads")
     out_dir.mkdir(exist_ok=True)
 
