@@ -371,7 +371,7 @@ def download_screen(host, url, quality):
     host.title("Downloading (%s)" % label)
     host.text("Runs lab-download.yml from the lab branch and saves the video in a GitHub "
               "release. You can leave this screen; the run keeps going.")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
     proxy, v2ray = _link_lab_options(host)
     inputs = {"url": url, "quality": str(quality), "proxy": proxy, "v2ray_config": v2ray}
@@ -382,7 +382,14 @@ def download_screen(host, url, quality):
             raise RuntimeError("Could not find the workflow run on GitHub")
         host.log("lab-download run", run_id)
         host.set_status("Run %s started..." % run_id)
-        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        try:
+            from labx import lab_jobs
+        except Exception:
+            lab_jobs = None
+        if lab_jobs is not None:
+            conclusion = lab_jobs.wait(host, run_id, host.set_status)   # the jobs of the run
+        else:
+            conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
         links = []
         if conclusion == "success":
             try:

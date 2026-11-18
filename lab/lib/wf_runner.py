@@ -974,7 +974,7 @@ def _run(host, workflow, title, values, text):
     except Exception as e:
         host.log("the app's progress screen could not be used:", repr(e))
     host.title("Running")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
     host.back_button("Back")
     host.background(_do_run, host, workflow, values, text, done=lambda r, e: host.replace(_run_done, workflow, title, r)
@@ -988,7 +988,14 @@ def _do_run(host, workflow, values, text):
     host.store.set("last_run", {"workflow": workflow, "run_id": run_id, "inputs": values})
     names = {"queued": "Queued on GitHub", "in_progress": "Running", "completed": "Finishing"}
     host.set_status("Run %s started" % run_id)
-    conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s (run %s)" % (names.get(s, s), run_id)))
+    try:
+        from labx import lab_jobs
+    except Exception:
+        lab_jobs = None
+    if lab_jobs is not None:
+        conclusion = lab_jobs.wait(host, run_id, host.set_status)     # the jobs of the run, like the Actions tab
+    else:
+        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s (run %s)" % (names.get(s, s), run_id)))
     host.set_status("Reading the result...")
     res = diagnose(host, run_id, conclusion, text)
     res.update({"run_id": run_id, "conclusion": conclusion, "inputs": values, "links": []})

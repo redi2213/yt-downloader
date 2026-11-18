@@ -95,11 +95,22 @@ def options_screen(host):
 
 
 # ---------------------------------------------------------------- get links
+def _wait(host, run_id):
+    """Waits for a run and shows its jobs (like the Actions tab) in the status line."""
+    try:
+        from labx import lab_jobs
+    except Exception:
+        lab_jobs = None
+    if lab_jobs is not None:
+        return lab_jobs.wait(host, run_id, host.set_status)
+    return host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+
+
 def links_screen(host):
     host.title("Getting links")
     host.text("Runs lab-links.yml on GitHub (about a minute). You can leave this screen; "
               "the run keeps going.")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
     inputs = {"url": S["urls"], "proxy": S["proxy"], "v2ray_config": S["v2ray"]}
 
@@ -109,7 +120,7 @@ def links_screen(host):
             raise RuntimeError("Could not find the workflow run on GitHub")
         host.log("lab-links run", run_id)
         host.set_status("Run %s started..." % run_id)
-        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        conclusion = _wait(host, run_id)
         body = ""
         if conclusion == "success":
             for _ in range(6):
@@ -207,6 +218,11 @@ def phone_result(host, results):
             host.button("Download on GitHub (lab-download)",
                         lambda r=r: _run_download(host, r["url"], "best"))
     host.status()
+    if any(not (r.get("rows") or []) for r in results):
+        host.text("No video link was found for some pages. The site may be blocking this phone's IP: "
+                  "turn on a VPN (change the phone's IP) and read again. Or let GitHub try to read it.")
+        host.button("Read again on this phone", lambda: host.show(phone_screen))
+        host.button("Get links on GitHub (lab-links)", lambda: host.show(links_screen))
     host.text("Tap a quality for: copy, download in the app, upload to a release, share.")
     report = "\n\n".join(blocks)
     host.log("phone read:\n" + report[:3000])
@@ -405,7 +421,8 @@ def _phone_formats(info):
             both.append({"h": h, "ext": "mp4" if "m3u8" in proto else (f.get("ext") or "mp4"),
                          "hls": "m3u8" in proto,
                          "size": _phone_size(f.get("filesize") or f.get("filesize_approx")),
-                         "url": link.split("#")[0], "_bytes": _phone_bytes(f), "_tbr": f.get("tbr")})
+                         "url": link.split("#")[0], "_bytes": _phone_bytes(f), "_tbr": f.get("tbr"),
+                         "_hdr": dict(f.get("http_headers") or {})})
         elif v and h:
             video.append(h)
     groups = {}
@@ -468,7 +485,7 @@ def _phone_size(n):
 _NET = {"ydl": None, "err": "", "referer": ""}
 
 
-def _phone_http(url, headers=None, timeout=15):
+def _phone_http(url, headers=None, timeout=15, method=None):
     h = {"User-Agent": "Mozilla/5.0"}
     if _NET["referer"]:
         h["Referer"] = _NET["referer"]
@@ -479,28 +496,29 @@ def _phone_http(url, headers=None, timeout=15):
         if _NET["ydl"] is None:
             import yt_dlp
             _NET["ydl"] = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": timeout})
-        return _NET["ydl"].urlopen(Request(url, headers=h))
+        return _NET["ydl"].urlopen(Request(url, headers=h, method=method))
     except ImportError:
         import urllib.request
-        return urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout)
+        return urllib.request.urlopen(urllib.request.Request(url, headers=h, method=method), timeout=timeout)
 
 
 def _phone_err(e):
     _NET["err"] = ("%s: %s" % (type(e).__name__, e)).strip()[:110]
 
 
-def _phone_text(url):
+def _phone_text(url, hdr=None):
     try:
-        with _phone_http(url) as r:
+        with _phone_http(url, hdr) as r:
             return r.read(2000000).decode("utf-8", "replace")
     except Exception as e:
         _phone_err(e)
         return ""
 
 
-def _phone_range_size(url):
+def _phone_range_size(url, hdr=None):
+    """Size of a file: a 1-byte Range request, then HEAD. ``hdr`` = the headers yt-dlp gave for this format."""
     try:
-        with _phone_http(url, {"Range": "bytes=0-0"}) as r:
+        with _phone_http(url, dict(hdr or {}, Range="bytes=0-0")) as r:
             m = re.search(r"/(\d+)\s*$", r.headers.get("Content-Range") or "")
             if m:
                 return int(m.group(1))
@@ -509,31 +527,60 @@ def _phone_range_size(url):
                 return int(n)
     except Exception as e:
         _phone_err(e)
+    try:
+        with _phone_http(url, hdr, method="HEAD") as r:
+            n = r.headers.get("Content-Length") or ""
+            if n.isdigit() and int(n) > 1:
+                return int(n)
+    except Exception as e:
+        _phone_err(e)
     return None
 
 
-def _phone_hls_estimate(url):
+def _phone_master_bw(url, hdr=None):
+    """{height: bits per second} from the variants of an HLS master playlist (empty when it is not one)."""
+    text = _phone_text(url, hdr)
+    out = {}
+    for ln in text.splitlines():
+        if not ln.startswith("#EXT-X-STREAM-INF"):
+            continue
+        h = re.search(r"RESOLUTION=\d+x(\d+)", ln) or re.search(r'NAME="?(\d{3,4})p', ln)
+        bw = re.search(r"AVERAGE-BANDWIDTH=(\d+)", ln) or re.search(r"(?<![A-Z-])BANDWIDTH=(\d+)", ln)
+        if h and bw:
+            out[int(h.group(1))] = int(bw.group(1))
+    return out
+
+
+def _phone_hls_estimate(url, height=0, hdr=None):
     from urllib.parse import urljoin
-    text = _phone_text(url)
+    text = _phone_text(url, hdr)
     if "#EXTM3U" not in text:
         return None
     if "#EXT-X-STREAM-INF" in text:
         lines = text.splitlines()
+        pick = None
         for i, ln in enumerate(lines):
             if ln.startswith("#EXT-X-STREAM-INF"):
-                for nxt in lines[i + 1:]:
-                    if nxt.strip() and not nxt.startswith("#"):
-                        url = urljoin(url, nxt.strip())
-                        break
+                m = re.search(r"RESOLUTION=\d+x(\d+)", ln)
+                if pick is None:
+                    pick = i
+                if height and m and int(m.group(1)) == height:
+                    pick = i             # the variant of this quality, not just the first one
+                    break
+                if not height:
+                    break
+        for nxt in lines[(pick or 0) + 1:]:
+            if nxt.strip() and not nxt.startswith("#"):
+                url = urljoin(url, nxt.strip())
                 break
-        text = _phone_text(url)
+        text = _phone_text(url, hdr)
         if "#EXTM3U" not in text:
             return None
     segs = [urljoin(url, ln.strip()) for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
     if not segs:
         return None
     n = len(segs)
-    sizes = [s for s in (_phone_range_size(segs[i]) for i in sorted({0, n // 3, (2 * n) // 3})) if s]
+    sizes = [s for s in (_phone_range_size(segs[i], hdr) for i in sorted({0, n // 3, (2 * n) // 3})) if s]
     return int(sum(sizes) / len(sizes) * n) if sizes else None
 
 
@@ -551,11 +598,11 @@ def _phone_add_sizes(res):
         try:
             link = row.get("url") or ""
             if row.get("hls") or ".m3u8" in link:
-                n = _phone_hls_estimate(link)
+                n = _phone_hls_estimate(link, row.get("h") or 0, row.get("_hdr"))
                 if n:
                     row["size"] = "~" + _phone_size(n)
             else:
-                n = _phone_range_size(link)
+                n = _phone_range_size(link, row.get("_hdr"))
                 if n:
                     row["size"] = _phone_size(n)
         except Exception as e:
@@ -564,16 +611,30 @@ def _phone_add_sizes(res):
     with ThreadPoolExecutor(max_workers=4) as ex:
         list(ex.map(one, rows))
     dur = res.get("duration") or 0
+    if dur and any(not r.get("size") for r in rows):
+        # The file itself refused the size request (often HTTP 403): use the HLS master playlist's
+        # bandwidth per height x duration, shown with ~ and (est.).
+        try:
+            hls = next((r for r in rows if r.get("hls") or ".m3u8" in (r.get("url") or "")), None)
+            bw = _phone_master_bw(hls["url"], hls.get("_hdr")) if hls else {}
+            for row in rows:
+                if not row.get("size") and bw.get(row.get("h")):
+                    row["size"] = "~" + _phone_size(int(bw[row["h"]] / 8.0 * float(dur))) + " (est.)"
+        except Exception as e:
+            _phone_err(e)
     for row in rows:
         tbr = row.pop("_tbr", None)
+        row.pop("_hdr", None)
         if not row.get("size") and tbr and dur:
             try:
                 row["size"] = "~" + _phone_size(int(float(tbr) * 1000 / 8 * float(dur))) + " (bitrate)"
             except Exception:
                 pass
+    why = _NET["err"] or "no size in the playlist"
     if any(not r.get("size") for r in rows):
-        why = _NET["err"] or "no size in the playlist"
         res["note"] = ((res.get("note") or "") + " Size not found for some qualities (%s)." % why).strip()
+    elif any("(est.)" in r["size"] or "(bitrate)" in r["size"] for r in rows if r.get("size")):
+        res["note"] = ((res.get("note") or "") + " Exact size is not available (%s); ~ = estimate." % why).strip()
 
 
 # ---------------------------------------------------------------- download
@@ -589,7 +650,7 @@ def download_screen(host, url, quality, link="", title=""):
     host.title("Downloading (%s)" % label)
     host.text("Runs lab-download.yml from the lab branch and saves the video in a GitHub "
               "release. You can leave this screen; the run keeps going.")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
     inputs = {"url": url, "quality": str(quality), "proxy": S["proxy"], "v2ray_config": S["v2ray"]}
     # The link this phone already found goes to GitHub, so the run skips its own (slow) extract step.
@@ -605,7 +666,7 @@ def download_screen(host, url, quality, link="", title=""):
             raise RuntimeError("Could not find the workflow run on GitHub")
         host.log("lab-download run", run_id)
         host.set_status("Run %s started..." % run_id)
-        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        conclusion = _wait(host, run_id)
         links = []
         if conclusion == "success":
             try:
@@ -699,7 +760,7 @@ def find_screen(host):
     host.title("Finding proxies")
     host.text("Runs lab-find-proxies.yml. This can take several minutes; the result is saved on "
               "GitHub even if you leave this screen.")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
 
     def work():
@@ -708,7 +769,7 @@ def find_screen(host):
         if not run_id:
             raise RuntimeError("Could not find the workflow run on GitHub")
         host.log("lab-find-proxies run", run_id)
-        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        conclusion = _wait(host, run_id)
         return conclusion, _read_list(host)
 
     def done(res, err):
@@ -789,7 +850,7 @@ def configs_find_screen(host):
     host.text("Runs lab-refresh-configs.yml: tests the nodes of the default subscription and "
               "keeps the best few. It takes a few minutes; the result is saved on GitHub even "
               "if you leave this screen.")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
 
     def work():
@@ -797,7 +858,7 @@ def configs_find_screen(host):
         if not run_id:
             raise RuntimeError("Could not find the workflow run on GitHub")
         host.log("lab-refresh-configs run", run_id)
-        conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status("%s..." % s))
+        conclusion = _wait(host, run_id)
         return conclusion, _read_configs(host)
 
     def done(res, err):

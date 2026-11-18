@@ -27,7 +27,8 @@
       "description": "Get links / download any site through yt-dlp, with free proxies or v2ray. Get links only also has a this-phone runner (this phone's IP, yt-dlp, no change to lab-links.yml). Uses the lab-links, lab-download and lab-find-proxies workflows; the app's own tools are untouched.",
       "min_host": 1,
       "modules": [
-        "lib/site_phone.py"
+        "lib/site_phone.py",
+        "lib/lab_jobs.py"
       ]
     },
     {
@@ -44,7 +45,8 @@
       "description": "Copy a main workflow or a config plugin to the lab branch, edit the copy, run it from lab, or discard it. The originals are never touched.",
       "min_host": 1,
       "modules": [
-        "lib/lab_fa.py"
+        "lib/lab_fa.py",
+        "lib/lab_jobs.py"
       ]
     },
     {
@@ -52,7 +54,10 @@
       "title": "Page Sniffer (get m3u8 with my login)",
       "file": "m3u8_sniffer.py",
       "description": "Open a series/movie page in an in-app browser, log in with your account, press play: the tool catches the .m3u8 link. Then copy it or send it to lab-download (same as Link Lab).",
-      "min_host": 1
+      "min_host": 1,
+      "modules": [
+        "lib/lab_jobs.py"
+      ]
     },
     {
       "id": "promote",
@@ -77,7 +82,8 @@
         "lib/promote_core.py",
         "lib/promote_flow.py",
         "lib/site_phone.py",
-        "lib/site_flow.py"
+        "lib/site_flow.py",
+        "lib/lab_jobs.py"
       ],
       "description": "Bring a workflow from a GitHub link or pasted .yml into the Lab as a new tool: checks it against what the app needs, one-tap fixes, run, copyable error report.",
       "min_host": 1
@@ -89,7 +95,8 @@
       "modules": [
         "lib/lab_fa.py",
         "lib/wf_core.py",
-        "lib/wf_runner.py"
+        "lib/wf_runner.py",
+        "lib/lab_jobs.py"
       ],
       "description": "Imported workflow lab-workflow.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
       "min_host": 1,
@@ -121,7 +128,8 @@
       "modules": [
         "lib/lab_fa.py",
         "lib/wf_core.py",
-        "lib/wf_runner.py"
+        "lib/wf_runner.py",
+        "lib/lab_jobs.py"
       ],
       "description": "Imported workflow lab-pornhub-search-scraper.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
       "min_host": 1,
@@ -153,7 +161,8 @@
         "lib/lab_fa.py",
         "lib/wf_core.py",
         "lib/wf_runner.py",
-        "lib/site_phone.py"
+        "lib/site_phone.py",
+        "lib/lab_jobs.py"
       ],
       "description": "Imported workflow lab-free-iran-proxy-list.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
       "min_host": 1,
@@ -181,7 +190,8 @@
         "lib/lab_fa.py",
         "lib/wf_core.py",
         "lib/wf_runner.py",
-        "lib/site_phone.py"
+        "lib/site_phone.py",
+        "lib/lab_jobs.py"
       ],
       "description": "Imported workflow lab-site-suj-mobi.yml. Run, Check and a copyable error report inside; edit the workflow on the lab branch.",
       "min_host": 1,

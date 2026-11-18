@@ -25,7 +25,7 @@ from labx import wf_runner as rn
 
 LAB = "lab"
 WF = ".github/workflows"
-LIBS = ["lib/lab_fa.py", "lib/wf_core.py", "lib/wf_runner.py", "lib/site_phone.py"]
+LIBS = ["lib/lab_fa.py", "lib/wf_core.py", "lib/wf_runner.py", "lib/site_phone.py", "lib/lab_jobs.py"]
 MAX_DEPS = 20
 MAX_BYTES = 200000
 

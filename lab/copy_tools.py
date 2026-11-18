@@ -392,7 +392,7 @@ def _run_form(host, name, inputs):
 def _run_screen(host, name, values):
     state = {"run_id": None, "stop": threading.Event()}
     host.title(name + " (lab copy)")
-    host.status()
+    host.status(height=560)
     host.set_status("Starting...")
 
     def cancel():
@@ -406,14 +406,25 @@ def _run_screen(host, name, values):
     host.background(_work, host, name, values, state, done=lambda res, err: _done(host, res, err))
 
 
+def _wait_jobs(host, run_id, stop_event):
+    """Waits for the run and shows its jobs (like the Actions tab) in the status line."""
+    try:
+        from labx import lab_jobs
+    except Exception:
+        lab_jobs = None
+    if lab_jobs is not None:
+        return lab_jobs.wait(host, run_id, host.set_status, stop_event=stop_event)
+    return host.gh.wait(run_id, on_status=lambda s: host.set_status(_STATUS_TEXT.get(s, str(s)) + "..."),
+                        stop_event=stop_event)
+
+
 def _work(host, name, values, state):
     run_id = host.gh.dispatch(name, values)      # a Lab tool dispatches with ref=lab
     if not run_id:
         return {"error": "Could not detect the run. It may still be running on GitHub Actions."}
     state["run_id"] = run_id
     host.set_status("Run %s started" % run_id)
-    conclusion = host.gh.wait(run_id, on_status=lambda s: host.set_status(_STATUS_TEXT.get(s, str(s)) + "..."),
-                              stop_event=state["stop"])
+    conclusion = _wait_jobs(host, run_id, state["stop"])
     if conclusion == "cancelled_locally":
         return {"cancelled": True}
     if conclusion != "success":
