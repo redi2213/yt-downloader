@@ -386,7 +386,11 @@ def _phone_one(yt_dlp, opts, url):
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False) or {}
     except Exception as e:
-        return {"url": url, "title": url, "error": str(e).strip().splitlines()[-1][:180]}
+        import traceback
+        # The short error is shown; the last frames go to the log (Copy log) to find where it comes from.
+        frames = "\n".join(traceback.format_exc().strip().splitlines()[-8:])
+        return {"url": url, "title": url, "error": str(e).strip().splitlines()[-1][:180] or type(e).__name__,
+                "size_debug": "read error trace:\n" + frames}
     note = ""
     entries = [e for e in (info.get("entries") or []) if e]
     if entries:
