@@ -12,7 +12,7 @@ try:
 except ImportError:  # running outside the app
     import dlna_core as D
 
-S = {"tv": None, "file": None, "server": None}
+S = {"tv": None, "file": None, "server": None, "hotspot": False}
 
 
 def build(host):
@@ -21,6 +21,7 @@ def build(host):
     tv, f = S["tv"], S["file"]
     host.text("TV: " + ("%s (%s)" % (tv["name"], tv["host"]) if tv else "not chosen"))
     host.text("File: " + (os.path.basename(f) if f else "not chosen"))
+    host.text("Network: " + ("Hotspot (TV is connected to this phone's hotspot)" if S["hotspot"] else "Wi-Fi / modem"))
     host.status()
 
     def go():
@@ -29,7 +30,9 @@ def build(host):
         else:
             host.set_status("Choose a TV and a file first")
 
-    host.button("1) Find TVs on Wi-Fi", lambda: host.show(find_screen))
+    host.button("Network: " + ("Hotspot" if S["hotspot"] else "Wi-Fi / modem") + "  [tap to switch]",
+                lambda: _toggle_hotspot(host))
+    host.button("1) Find TVs", lambda: host.show(find_screen))
     host.button("2) Choose file (phone or link)", lambda: host.show(file_screen))
     host.button("3) Play on TV", go)
     host.button("Show log", host.show_log)
@@ -39,13 +42,14 @@ def build(host):
 # ------------------------------------------------------------------ 1) TVs
 def find_screen(host):
     host.title("Finding TVs")
-    host.text("Searching with SSDP (about 6 seconds).")
+    hot = S["hotspot"]
+    host.text("Searching with SSDP on the hotspot (about 8 seconds)." if hot else "Searching with SSDP (about 6 seconds).")
     host.status()
     host.set_status("Searching...")
 
     def work():
         ok, msg = D.acquire_multicast_lock()
-        return ok, msg, D.discover(6.0)
+        return ok, msg, D.discover(8.0 if hot else 6.0, hotspot=hot)
 
     def done(res, err):
         if err is not None:
@@ -67,6 +71,9 @@ def tv_list_screen(host, found, warn):
     if not found:
         host.text("No TV answered. Check the Wi-Fi (same network, no guest/isolated mode) and that the TV's "
                   "network/DLNA/cast feature is on.")
+    if not found and S["hotspot"]:
+        host.text("Hotspot mode: turn on this phone's hotspot, connect the TV to it (TV Wi-Fi settings), "
+                  "then search again.")
     for tv in found:
         host.button("%s  (%s)" % (tv["name"], tv["host"]), lambda t=tv: _pick_tv(host, t))
     host.status()
@@ -76,6 +83,12 @@ def tv_list_screen(host, found, warn):
 
 def _pick_tv(host, tv):
     S["tv"] = tv
+    host.replace(build)
+
+
+def _toggle_hotspot(host):
+    S["hotspot"] = not S["hotspot"]
+    S["tv"] = None  # the TV list differs between the modem Wi-Fi and the hotspot
     host.replace(build)
 
 
