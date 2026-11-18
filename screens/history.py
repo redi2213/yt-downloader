@@ -11,6 +11,7 @@ from kivy.utils import escape_markup
 from datetime import datetime
 
 from core import android_actions, i18n, phone_files, timeutil
+from core.async_utils import run_in_background
 from kivy.metrics import dp
 
 from screens import dialogs
@@ -418,7 +419,8 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
                            background_color=(0.13, 0.10, 0.09, 1))
         dialog.add_widget(box)
         no_btn.bind(on_press=lambda i: dialog.dismiss())
-        yes_btn.bind(on_press=lambda i: (dialog.dismiss(), start_delete()))
+        yes_btn.bind(on_press=lambda i: (dialog.dismiss(), ask_phone_copies(
+            sel, phone, lambda copies: (start_delete(), delete_phone_copies(copies)))))
         dialog.open()
 
     def make_card(idx, item):
@@ -684,11 +686,89 @@ def build_extending(nav, back):
     nav.add(back_button(nav, to=back))
 
 
+def ask_phone_copies(items, phone, proceed):
+    """Before releases are deleted: every file that is ALSO on the phone gets its own question -
+    keep it there (the default) or delete the phone copy too (it cannot be undone).
+    ``proceed(copies)`` gets the phone copies to delete ([(location, entry id)]); empty = keep all."""
+    found = []
+    for it in items:
+        where = phone.where(it.get("title"), it.get("size"))
+        if where:
+            found.append((it, where))
+    if not found:
+        proceed([])
+        return
+    chosen = []
+
+    def step(n):
+        if n >= len(found):
+            proceed(chosen)
+            return
+        it, where = found[n]
+        box = BoxLayout(orientation="vertical", padding=dp(12), spacing=GAP)
+        w = content_width() * 0.8
+
+        def line(text, height, color=(1, 1, 1, 1)):
+            lab = Label(text=text, size_hint_y=None, height=height, halign="center", valign="middle",
+                        color=color)
+            lab.text_size = (w, height)
+            box.add_widget(lab)
+
+        line(f"{n + 1} / {len(found)}", dp(24), (0.7, 0.7, 0.7, 1))
+        line(it.get("title", ""), dp(64))
+        line("This file is also on the phone.", dp(26))
+        line("Deleting it from the phone cannot be undone.", dp(40), (1.0, 0.7, 0.7, 1))
+        keep_btn = Button(text="Keep on phone", size_hint_y=None, height=BTN_H)
+        del_btn = Button(text="Delete from phone too", size_hint_y=None, height=BTN_H, background_color=_DANGER)
+        box.add_widget(keep_btn)
+        box.add_widget(del_btn)
+        dialog = ModalView(size_hint=(0.92, None), height=dp(12) * 2 + dp(24) + dp(64) + dp(26) + dp(40) + 2 * BTN_H + 5 * GAP,
+                           background="", background_color=(0.13, 0.10, 0.09, 1), auto_dismiss=False)
+        dialog.add_widget(box)
+
+        def answer(delete):
+            dialog.dismiss()
+            if delete:
+                chosen.extend(where)
+            step(n + 1)
+
+        keep_btn.bind(on_press=lambda i: answer(False))
+        del_btn.bind(on_press=lambda i: answer(True))
+        dialog.open()
+
+    step(0)
+
+
+def delete_phone_copies(copies):
+    """Deletes the chosen phone copies in the background (and their Downloads list entries)."""
+    if not copies:
+        return
+
+    def worker():
+        from api import downloads_history
+        from core import android_open
+        ids = []
+        for location, entry_id in copies:
+            try:
+                android_open.delete_file(location)
+            except Exception:
+                pass
+            if entry_id:
+                ids.append(entry_id)
+        if ids:
+            downloads_history.remove_many(ids)
+        phone_files.refresh_watched(force=True)
+
+    run_in_background(worker)
+
+
 def build_delete_confirm(nav, item):
     nav.clear()
     nav.add(Label(text=f"Delete this release?\n{item['title']}", size_hint_y=None, height=80))
     confirm_btn = Button(text="Yes, delete", size_hint_y=None, height=48)
-    confirm_btn.bind(on_press=lambda i: nav.do_delete_release(item))
+    confirm_btn.bind(on_press=lambda i: ask_phone_copies(
+        [item], phone_files.index(),
+        lambda copies: (nav.do_delete_release(item), delete_phone_copies(copies))))
     nav.add(confirm_btn)
     cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
     cancel_btn.bind(on_press=lambda i: nav.show_live_history())
@@ -703,7 +783,9 @@ def build_bulk_delete_confirm(nav, items, scope="shown"):
     nav.add(Label(text=f"{question}\nThis cannot be undone.", size_hint_y=None, height=80))
     confirm_text = f"Yes, delete {len(items)}" if selected else f"Yes, delete all {len(items)}"
     confirm_btn = Button(text=confirm_text, size_hint_y=None, height=48)
-    confirm_btn.bind(on_press=lambda i: nav.do_bulk_delete(items, scope=scope))
+    confirm_btn.bind(on_press=lambda i: ask_phone_copies(
+        items, phone_files.index(),
+        lambda copies: (nav.do_bulk_delete(items, scope=scope), delete_phone_copies(copies))))
     nav.add(confirm_btn)
     cancel_btn = Button(text="Cancel", size_hint_y=None, height=48)
     cancel_btn.bind(on_press=lambda i: nav.show_live_history())
