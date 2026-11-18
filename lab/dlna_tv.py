@@ -6,13 +6,16 @@ phone first (scan the phone or download a direct link to the phone), never playe
 from a GitHub Release link. Logic lives in lib/dlna_core.py (module list in lab/index.json).
 """
 import os
+import threading
+import time
 
 try:
     from labx import dlna_core as D
 except ImportError:  # running outside the app
     import dlna_core as D
 
-S = {"tv": None, "file": None, "server": None, "hotspot": False}
+S = {"tv": None, "file": None, "server": None, "hotspot": False, "kind": "video", "multi": False,
+     "queue": [], "qi": 0, "sel": [], "gen": 0, "seen": False}
 
 
 def build(host):
@@ -20,7 +23,10 @@ def build(host):
     host.text("Test tool. The phone and the TV must be on the same Wi-Fi. The file is played from this phone.")
     tv, f = S["tv"], S["file"]
     host.text("TV: " + ("%s (%s)" % (tv["name"], tv["host"]) if tv else "not chosen"))
-    host.text("File: " + (os.path.basename(f) if f else "not chosen"))
+    host.text("Type: %s | Mode: %s" % (_kind_label(), "Multiple files" if S["multi"] else "Single file"))
+    q = S["queue"]
+    host.text(("Files: %d selected, first: %s" % (len(q), os.path.basename(q[0]))) if len(q) > 1 else
+              "File: " + (os.path.basename(f) if f else "not chosen"))
     host.text("Network: " + ("Hotspot (TV is connected to this phone's hotspot)" if S["hotspot"] else "Wi-Fi / modem"))
     host.status()
 
@@ -33,8 +39,11 @@ def build(host):
     host.button("Network: " + ("Hotspot" if S["hotspot"] else "Wi-Fi / modem") + "  [tap to switch]",
                 lambda: _toggle_hotspot(host))
     host.button("1) Find TVs", lambda: host.show(find_screen))
-    host.button("2) Choose file (phone or link)", lambda: host.show(file_screen))
-    host.button("3) Play on TV", go)
+    host.button("2) Type: %s  [tap to switch]" % _kind_label(), lambda: _toggle_kind(host))
+    host.button("Mode: %s  [tap to switch]" % ("Multiple files" if S["multi"] else "Single file"),
+                lambda: _toggle_multi(host))
+    host.button("3) Choose file(s) (phone or link)", lambda: host.show(file_screen))
+    host.button("4) Play on TV", go)
     host.button("Show log", host.show_log)
     host.back_button("Back")
 
@@ -107,7 +116,7 @@ def file_screen(host):
     def use_path():
         p = (path.text or "").strip()
         if os.path.isfile(p):
-            S["file"] = p
+            _set_files([p])
             host.replace(build)
         else:
             host.set_status("No such file on the phone")
@@ -144,7 +153,7 @@ def search_screen(host, query):
             return
         host.replace(scan_result_screen, res)
 
-    host.background(lambda: D.search_media(query), done=done)
+    host.background(lambda: D.search_media(query, kind=S["kind"]), done=done)
     host.back_button("Back")
 
 
@@ -162,21 +171,24 @@ def browse_screen(host, path):
     host.title(os.path.basename(path) or path)
     host.text(path)
     try:
-        dirs, files, cut = D.list_dir(path)
+        dirs, files, cut = D.list_dir(path, kind=S["kind"])
     except D.DlnaError as e:
         host.text(str(e))
         host.back_button("Back")
         return
+    _multi_bar(host, lambda: host.replace(browse_screen, path), [p for _n, p, _s in files])
     if path != D.storage_root() and path != "/":
         host.button("[UP] ..", lambda: host.replace(browse_screen, os.path.dirname(path) or "/"))
     for name, p in dirs:
         host.button("[DIR] " + name, lambda x=p: host.show(browse_screen, x))
     for name, p, size in files:
-        host.button("%s  [%s]" % (name, D.human_size(size)), lambda x=p: _pick_file(host, x))
+        host.button("%s%s  [%s]" % (_mark(p), name, D.human_size(size)),
+                    lambda x=p: _pick_file(host, x, lambda: host.replace(browse_screen, path)))
     if not dirs and not files:
         host.text("No folders or media files here.")
     if cut:
         host.text("Only the first 300 entries are shown.")
+    host.status()
     host.back_button("Back")
 
 
@@ -186,7 +198,7 @@ def scan_screen(host):
     host.set_status("Looking in Download, Movies, Music...")
 
     def work():
-        return D.scan_media([os.path.join(host.data_dir, "dlna_cache")])
+        return D.scan_media([os.path.join(host.data_dir, "dlna_cache")], limit=200 if S["multi"] else 40, kind=S["kind"])
 
     def done(res, err):
         if err is not None:
@@ -203,14 +215,23 @@ def scan_result_screen(host, files):
     host.title("Files (%d)" % len(files))
     if not files:
         host.text("Nothing found in the usual folders. Type the path by hand or download a link.")
+    _multi_bar(host, lambda: host.replace(scan_result_screen, files), [p for p, _s in files])
     for p, size in files:
-        host.button("%s  [%s]" % (os.path.basename(p), D.human_size(size)), lambda x=p: _pick_file(host, x))
+        host.button("%s%s  [%s]" % (_mark(p), os.path.basename(p), D.human_size(size)),
+                    lambda x=p: _pick_file(host, x, lambda: host.replace(scan_result_screen, files)))
     host.status()
     host.back_button("Back")
 
 
-def _pick_file(host, path):
-    S["file"] = path
+def _pick_file(host, path, refresh=None):
+    if S["multi"] and refresh:
+        if path in S["sel"]:
+            S["sel"].remove(path)
+        else:
+            S["sel"].append(path)
+        refresh()
+        return
+    _set_files([path])
     host.replace(build)
 
 
@@ -232,7 +253,7 @@ def download_screen(host, url):
             host.set_status("Download failed: %s" % err)
             host.log("download failed:", err)
             return
-        S["file"] = res
+        _set_files((S["queue"] + [res]) if S["multi"] else [res])
         host.replace(build)
 
     host.background(lambda: D.download(url, dest, prog), done=finished)
@@ -243,7 +264,7 @@ def download_screen(host, url):
 def player_screen(host):
     tv = S["tv"]
     host.title("TV: " + tv["name"])
-    host.text("File: " + os.path.basename(S["file"]))
+    host.text(_track_text())
     host.status()
     host.set_status("Starting the phone server and sending to the TV...")
     host.background(_start_cast, done=lambda res, err: _report(host, "Play", res, err))
@@ -252,9 +273,12 @@ def player_screen(host):
         host.set_status(label + "...")
         host.background(fn, done=lambda res, err: _report(host, label, res, err))
 
-    host.button("Play / Resume", lambda: run("Play", lambda: (D.play(tv), "Playing")[1]))
+    host.button("Play / Resume", lambda: run("Play", lambda: _resume(tv)))
     host.button("Pause", lambda: run("Pause", lambda: (D.pause(tv), "Paused")[1]))
-    host.button("Stop", lambda: run("Stop", lambda: (D.stop(tv), "Stopped")[1]))
+    host.button("Stop", lambda: run("Stop", lambda: _stop_tv(tv)))
+    if len(S["queue"]) > 1:
+        host.button("Previous track", lambda: run("Previous", lambda: _go(-1)))
+        host.button("Next track", lambda: run("Next", lambda: _go(1)))
     host.button("Back 30 s", lambda: run("Seek", lambda: _seek_rel(tv, -30)))
     host.button("Forward 30 s", lambda: run("Seek", lambda: _seek_rel(tv, 30)))
     at = host.input("Seek to (seconds, mm:ss or h:mm:ss)")
@@ -291,7 +315,9 @@ def _start_cast():
     ip = D.local_ip_for(tv["host"])
     url = srv.url_for(ip, srv.add(path))
     D.cast(tv, url, path)
-    return "Playing. TV pulls from " + url
+    S["seen"] = False
+    _ensure_watch()
+    return _track_prefix() + "Playing. TV pulls from " + url
 
 
 def _seek_rel(tv, delta):
@@ -315,10 +341,11 @@ def _status(tv):
         vol = " | volume %d" % D.get_volume(tv)
     except D.DlnaError:
         vol = ""
-    return "%s  %s / %s%s" % (D.state(tv), D.fmt_time(pos["rel"]), D.fmt_time(pos["dur"]), vol)
+    return "%s%s  %s / %s%s" % (_track_prefix(), D.state(tv), D.fmt_time(pos["rel"]), D.fmt_time(pos["dur"]), vol)
 
 
 def _close_all():
+    S["gen"] += 1
     try:
         D.stop(S["tv"])
     except D.DlnaError:
@@ -329,3 +356,120 @@ def _close_all():
         S["server"] = None
     D.release_multicast_lock()
     return "Stopped and closed"
+
+
+# ------------------------------------------------------------------ type / multiple files / queue
+def _kind_label():
+    return "Music" if S["kind"] == "audio" else "Video"
+
+
+def _toggle_kind(host):
+    S["kind"] = "video" if S["kind"] == "audio" else "audio"
+    S["queue"], S["file"], S["sel"], S["qi"] = [], None, [], 0  # the old files are the other type
+    host.replace(build)
+
+
+def _toggle_multi(host):
+    S["multi"] = not S["multi"]
+    S["sel"] = []
+    host.replace(build)
+
+
+def _set_files(paths):
+    S["queue"] = list(paths)
+    S["qi"] = 0
+    S["file"] = paths[0] if paths else None
+    S["sel"] = []
+
+
+def _mark(path):
+    if not S["multi"]:
+        return ""
+    return "[x] " if path in S["sel"] else "[ ] "
+
+
+def _multi_bar(host, refresh, paths=None):
+    if not S["multi"]:
+        return
+
+    def use():
+        if S["sel"]:
+            _set_files(list(S["sel"]))
+            host.replace(build)
+
+    def all_here():
+        for p in paths:
+            if p not in S["sel"]:
+                S["sel"].append(p)
+        refresh()
+
+    def clear():
+        S["sel"] = []
+        refresh()
+
+    host.button("Use selected (%d)" % len(S["sel"]), use)
+    if paths:
+        host.button("Select all here (%d)" % len(paths), all_here)
+    host.button("Clear selection", clear)
+
+
+def _track_prefix():
+    n = len(S["queue"])
+    return "[%d/%d] " % (S["qi"] + 1, n) if n > 1 else ""
+
+
+def _track_text():
+    n = len(S["queue"])
+    name = os.path.basename(S["file"])
+    return "Track %d/%d: %s" % (S["qi"] + 1, n, name) if n > 1 else "File: " + name
+
+
+def _resume(tv):
+    D.play(tv)
+    _ensure_watch()
+    return "Playing"
+
+
+def _stop_tv(tv):
+    S["gen"] += 1  # a stopped queue must not jump to the next track
+    D.stop(tv)
+    return "Stopped"
+
+
+def _go(step):
+    i = S["qi"] + step
+    if i < 0 or i >= len(S["queue"]):
+        return "No more tracks that way"
+    S["qi"] = i
+    S["file"] = S["queue"][i]
+    return _start_cast()
+
+
+def _ensure_watch():
+    """Start the watcher that sends the next track when the TV finishes the current one."""
+    S["gen"] += 1
+    if len(S["queue"]) < 2:
+        return
+    threading.Thread(target=_watch, args=(S["gen"],), daemon=True).start()
+
+
+def _watch(gen):
+    while S["gen"] == gen:
+        time.sleep(3)
+        if S["gen"] != gen:
+            return
+        try:
+            state = D.state(S["tv"])
+        except D.DlnaError:
+            continue
+        S["seen"], advance = D.autoplay_step(state, S["seen"])
+        if advance:
+            if S["qi"] + 1 >= len(S["queue"]):
+                return
+            S["qi"] += 1
+            S["file"] = S["queue"][S["qi"]]
+            try:
+                _start_cast()  # starts a new watcher, so this one ends
+            except (D.DlnaError, OSError):
+                return
+            return
