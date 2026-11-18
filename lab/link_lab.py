@@ -226,6 +226,9 @@ def phone_result(host, results):
     host.text("Tap a quality for: copy, download in the app, upload to a release, share.")
     report = "\n\n".join(blocks)
     host.log("phone read:\n" + report[:3000])
+    for r in results:
+        if r.get("size_debug"):
+            host.log(r["size_debug"])
     host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
     host.button("Show log", host.show_log)
     host.back_button()
@@ -534,6 +537,14 @@ def _phone_range_size(url, hdr=None):
                 return int(n)
     except Exception as e:
         _phone_err(e)
+    try:
+        # Some CDNs refuse Range and HEAD but answer a plain GET: only the headers are used, the body is not read.
+        with _phone_http(url, hdr) as r:
+            n = r.headers.get("Content-Length") or ""
+            if n.isdigit() and int(n) > 1:
+                return int(n)
+    except Exception as e:
+        _phone_err(e)
     return None
 
 
@@ -631,6 +642,7 @@ def _phone_add_sizes(res):
             except Exception:
                 pass
     why = _NET["err"] or "no size in the playlist"
+    res["size_debug"] = "size errors: %s; duration=%s; master=%s" % (why, dur, bool(locals().get("bw")))
     if any(not r.get("size") for r in rows):
         res["note"] = ((res.get("note") or "") + " Size not found for some qualities (%s)." % why).strip()
     elif any("(est.)" in r["size"] or "(bitrate)" in r["size"] for r in rows if r.get("size")):
