@@ -557,7 +557,7 @@ def download(url, dest_dir, on_progress=None):
     return dest
 
 
-def scan_media(extra_roots=(), limit=40):
+def scan_media(extra_roots=(), limit=40, kind=None):
     roots = list(extra_roots) + ["/storage/emulated/0/Download", "/storage/emulated/0/Movies",
                                  "/storage/emulated/0/Music", "/sdcard/Download"]
     seen, rows = set(), []
@@ -569,7 +569,7 @@ def scan_media(extra_roots=(), limit=40):
             if dirpath.count(os.sep) - base_depth >= 4:
                 dirs[:] = []
             for fn in files:
-                if os.path.splitext(fn)[1].lower() not in MIME:
+                if os.path.splitext(fn)[1].lower() not in MIME or not kind_ok(fn, kind):
                     continue
                 p = os.path.join(dirpath, fn)
                 real = os.path.realpath(p)
@@ -599,7 +599,7 @@ def shortcuts():
             if os.path.isdir(os.path.join(root, n))]
 
 
-def list_dir(path, limit=300):
+def list_dir(path, limit=300, kind=None):
     """(folders, media files, cut) of one folder. folders=[(name, path)], files=[(name, path, size)]."""
     try:
         names = sorted(os.listdir(path), key=str.lower)
@@ -612,7 +612,7 @@ def list_dir(path, limit=300):
         p = os.path.join(path, n)
         if os.path.isdir(p):
             dirs.append((n, p))
-        elif os.path.splitext(n)[1].lower() in MIME:
+        elif os.path.splitext(n)[1].lower() in MIME and kind_ok(n, kind):
             try:
                 files.append((n, p, os.path.getsize(p)))
             except OSError:
@@ -620,12 +620,28 @@ def list_dir(path, limit=300):
     return dirs[:limit], files[:limit], len(dirs) > limit or len(files) > limit
 
 
+def kind_ok(name, kind):
+    """kind: None (any), "audio" (music) or "video"."""
+    if not kind:
+        return True
+    return mime_of(name).startswith("audio/") == (kind == "audio")
+
+
+def autoplay_step(state, seen_playing):
+    """Queue watcher: (seen_playing, advance). Advance only after the TV really played and then stopped."""
+    if state == "PLAYING":
+        return True, False
+    if state in ("STOPPED", "NO_MEDIA_PRESENT") and seen_playing:
+        return False, True
+    return seen_playing, False
+
+
 def _norm(text):
     """Lower-case and unify Arabic/Persian letter variants so search matches any spelling."""
     return (text or "").lower().replace("\u064a", "\u06cc").replace("\u0643", "\u06a9")
 
 
-def search_media(query, root=None, limit=100, max_depth=8):
+def search_media(query, root=None, limit=100, max_depth=8, kind=None):
     """Media files whose name contains every word of query (any part of the name, any case).
     Newest first: [(path, size)]. Skips hidden folders and Android/ (not readable anyway)."""
     words = _norm(query).split()
@@ -639,7 +655,7 @@ def search_media(query, root=None, limit=100, max_depth=8):
         if dirpath.count(os.sep) - base_depth >= max_depth:
             dirs[:] = []
         for fn in files:
-            if os.path.splitext(fn)[1].lower() not in MIME or fn.startswith("."):
+            if os.path.splitext(fn)[1].lower() not in MIME or fn.startswith(".") or not kind_ok(fn, kind):
                 continue
             low = _norm(fn)
             if all(w in low for w in words):
@@ -759,6 +775,14 @@ def _selftest():
     assert len(search_media("\u062a\u0633\u062a", d)) == 1 and len(search_media("\u0641\u064a\u0644\u0645", d)) == 1
     assert search_media("   ", d) == [] and search_media("nothing", d) == [] and len(search_media(".mp", d, limit=1)) == 1
     assert [os.path.basename(p) for p, _s in search_media("z", d)] == ["z.mp4"]
+    assert kind_ok("a.mp3", "audio") and not kind_ok("a.mp3", "video") and kind_ok("a.mkv", "video") and kind_ok("a.mkv", None)
+    assert [x[0] for x in list_dir(d, kind="audio")[1]] == ["m.MP3"]
+    assert sorted(x[0] for x in list_dir(d, kind="video")[1]) == sorted(["z.mp4", "\u0641\u06cc\u0644\u0645 \u062a\u0633\u062a.mp4"])
+    assert [os.path.basename(p) for p, _s in search_media("m", d, kind="audio")] == ["m.MP3"]
+    assert len(search_media("m", d, kind="video")) == 3
+    assert autoplay_step("PLAYING", False) == (True, False) and autoplay_step("STOPPED", False) == (False, False)
+    assert autoplay_step("STOPPED", True) == (False, True) and autoplay_step("NO_MEDIA_PRESENT", True) == (False, True)
+    assert autoplay_step("PAUSED_PLAYBACK", True) == (True, False) and autoplay_step("TRANSITIONING", False) == (False, False)
     print("ok")
 
 
