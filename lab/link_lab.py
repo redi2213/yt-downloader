@@ -198,20 +198,14 @@ def phone_result(host, results):
     host.title("Links on this phone (%d of %d)" % (ok, len(results)))
     blocks = [_phone_block(r) for r in results]
     for r in results:
-        host.text(_phone_block(r))
-        page = r.get("url") or ""
+        host.text(_phone_block(r, links=False))
         for row in (r.get("rows") or [])[:12]:
-            label = _phone_label(row)
-            host.row([
-                ("Copy " + label, lambda u=row["url"], lab=label: (host.copy(u), host.set_status("Copied " + lab))),
-                ("Download " + label,
-                 lambda p=page, h=row.get("h"), lk=row["url"], t=r.get("title") or "": _run_download(host, p, str(h or "best"), lk, t)),
-            ])
+            host.button(_phone_label(row), lambda r=r, row=row: host.show(quality_screen, r, row))
         extra = len(r.get("rows") or []) - 12
         if extra > 0:
             host.text("(%d more qualities not shown)" % extra)
     host.status()
-    host.text("Copy uses the link this phone just read. Download still runs lab-download.yml on GitHub.")
+    host.text("Tap a quality for: copy, download in the app, upload to a release, share.")
     report = "\n\n".join(blocks)
     host.log("phone read:\n" + report[:3000])
     host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
@@ -219,7 +213,48 @@ def phone_result(host, results):
     host.back_button()
 
 
-def _phone_block(r):
+def quality_screen(host, r, row):
+    """What to do with one quality that this phone found."""
+    link = row["url"]
+    page = r.get("url") or ""
+    title = r.get("title") or ""
+    host.title(_phone_label(row))
+    host.text(title)
+    host.status()
+    host.button("Copy direct link", lambda: (host.copy(link), host.set_status("Copied")))
+    host.button("Download direct link", lambda: _phone_app_download(host, r, row))
+    host.button("Upload to release",
+                lambda: _run_download(host, page, str(row.get("h") or "best"), link, title))
+    host.button("Share direct link",
+                lambda: None if host.share_text(link) else host.set_status("Share is not available"))
+    host.back_button()
+
+
+def _phone_file_name(title, row):
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", title or "").strip()
+    name = re.sub(r"\s+", "_", name).strip("._ ")[:100] or "video"
+    h = row.get("h")
+    if h:
+        name += "_%dp" % h
+    return name + (".mp4" if row.get("hls") else "." + (row.get("ext") or "mp4").lstrip("."))
+
+
+def _phone_app_download(host, r, row):
+    """Starts the download now with the app's own download manager (it shows in Downloads)."""
+    try:
+        from core import download_manager as dm
+        name = _phone_file_name(r.get("title"), row)
+        task = dm.add_pending(row["url"], name=name, category="Any-site", hls=True if row.get("hls") else None)
+        if not dm.start_task(task.id):
+            raise RuntimeError("could not start")
+        host.log("app download started:", name)
+        host.set_status("Started: see Downloads (%s)" % name)
+    except Exception as e:
+        host.log("app download failed:", e)
+        host.set_status("Failed: %s" % str(e)[:100])
+
+
+def _phone_block(r, links=True):
     lines = [r.get("title") or r.get("url") or "?"]
     if r.get("extractor"):
         lines.append("extractor: " + r["extractor"])
@@ -231,10 +266,11 @@ def _phone_block(r):
         lines.append(r["note"])
     rows = r.get("rows") or []
     if rows:
-        lines.append("Picture and sound together:")
-        for row in rows:
-            lines.append("  " + _phone_label(row))
-            lines.append("  " + row["url"])
+        lines.append("Picture and sound together:" if links else "Qualities (with size):")
+        if links:
+            for row in rows:
+                lines.append("  " + _phone_label(row))
+                lines.append("  " + row["url"])
     elif r.get("video_heights"):
         heights = ", ".join("%dp" % h for h in r["video_heights"])
         lines.append("Supported, but picture and sound are separate (" + heights + "). "
