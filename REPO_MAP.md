@@ -49,6 +49,9 @@
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
+## گزارش گراف کد (Graphify)
+- docs/GRAPH_REPORT.md (~۵۶KB، ساخته‌شده ۲۰۲۶-۱۱-۱۸، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، و فقط بخش لازم را بخوان؛ با تغییرات بزرگ ممکن است قدیمی شود.
+
 ## قوانین کار
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
 - workflowهای lab-* در هر دو شاخه main و lab هستند (نسخه‌ها متفاوت‌اند)؛ قبل از تغییر، شاخه‌ی درست را مشخص کن.
