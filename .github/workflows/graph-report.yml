@@ -1,0 +1,72 @@
+name: Graph Report
+run-name: Graph Report [${{ github.event_name }}]
+
+# Daily: rebuild docs/GRAPH_REPORT.md with Graphify (AST only, no LLM, no tokens).
+# Skips the run when nothing outside docs/ changed since the last build.
+# Manual run (workflow_dispatch) always rebuilds.
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: graph-report
+  cancel-in-progress: false
+
+jobs:
+  graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Decide if a rebuild is needed
+        id: decide
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "Manual run: rebuilding."; exit 0
+          fi
+          LAST=$(cat docs/GRAPH_SOURCE_SHA.txt 2>/dev/null || true)
+          if [ -z "$LAST" ] || ! git cat-file -e "$LAST^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "No valid last build: rebuilding."; exit 0
+          fi
+          CHANGED=$(git diff --name-only "$LAST" HEAD -- . ':!docs')
+          if [ -z "$CHANGED" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "No changes since $LAST: skipping."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"; echo "Changed files:"; echo "$CHANGED"
+          fi
+
+      - name: Install Graphify
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          pip install uv
+          uv tool install graphifyy
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build graph
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          graphify update .
+          mkdir -p docs
+          cp graphify-out/GRAPH_REPORT.md docs/GRAPH_REPORT.md
+          echo "${{ steps.decide.outputs.head }}" > docs/GRAPH_SOURCE_SHA.txt
+          rm -rf graphify-out
+
+      - name: Commit report
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/GRAPH_REPORT.md docs/GRAPH_SOURCE_SHA.txt
+          if git diff --cached --quiet; then echo "Nothing to commit."; exit 0; fi
+          git commit -m "docs: update GRAPH_REPORT.md (Graphify) [skip ci]"
+          git push origin main
