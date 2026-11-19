@@ -1,3 +1,14 @@
 {
-  "sites": []
+  "sites": [
+    {
+      "id": "porntasia",
+      "file": "porntasia.py",
+      "title": "Porntasia",
+      "domains": [
+        "porntasia.app",
+        "pt1269.com"
+      ],
+      "enabled": true
+    }
+  ]
 }
