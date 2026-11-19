@@ -9,6 +9,7 @@ on:
   # Builds by itself when the app's code changes on main. Changes that never reach the APK
   # (workflows, docs, scripts that only run on GitHub, version.txt) do not start a build, so
   # the version does not go up for nothing. Put [skip ci] in a commit message to skip a push.
+  # Debounce: every push waits 3 minutes (job `wait`); only the newest push in that window builds.
   push:
     branches: [main]
     paths:
@@ -49,13 +50,42 @@ on:
 permissions:
   contents: write
 
-# Pushes queue behind each other (never cancel a build that is running).
-concurrency:
-  group: build-apk-${{ github.event_name }}
-  cancel-in-progress: false
-
 jobs:
+  # Debounce for pushes: wait 3 minutes, then build only if no newer push run exists.
+  # (Bot commits such as version.txt never start a run, so they do not affect this.)
+  wait:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      actions: read
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Wait for more pushes, then check this is the newest
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          echo "Waiting 180s for more pushes..."
+          sleep 180
+          NEWEST=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-apk.yml/runs?event=push&branch=main&per_page=10" --jq '[.workflow_runs[].run_number] | max' 2>/dev/null || true)
+          echo "This run: $RUN_NUMBER, newest push run: ${NEWEST:-unknown}"
+          if [ -n "$NEWEST" ] && [ "$NEWEST" != "null" ] && [ "$NEWEST" -gt "$RUN_NUMBER" ]; then
+            echo "A newer push exists: skipping this build."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: wait
+    if: ${{ !cancelled() && (github.event_name != 'push' || needs.wait.outputs.proceed == 'true') }}
+    # Builds queue behind each other (never cancel a build that is running).
+    concurrency:
+      group: build-apk-${{ github.event_name }}
+      cancel-in-progress: false
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
@@ -243,8 +273,8 @@ jobs:
   # build job the message came before that and looked like the build was already done.
   notify:
     name: notify
-    needs: build
-    if: always()
+    needs: [wait, build]
+    if: ${{ always() && needs.build.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
