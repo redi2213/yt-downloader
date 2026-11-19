@@ -74,6 +74,10 @@ class Navigator(ArvanController):
         if getattr(self, "browser", None) is not None:
             self.browser.hide()      # the native WebView must never stay on top of another screen
         self.app.clear_content()
+        try:
+            self.app.show_topbar(True)     # the global Home drop-down bar (hidden on Home / browser page)
+        except Exception:
+            pass
 
     # -- the phone's own Back key ---------------------------------------------
     def _content_widgets(self):
@@ -169,6 +173,10 @@ class Navigator(ArvanController):
         self.remember(None)
         home.build(self)
         self.on_home = True
+        try:
+            self.app.show_topbar(False)
+        except Exception:
+            pass
 
     def show_working(self, message, job=None, back_text="Back (job keeps running)", extra_buttons=None):
         on_cancel = (lambda: self.cancel_job(job)) if job is not None else None
