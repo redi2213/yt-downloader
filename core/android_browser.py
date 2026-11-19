@@ -222,6 +222,29 @@ class Browser:
         except Exception:
             return None
 
+    # -- network log (screens/browser_cookies.py, Copy as cURL): native too, an older APK answers "not ready" / None.
+    def netlog_ready(self):
+        if not self._created:
+            return False
+        try:
+            getattr(self._helper(), "netLog")
+            return True
+        except Exception:
+            return False
+
+    def net_log(self):
+        """The Fetch / XHR requests the page made: {page, ua, items: [...]}, or None (not created / an older APK /
+        any failure). The requests hold cookie values: they go to core/browser_cookies.py only."""
+        if not self._created:
+            return None
+        try:
+            return json.loads(str(self._helper().netLog()))
+        except Exception:
+            return None
+
+    def clear_net_log(self):
+        return self._call("clearNetLog")
+
     def can_back(self):
         try:
             return bool(self._created and self._helper().canBack())

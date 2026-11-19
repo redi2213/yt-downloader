@@ -81,4 +81,27 @@ for msg in ("bad request: SUPERSECRETVALUE", "failed for session\tSUPERSECRETVAL
     assert "SUPERSECRETVALUE" not in bc.redact(msg, secret), msg
 assert "SUPERSECRETVALUE" not in bc.redact("Cookie: session=SUPERSECRETVALUE", "session=SUPERSECRETVALUE")
 assert bc.redact("plain message", secret) == "plain message" and bc.redact("", "") == ""
+# -- network log: Copy as cURL
+req = {"k": "xhr", "url": "https://dl6.irweb.top/get?id=1", "method": "POST", "headers": {"X-Test": "1", "Cookie": "no"},
+       "body": "a=1&b='2'", "page": "https://linkirani.ir/?url=x", "cookie": "s=SECRET", "ua": "UA/1"}
+cmd = bc.net_curl(req, True)
+assert cmd.startswith("curl 'https://dl6.irweb.top/get?id=1'") and "-X" not in cmd
+assert "-H 'X-Test: 1'" in cmd and "-H 'Cookie: s=SECRET'" in cmd and "-H 'Cookie: no'" not in cmd
+assert "-H 'Origin: https://linkirani.ir'" in cmd and "-H 'Referer: https://linkirani.ir/?url=x'" in cmd
+assert "-H 'Content-Type: text/plain;charset=UTF-8'" in cmd and "--data-raw" in cmd and cmd.endswith("--compressed")
+assert "SECRET" not in bc.net_curl(req, False)
+get = {"url": "https://a.test/x", "method": "GET", "page": "https://a.test/", "ua": "UA"}
+cmd = bc.net_curl(get, False)
+assert "Origin" not in cmd and "-X" not in cmd and "--data-raw" not in cmd
+assert "-X PUT" in bc.net_curl({"url": "https://a.test/x", "method": "PUT", "body": "z"}, False)
+assert "-F k=v" in bc.net_curl({"url": "https://a.test/x", "method": "POST", "form": [["k", "v"]]}, False)
+assert "application/x-www-form-urlencoded" in bc.net_curl({"url": "https://a.test/x", "method": "POST", "body": "a=1",
+                                                          "ctype": "application/x-www-form-urlencoded;charset=UTF-8"}, False)
+assert bc.net_body_unknown({"bin": 1}) and not bc.net_body_unknown({"bin": 1, "body": "x"})
+items = [{"url": "https://a.test/one", "method": "GET"}, {"url": "https://a.test/two", "method": "POST", "body": "needle"}, {"x": 1}]
+assert [r["url"] for r in bc.net_filter(items)] == ["https://a.test/two", "https://a.test/one"]
+assert [r["url"] for r in bc.net_filter(items, "NEEDLE")] == ["https://a.test/two"] and bc.net_filter(None) == []
+assert bc.net_title({"url": "https://a.test/p?q=1", "method": "post"}) == "POST a.test/p?q=1"
+assert len(bc.net_title({"url": "https://a.test/" + "x" * 200, "method": "GET"})) == 56
+
 print("browser cookies tests: ok")

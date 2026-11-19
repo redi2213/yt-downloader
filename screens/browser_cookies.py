@@ -258,3 +258,84 @@ def build_confirm(nav, name, label):
     nav.add(yes)
     _button(nav, "Cancel", lambda b: build_send(nav))
     _button(nav, "Back to browser", lambda b: _leave(nav))
+
+
+# -- Network requests (Fetch / XHR of the page): Copy as cURL ---------------------------------------------------------
+# Build needed (BrowserHelper.netLog): an older APK is not ready for it and the screen says so. The requests hold
+# cookie values (only in memory, like ``_S``): the cURL with the Cookie header is the only text that carries them.
+def open_netlog(nav):
+    nav.remember(lambda: open_netlog(nav))
+    reset()
+    build_netlog(nav)
+
+
+def build_netlog(nav, note="", query=None):
+    if query is not None:
+        _S["net_q"] = str(query or "").strip()
+    br = nav.browser
+    data = br.net_log() if br is not None and br.netlog_ready() else None
+    nav.clear()
+    _title(nav, "Network requests (Fetch / XHR)")
+    status = _status()
+    status.text = note
+    if data is None:
+        nav.add(wrapped_label("This needs the latest app update (a new build)."))
+        nav.add(status)
+        _button(nav, "Back to the menu", lambda b: (reset(), browser_pages.open_menu(nav)))
+        _button(nav, "Back to browser", lambda b: _leave(nav))
+        return
+    items = data.get("items") or []
+    nav.add(wrapped_label("The Fetch and XHR requests the page made, like the Network tab of a desktop browser. "
+                          "Open the page, do what gives the result (for example press its button), come back here "
+                          "and pick the request. Requests made before the page finished starting may be missing."))
+    nav.add(status)
+    box = TextInput(hint_text="Filter (part of the address or body)", text=_S.get("net_q", ""), multiline=False,
+                    size_hint_y=None, height=BTN_H)
+    nav.add(box)
+    _button(nav, "Apply filter", lambda b: build_netlog(nav, query=box.text))
+    _button(nav, "Refresh", lambda b: build_netlog(nav))
+
+    def clear(_btn):
+        br.clear_net_log()
+        build_netlog(nav, "List cleared")
+    rows = bc.net_filter(items, _S.get("net_q"))
+    nav.add(wrapped_label(f"Requests: {len(rows)} of {len(items)}" + (" (newest first, first %d shown)" % bc.MAX_NET_SHOWN
+                                                                       if len(rows) > bc.MAX_NET_SHOWN else "")))
+    for req in rows[:bc.MAX_NET_SHOWN]:
+        _button(nav, bc.net_title(req), lambda b, req=req: build_request(nav, req))
+    if items:
+        _button(nav, "Clear the list", clear)
+    _button(nav, "Back to the menu", lambda b: (reset(), browser_pages.open_menu(nav)))
+    _button(nav, "Back to browser", lambda b: _leave(nav))
+
+
+def build_request(nav, req):
+    nav.clear()
+    _title(nav, "Request")
+    nav.add(wrapped_label(f"{str(req.get('method') or 'GET').upper()} ({req.get('k') or 'fetch'})"))
+    nav.add(wrapped_label(str(req.get("url") or "")))
+    body = str(req.get("body") or "")
+    form = req.get("form") or []
+    if bc.net_body_unknown(req):
+        nav.add(wrapped_label("This request sends a body (a file or binary data) that could not be read: the cURL "
+                              "has no body."))
+    status = _status()
+    nav.add(status)
+
+    def copy(value, done):
+        def run(_btn):
+            if value:
+                _copy(value)
+            status.text = done if value else "Nothing to copy"
+        return run
+
+    _button(nav, "Copy as cURL", copy(bc.net_curl(req, True), "Copied (it holds the Cookie header: share with care)"))
+    _button(nav, "Copy as cURL (without Cookie)", copy(bc.net_curl(req, False), "Copied"))
+    _button(nav, "Copy address", copy(str(req.get("url") or ""), "Copied"))
+    if body:
+        _button(nav, "Copy body", copy(body, "Copied"))
+    elif form:
+        _button(nav, "Copy form fields", copy("&".join(f"{p[0]}={p[1]}" for p in form if len(p) == 2), "Copied"))
+    nav.add(wrapped_label("The cURL with the Cookie header holds the cookie values: share it with care."))
+    _button(nav, "Back to the list", lambda b: build_netlog(nav))
+    _button(nav, "Back to browser", lambda b: _leave(nav))

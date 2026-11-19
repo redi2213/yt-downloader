@@ -274,3 +274,82 @@ def redact(text, secret_text):
     for piece in sorted(pieces, key=len, reverse=True):
         out = out.replace(piece, "***")
     return out
+
+
+# -- Network log: the Fetch / XHR requests of the page (headers and body) and "Copy as cURL" --------------------------
+# The WebView helper (java/.../BrowserHelper.netLog, Build) wraps fetch and XMLHttpRequest in the page and reports
+# every request: {k, url, method, headers, body, form, ctype, bin, page, cookie, ua}. ``cookie`` holds cookie values.
+MAX_NET_SHOWN = 60
+_SKIP_HEADERS = {"host", "content-length", "cookie", "user-agent", "referer", "origin", "connection"}
+
+
+def net_title(req):
+    """One line for the list: 'POST host/path?query' (cut short)."""
+    req = req or {}
+    parts = urlsplit(str(req.get("url") or ""))
+    path = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
+    text = f"{str(req.get('method') or 'GET').upper()} {parts.netloc}{path}"
+    return text if len(text) <= 56 else text[:53] + "..."
+
+
+def net_filter(items, text=""):
+    """The requests newest first; with ``text`` only those whose address or body holds it (not case sensitive)."""
+    t = str(text or "").strip().lower()
+    out = [r for r in (items or []) if isinstance(r, dict) and r.get("url")]
+    if t:
+        out = [r for r in out if t in str(r["url"]).lower() or t in str(r.get("body") or "").lower()]
+    return list(reversed(out))
+
+
+def net_body_unknown(req):
+    """True when the page sent a body this log could not read (a file, Blob, Request object ...)."""
+    req = req or {}
+    return bool(req.get("bin")) and not req.get("body") and not req.get("form")
+
+
+def _origin_of(url):
+    p = urlsplit(str(url or ""))
+    return f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
+
+
+def net_curl(req, with_cookie=True):
+    """'Copy as cURL' of one logged request. The browser's own headers (User-Agent, Referer, Origin, Cookie) are added
+    from what the helper knows; ``with_cookie`` False leaves the Cookie header out (it holds the cookie values)."""
+    req = req or {}
+    url = str(req.get("url") or "")
+    method = str(req.get("method") or "GET").upper()
+    body = str(req.get("body") or "")
+    form = [p for p in (req.get("form") or []) if isinstance(p, (list, tuple)) and len(p) == 2]
+    sent = {}
+    for k, v in (req.get("headers") or {}).items():
+        sent[str(k).lower()] = (str(k), str(v))
+    parts = ["curl", shlex.quote(url)]
+    if method == "HEAD":
+        parts.append("-I")
+    elif method != "GET" and not (method == "POST" and (body or form)):
+        parts += ["-X", shlex.quote(method)]
+    heads = []
+    ua, page = str(req.get("ua") or ""), str(req.get("page") or "")
+    if ua:
+        heads.append(("User-Agent", ua))
+    if page:
+        heads.append(("Referer", page))
+    if method not in ("GET", "HEAD") and _origin_of(page):
+        heads.append(("Origin", _origin_of(page)))
+    for low, (k, v) in sent.items():
+        if low not in _SKIP_HEADERS:
+            heads.append((k, v))
+    if (body or form) and "content-type" not in sent and not form:
+        heads.append(("Content-Type", str(req.get("ctype") or "text/plain;charset=UTF-8")))
+    cookie = str(req.get("cookie") or "")
+    if with_cookie and cookie:
+        heads.append(("Cookie", cookie))
+    for k, v in heads:
+        parts += ["-H", shlex.quote(f"{k}: {v}")]
+    if form:
+        for k, v in form:
+            parts += ["-F", shlex.quote(f"{k}={v}")]
+    elif body:
+        parts += ["--data-raw", shlex.quote(body)]
+    parts.append("--compressed")
+    return " ".join(parts)

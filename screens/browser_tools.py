@@ -139,11 +139,17 @@ def add_menu(nav, status):
 
     _title(nav, "Cookies and headers")
     button("Export cookies", lambda b: _open_cookies(nav))
+    button("Network requests (Copy as cURL)", lambda b: _open_netlog(nav))
 
 
 def _open_cookies(nav):
     from screens import browser_cookies         # a screen of its own (it imports this module)
     browser_cookies.open_export(nav)
+
+
+def _open_netlog(nav):
+    from screens import browser_cookies         # a screen of its own (it imports this module)
+    browser_cookies.open_netlog(nav)
 
 
 # -- confirm before clearing cookies and site data --------------------------------------------------------------------

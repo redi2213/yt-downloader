@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -123,6 +124,7 @@ public class BrowserHelper {
                 cm.setAcceptCookie(true);
                 cm.setAcceptThirdPartyCookies(web, true);
                 web.setWebViewClient(new Client());
+                web.addJavascriptInterface(new NetBridge(), "YtbNet");
                 web.setFindListener(new WebView.FindListener() {
                     public void onFindResultReceived(int active, int total, boolean done) {
                         findCount = total;
@@ -246,6 +248,7 @@ public class BrowserHelper {
             pageUrl = url;
             pageTitle = "";
             epoch++;
+            netLog.clear();
             seen.clear();
             pending.clear();
         }
@@ -338,6 +341,65 @@ public class BrowserHelper {
         return out.toString();
     }
 
+    // ---- network log: Fetch / XHR requests of the page (headers and body) for "Copy as cURL" -----------------
+    // A small script (NET_JS) wraps fetch and XMLHttpRequest in the page and reports every request to NetBridge.
+    // Requests made before the script runs (very early in a page load) are not seen. Python reads netLog().
+    private static final List<String> netLog = new ArrayList<String>();
+    private static final int NET_MAX = 300;
+    private static final int NET_IN_MAX = 220000;
+    private static final String NET_JS =
+        "(function(){try{if(window.__ytbNetHook)return;var P=window.YtbNet;if(!P)return;window.__ytbNetHook=1;"
+      + "function send(o){try{P.push(JSON.stringify(o))}catch(e){}}"
+      + "function hd(h,r){try{if(!h)return;if(typeof Headers!=='undefined'&&h instanceof Headers){h.forEach(function(v,k){r[k]=v})}else if(Array.isArray(h)){h.forEach(function(p){r[p[0]]=p[1]})}else{for(var k in h)r[k]=String(h[k])}}catch(e){}}"
+      + "function bd(b,o){try{if(b==null)return;if(typeof b==='string'){o.body=b;return}"
+      + "if(typeof URLSearchParams!=='undefined'&&b instanceof URLSearchParams){o.body=b.toString();o.ctype='application/x-www-form-urlencoded;charset=UTF-8';return}"
+      + "if(typeof FormData!=='undefined'&&b instanceof FormData){o.form=[];b.forEach(function(v,k){o.form.push([k,typeof v==='string'?v:'[file]'])});return}"
+      + "o.bin=1}catch(e){o.bin=1}}"
+      + "var of=window.fetch;if(of){window.fetch=function(i,init){try{var rq=(typeof Request!=='undefined'&&i instanceof Request);var o={k:'fetch',url:new URL(rq?i.url:String(i),location.href).href,method:String((init&&init.method)||(rq&&i.method)||'GET').toUpperCase(),headers:{},page:location.href,ts:Date.now()};if(rq)hd(i.headers,o.headers);if(init)hd(init.headers,o.headers);if(init&&init.body!=null)bd(init.body,o);else if(rq&&o.method!=='GET'&&o.method!=='HEAD')o.bin=1;send(o)}catch(e){}return of.apply(this,arguments)}}"
+      + "var X=XMLHttpRequest.prototype,oo=X.open,os=X.send,oh=X.setRequestHeader;"
+      + "X.open=function(m,u){try{this.__y={method:String(m).toUpperCase(),url:String(u),headers:{}}}catch(e){}return oo.apply(this,arguments)};"
+      + "X.setRequestHeader=function(k,v){try{if(this.__y)this.__y.headers[k]=v}catch(e){}return oh.apply(this,arguments)};"
+      + "X.send=function(b){try{var y=this.__y;if(y){var o={k:'xhr',url:new URL(y.url,location.href).href,method:y.method,headers:y.headers,page:location.href,ts:Date.now()};if(b!=null)bd(b,o);send(o)}}catch(e){}return os.apply(this,arguments)};"
+      + "}catch(e){}})()";
+
+    public static class NetBridge {
+        @JavascriptInterface
+        public void push(String s) {
+            try {
+                if (s == null || s.length() > NET_IN_MAX) return;
+                JSONObject o = new JSONObject(s);
+                String u = o.optString("url");
+                if (!(u.startsWith("http://") || u.startsWith("https://"))) return;
+                String c = CookieManager.getInstance().getCookie(u);
+                o.put("cookie", c == null ? "" : c);
+                o.put("ua", ua);
+                synchronized (LOCK) {
+                    netLog.add(o.toString());
+                    while (netLog.size() > NET_MAX) netLog.remove(0);
+                }
+            } catch (Exception e) { }
+        }
+    }
+
+    /** JSON: {page, ua, items:[{k, url, method, headers, body, form, ctype, bin, page, cookie, ua}]} - oldest first. */
+    public static String netLog() {
+        JSONObject out = new JSONObject();
+        try {
+            JSONArray arr = new JSONArray();
+            synchronized (LOCK) {
+                for (String s : netLog) arr.put(new JSONObject(s));
+            }
+            out.put("page", pageUrl);
+            out.put("ua", ua);
+            out.put("items", arr);
+        } catch (Exception e) { }
+        return out.toString();
+    }
+
+    public static void clearNetLog() {
+        synchronized (LOCK) { netLog.clear(); }
+    }
+
     // ---- page tools: desktop view, dark mode, find, blocking images / videos, cleaning ------------------
     private static final String DARK_ON =
         "(function(){try{var d=document;if(d.getElementById('ytb-dark'))return;var s=d.createElement('style');s.id='ytb-dark';"
@@ -408,6 +470,7 @@ public class BrowserHelper {
     }
 
     static void applyPageTools(WebView v) {
+        v.evaluateJavascript(NET_JS, null);
         if (darkOn) v.evaluateJavascript(DARK_ON, null);
         if (desktop) v.evaluateJavascript(DESKTOP_JS, null);
         if (noVideos) v.evaluateJavascript(NOVIDEO_JS, null);
@@ -596,6 +659,7 @@ public class BrowserHelper {
             pageUrl = "";
             pageTitle = "";
             epoch++;
+            netLog.clear();
         }
         ui(new Runnable() {
             public void run() {
@@ -632,6 +696,7 @@ public class BrowserHelper {
         public void onPageStarted(WebView v, String url, Bitmap favicon) {
             newPage(url);
             canBack = v.canGoBack();
+            v.evaluateJavascript(NET_JS, null);
             if (darkOn) v.evaluateJavascript(DARK_ON, null);
         }
 
