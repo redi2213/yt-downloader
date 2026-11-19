@@ -102,6 +102,15 @@ items = [{"url": "https://a.test/one", "method": "GET"}, {"url": "https://a.test
 assert [r["url"] for r in bc.net_filter(items)] == ["https://a.test/two", "https://a.test/one"]
 assert [r["url"] for r in bc.net_filter(items, "NEEDLE")] == ["https://a.test/two"] and bc.net_filter(None) == []
 assert bc.net_title({"url": "https://a.test/p?q=1", "method": "post"}) == "POST a.test/p?q=1"
-assert len(bc.net_title({"url": "https://a.test/" + "x" * 200, "method": "GET"})) == 56
+assert len(bc.net_title({"url": "https://a.test/" + "x" * 200, "method": "GET"}, 56)) == 56
 
+assert [r["url"] for r in bc.net_filter([{"url": "https://api.a.test/1"}, {"url": "https://b.test/2"}, {"url": "https://notapi.a.test.evil/3"}], "", "a.test")] == ["https://api.a.test/1"]
+assert [r["url"] for r in bc.net_filter([{"url": "https://api.a.test/1"}, {"url": "https://b.test/2"}], "", "API.a.test")] == ["https://api.a.test/1"]
+assert bc.net_domains([{"url": "https://x.test/1"}, {"url": "https://y.test/1"}, {"url": "https://x.test/2"}, {}]) == [("x.test", 2), ("y.test", 1)]
+assert bc.net_response({"resp": "{}"}) == ("{}", "") and "not text" in bc.net_response({"rbin": "video/mp4"})[1]
+assert "empty" in bc.net_response({"status": 200})[1] and "No answer" in bc.net_response({})[1]
+full = "https://a.test/" + "x" * 300
+assert full.split("https://")[1] in bc.net_title({"url": full, "method": "GET"})
+hdr = bc.net_headers_text({"url": "https://a.test/", "method": "GET", "cookie": "s=SECRET", "ua": "UA", "headers": {"X-A": "1"}})
+assert "SECRET" not in hdr and "X-A: 1" in hdr and "User-Agent: UA" in hdr and "Cookie: ***" in hdr
 print("browser cookies tests: ok")

@@ -276,26 +276,50 @@ def redact(text, secret_text):
     return out
 
 
-# -- Network log: the Fetch / XHR requests of the page (headers and body) and "Copy as cURL" --------------------------
+# -- Network log: the Fetch / XHR requests of the page (headers, body, answer) and "Copy as cURL" ------------------------
 # The WebView helper (java/.../BrowserHelper.netLog, Build) wraps fetch and XMLHttpRequest in the page and reports
-# every request: {k, url, method, headers, body, form, ctype, bin, page, cookie, ua}. ``cookie`` holds cookie values.
-MAX_NET_SHOWN = 60
+# every request: {id, k, url, method, headers, body, form, ctype, bin, page, cookie, ua} and, when the answer comes,
+# {status, resp (text, cut at 100000 characters) or rbin (the type of a non-text answer)}.
+# ``cookie`` holds cookie values: only net_curl(with_cookie=True) writes them out.
+MAX_NET_SHOWN = 100
 _SKIP_HEADERS = {"host", "content-length", "cookie", "user-agent", "referer", "origin", "connection"}
 
 
-def net_title(req):
-    """One line for the list: 'POST host/path?query' (cut short)."""
+def net_title(req, limit=400):
+    """One line for the list: 'POST host/path?query' (the whole address up to ``limit`` characters)."""
     req = req or {}
     parts = urlsplit(str(req.get("url") or ""))
     path = (parts.path or "/") + (("?" + parts.query) if parts.query else "")
     text = f"{str(req.get('method') or 'GET').upper()} {parts.netloc}{path}"
-    return text if len(text) <= 56 else text[:53] + "..."
+    return text if len(text) <= limit else text[:max(limit - 3, 1)] + "..."
 
 
-def net_filter(items, text=""):
-    """The requests newest first; with ``text`` only those whose address or body holds it (not case sensitive)."""
+def net_host(req):
+    return host_of((req or {}).get("url"))
+
+
+def net_domains(items):
+    """[(host, number of requests)], the busiest first: the domain filter buttons."""
+    counts = {}
+    for r in items or []:
+        h = net_host(r) if isinstance(r, dict) else ""
+        if h:
+            counts[h] = counts.get(h, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def _in_domain(host, domain):
+    return host == domain or host.endswith("." + domain)
+
+
+def net_filter(items, text="", domain=""):
+    """The requests newest first. ``domain``: only that host and its subdomains (api.example.com, example.com).
+    ``text``: only those whose address or body holds it (not case sensitive)."""
     t = str(text or "").strip().lower()
+    d = str(domain or "").strip().lower()
     out = [r for r in (items or []) if isinstance(r, dict) and r.get("url")]
+    if d:
+        out = [r for r in out if _in_domain(net_host(r), d)]
     if t:
         out = [r for r in out if t in str(r["url"]).lower() or t in str(r.get("body") or "").lower()]
     return list(reversed(out))
@@ -307,27 +331,31 @@ def net_body_unknown(req):
     return bool(req.get("bin")) and not req.get("body") and not req.get("form")
 
 
+def net_response(req):
+    """(text, note) of the answer: the text when it was logged, else why there is none."""
+    req = req or {}
+    if req.get("resp"):
+        return str(req["resp"]), ""
+    if "rbin" in req:
+        return "", f"The answer is not text ({req.get('rbin') or 'binary'}): it is not logged."
+    if "status" in req:
+        return "", "The answer was empty."
+    return "", "No answer yet (the request may still be running, or it failed)."
+
+
 def _origin_of(url):
     p = urlsplit(str(url or ""))
     return f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
 
 
-def net_curl(req, with_cookie=True):
-    """'Copy as cURL' of one logged request. The browser's own headers (User-Agent, Referer, Origin, Cookie) are added
-    from what the helper knows; ``with_cookie`` False leaves the Cookie header out (it holds the cookie values)."""
+def net_headers(req, with_cookie=True):
+    """[(name, value)] of the request as the browser sent it: its own headers (User-Agent, Referer, Origin, Cookie)
+    from what the helper knows, then the ones the page set. ``with_cookie`` False leaves the Cookie header out."""
     req = req or {}
-    url = str(req.get("url") or "")
     method = str(req.get("method") or "GET").upper()
-    body = str(req.get("body") or "")
-    form = [p for p in (req.get("form") or []) if isinstance(p, (list, tuple)) and len(p) == 2]
     sent = {}
     for k, v in (req.get("headers") or {}).items():
         sent[str(k).lower()] = (str(k), str(v))
-    parts = ["curl", shlex.quote(url)]
-    if method == "HEAD":
-        parts.append("-I")
-    elif method != "GET" and not (method == "POST" and (body or form)):
-        parts += ["-X", shlex.quote(method)]
     heads = []
     ua, page = str(req.get("ua") or ""), str(req.get("page") or "")
     if ua:
@@ -339,12 +367,35 @@ def net_curl(req, with_cookie=True):
     for low, (k, v) in sent.items():
         if low not in _SKIP_HEADERS:
             heads.append((k, v))
-    if (body or form) and "content-type" not in sent and not form:
+    if (req.get("body") or req.get("form")) and "content-type" not in sent and not req.get("form"):
         heads.append(("Content-Type", str(req.get("ctype") or "text/plain;charset=UTF-8")))
     cookie = str(req.get("cookie") or "")
     if with_cookie and cookie:
         heads.append(("Cookie", cookie))
-    for k, v in heads:
+    return heads
+
+
+def net_headers_text(req):
+    """The request headers to show on screen: every line, the Cookie one without its values."""
+    lines = [f"{k}: {v}" for k, v in net_headers(req, False)]
+    if (req or {}).get("cookie"):
+        lines.append("Cookie: *** (hidden here; the cURL with Cookie has it)")
+    return "\n".join(lines)
+
+
+def net_curl(req, with_cookie=True):
+    """'Copy as cURL' of one logged request; ``with_cookie`` False leaves the Cookie header out."""
+    req = req or {}
+    url = str(req.get("url") or "")
+    method = str(req.get("method") or "GET").upper()
+    body = str(req.get("body") or "")
+    form = [p for p in (req.get("form") or []) if isinstance(p, (list, tuple)) and len(p) == 2]
+    parts = ["curl", shlex.quote(url)]
+    if method == "HEAD":
+        parts.append("-I")
+    elif method != "GET" and not (method == "POST" and (body or form)):
+        parts += ["-X", shlex.quote(method)]
+    for k, v in net_headers(req, with_cookie):
         parts += ["-H", shlex.quote(f"{k}: {v}")]
     if form:
         for k, v in form:

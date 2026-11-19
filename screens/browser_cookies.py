@@ -22,7 +22,7 @@ from core.async_utils import run_in_background
 from screens import browser_pages
 from screens.browser import _copy
 from screens.browser_tools import _status, _title
-from screens.common import BTN_H, wrapped_label
+from screens.common import BTN_H, content_width, wrapped_label
 from services import browser_service, cookie_secret_service
 
 _LIMITS = ("Android WebView limits: HttpOnly cookies are included, but the expiry, path and Secure / HttpOnly flags "
@@ -139,6 +139,8 @@ def build_domains(nav, note=""):
         open_output(nav)
     if domains:
         _button(nav, "Continue", go)
+    _title(nav, "Network requests")
+    _button(nav, "Network requests (Copy as cURL)", lambda b: open_netlog(nav))
     nav.add(wrapped_label(_LIMITS))
     _button(nav, "Back to the menu", lambda b: (reset(), browser_pages.open_menu(nav)))
 
@@ -260,20 +262,53 @@ def build_confirm(nav, name, label):
     _button(nav, "Back to browser", lambda b: _leave(nav))
 
 
-# -- Network requests (Fetch / XHR of the page): Copy as cURL ---------------------------------------------------------
-# Build needed (BrowserHelper.netLog): an older APK is not ready for it and the screen says so. The requests hold
-# cookie values (only in memory, like ``_S``): the cURL with the Cookie header is the only text that carries them.
+# -- Network requests (Fetch / XHR of the page): request, answer, Copy as cURL --------------------------------------------
+# Reached from Export cookies. Build needed (BrowserHelper.netLog): an older APK is not ready for it and the screen says
+# so. The requests hold cookie values and answers (only in memory, like ``_S``): the cURL with the Cookie header is the
+# only text that carries the cookies.
 def open_netlog(nav):
     nav.remember(lambda: open_netlog(nav))
     reset()
     build_netlog(nav)
 
 
-def build_netlog(nav, note="", query=None):
+def _wide_button(nav, text, action):
+    """A button that shows the whole text (wrapped over several lines)."""
+    btn = Button(text=text, size_hint_y=None, height=BTN_H, halign="left", valign="middle")
+    btn.text_size = (content_width() - dp(24), None)
+    btn.texture_update()
+    btn.height = max(BTN_H, btn.texture_size[1] + dp(20))
+    btn.bind(on_press=lambda i: action(btn))
+    nav.add(btn)
+    return btn
+
+
+def _netlog_data(nav):
+    br = nav.browser
+    return br.net_log() if br is not None and br.netlog_ready() else None
+
+
+def _back_buttons(nav):
+    _button(nav, "Back to Export cookies", lambda b: open_export(nav))
+    _button(nav, "Back to browser", lambda b: _leave(nav))
+
+
+def _preview(text, limit=1500):
+    text = str(text or "")
+    return text if len(text) <= limit else text[:limit] + f"\n... ({len(text)} characters: use Copy to get all)"
+
+
+def build_netlog(nav, note="", query=None, domain=None):
     if query is not None:
         _S["net_q"] = str(query or "").strip()
-    br = nav.browser
-    data = br.net_log() if br is not None and br.netlog_ready() else None
+    if domain is not None:
+        typed = str(domain or "").strip()
+        clean = bc.clean_domain(typed)
+        if typed and not clean:
+            note = "Type a domain like api.example.com"
+        else:
+            _S["net_d"] = clean
+    data = _netlog_data(nav)
     nav.clear()
     _title(nav, "Network requests (Fetch / XHR)")
     status = _status()
@@ -281,44 +316,69 @@ def build_netlog(nav, note="", query=None):
     if data is None:
         nav.add(wrapped_label("This needs the latest app update (a new build)."))
         nav.add(status)
-        _button(nav, "Back to the menu", lambda b: (reset(), browser_pages.open_menu(nav)))
-        _button(nav, "Back to browser", lambda b: _leave(nav))
+        _back_buttons(nav)
         return
     items = data.get("items") or []
     nav.add(wrapped_label("The Fetch and XHR requests the page made, like the Network tab of a desktop browser. "
                           "Open the page, do what gives the result (for example press its button), come back here "
                           "and pick the request. Requests made before the page finished starting may be missing."))
     nav.add(status)
-    box = TextInput(hint_text="Filter (part of the address or body)", text=_S.get("net_q", ""), multiline=False,
-                    size_hint_y=None, height=BTN_H)
-    nav.add(box)
-    _button(nav, "Apply filter", lambda b: build_netlog(nav, query=box.text))
+    qbox = TextInput(hint_text="Filter (part of the address or body)", text=_S.get("net_q", ""), multiline=False,
+                     size_hint_y=None, height=BTN_H)
+    dbox = TextInput(hint_text="Domain (for example api.example.com)", text=_S.get("net_d", ""), multiline=False,
+                     size_hint_y=None, height=BTN_H)
+    nav.add(qbox)
+    nav.add(dbox)
+    _button(nav, "Apply filters", lambda b: build_netlog(nav, query=qbox.text, domain=dbox.text))
+    if _S.get("net_d") or _S.get("net_q"):
+        _button(nav, "Show all requests", lambda b: (_S.update(net_q="", net_d=""), build_netlog(nav)))
+    domains = bc.net_domains(items)
+    if domains:
+        _title(nav, "Domains")
+        for host, count in domains[:8]:
+            _button(nav, f"{host} ({count})", lambda b, host=host: build_netlog(nav, domain=host))
     _button(nav, "Refresh", lambda b: build_netlog(nav))
 
     def clear(_btn):
-        br.clear_net_log()
+        nav.browser.clear_net_log()
         build_netlog(nav, "List cleared")
-    rows = bc.net_filter(items, _S.get("net_q"))
-    nav.add(wrapped_label(f"Requests: {len(rows)} of {len(items)}" + (" (newest first, first %d shown)" % bc.MAX_NET_SHOWN
-                                                                       if len(rows) > bc.MAX_NET_SHOWN else "")))
+    rows = bc.net_filter(items, _S.get("net_q"), _S.get("net_d"))
+    more = f" (newest first, the first {bc.MAX_NET_SHOWN} shown)" if len(rows) > bc.MAX_NET_SHOWN else ""
+    nav.add(wrapped_label(f"Requests: {len(rows)} of {len(items)}{more}"))
     for req in rows[:bc.MAX_NET_SHOWN]:
-        _button(nav, bc.net_title(req), lambda b, req=req: build_request(nav, req))
+        code = req.get("status")
+        mark = "" if code is None else ("[failed] " if not code else f"[{code}] ")
+        _wide_button(nav, mark + bc.net_title(req), lambda b, req=req: build_request(nav, req))
     if items:
         _button(nav, "Clear the list", clear)
-    _button(nav, "Back to the menu", lambda b: (reset(), browser_pages.open_menu(nav)))
-    _button(nav, "Back to browser", lambda b: _leave(nav))
+    _back_buttons(nav)
 
 
 def build_request(nav, req):
     nav.clear()
     _title(nav, "Request")
-    nav.add(wrapped_label(f"{str(req.get('method') or 'GET').upper()} ({req.get('k') or 'fetch'})"))
-    nav.add(wrapped_label(str(req.get("url") or "")))
+    code = req.get("status")
+    state = "" if code is None else (" - failed" if not code else f" - status {code}")
+    nav.add(wrapped_label(f"{str(req.get('method') or 'GET').upper()} ({req.get('k') or 'fetch'}){state}"))
+    nav.add(wrapped_label("Address: " + str(req.get("url") or "")))
+    if req.get("page"):
+        nav.add(wrapped_label("Page: " + str(req["page"])))
+    _title(nav, "Request headers")
+    nav.add(wrapped_label(bc.net_headers_text(req) or "(none)"))
     body = str(req.get("body") or "")
     form = req.get("form") or []
-    if bc.net_body_unknown(req):
+    if body:
+        _title(nav, "Request body")
+        nav.add(wrapped_label(_preview(body)))
+    elif form:
+        _title(nav, "Request form fields")
+        nav.add(wrapped_label(_preview("\n".join(f"{p[0]} = {p[1]}" for p in form if len(p) == 2))))
+    elif bc.net_body_unknown(req):
         nav.add(wrapped_label("This request sends a body (a file or binary data) that could not be read: the cURL "
                               "has no body."))
+    answer, note = bc.net_response(req)
+    _title(nav, "Response body")
+    nav.add(wrapped_label(_preview(answer) if answer else note))
     status = _status()
     nav.add(status)
 
@@ -329,13 +389,21 @@ def build_request(nav, req):
             status.text = done if value else "Nothing to copy"
         return run
 
+    def refresh(_btn):
+        data = _netlog_data(nav)
+        rid = req.get("id")
+        fresh = next((r for r in (data or {}).get("items") or [] if rid and r.get("id") == rid), req)
+        build_request(nav, fresh)
+
     _button(nav, "Copy as cURL", copy(bc.net_curl(req, True), "Copied (it holds the Cookie header: share with care)"))
     _button(nav, "Copy as cURL (without Cookie)", copy(bc.net_curl(req, False), "Copied"))
+    _button(nav, "Copy response body", copy(answer, "Copied"))
     _button(nav, "Copy address", copy(str(req.get("url") or ""), "Copied"))
     if body:
-        _button(nav, "Copy body", copy(body, "Copied"))
+        _button(nav, "Copy request body", copy(body, "Copied"))
     elif form:
         _button(nav, "Copy form fields", copy("&".join(f"{p[0]}={p[1]}" for p in form if len(p) == 2), "Copied"))
+    _button(nav, "Refresh this request", refresh)
     nav.add(wrapped_label("The cURL with the Cookie header holds the cookie values: share it with care."))
     _button(nav, "Back to the list", lambda b: build_netlog(nav))
     _button(nav, "Back to browser", lambda b: _leave(nav))

@@ -345,21 +345,22 @@ public class BrowserHelper {
     // A small script (NET_JS) wraps fetch and XMLHttpRequest in the page and reports every request to NetBridge.
     // Requests made before the script runs (very early in a page load) are not seen. Python reads netLog().
     private static final List<String> netLog = new ArrayList<String>();
-    private static final int NET_MAX = 300;
-    private static final int NET_IN_MAX = 220000;
+    private static final int NET_MAX = 150;
+    private static final int NET_IN_MAX = 600000;
     private static final String NET_JS =
-        "(function(){try{if(window.__ytbNetHook)return;var P=window.YtbNet;if(!P)return;window.__ytbNetHook=1;"
+        "(function(){try{if(window.__ytbNetHook)return;var P=window.YtbNet;if(!P)return;window.__ytbNetHook=1;var CAP=100000;"
       + "function send(o){try{P.push(JSON.stringify(o))}catch(e){}}"
+      + "function nid(){window.__ytbN=(window.__ytbN||0)+1;return Date.now().toString(36)+window.__ytbN}"
       + "function hd(h,r){try{if(!h)return;if(typeof Headers!=='undefined'&&h instanceof Headers){h.forEach(function(v,k){r[k]=v})}else if(Array.isArray(h)){h.forEach(function(p){r[p[0]]=p[1]})}else{for(var k in h)r[k]=String(h[k])}}catch(e){}}"
       + "function bd(b,o){try{if(b==null)return;if(typeof b==='string'){o.body=b;return}"
       + "if(typeof URLSearchParams!=='undefined'&&b instanceof URLSearchParams){o.body=b.toString();o.ctype='application/x-www-form-urlencoded;charset=UTF-8';return}"
       + "if(typeof FormData!=='undefined'&&b instanceof FormData){o.form=[];b.forEach(function(v,k){o.form.push([k,typeof v==='string'?v:'[file]'])});return}"
       + "o.bin=1}catch(e){o.bin=1}}"
-      + "var of=window.fetch;if(of){window.fetch=function(i,init){try{var rq=(typeof Request!=='undefined'&&i instanceof Request);var o={k:'fetch',url:new URL(rq?i.url:String(i),location.href).href,method:String((init&&init.method)||(rq&&i.method)||'GET').toUpperCase(),headers:{},page:location.href,ts:Date.now()};if(rq)hd(i.headers,o.headers);if(init)hd(init.headers,o.headers);if(init&&init.body!=null)bd(init.body,o);else if(rq&&o.method!=='GET'&&o.method!=='HEAD')o.bin=1;send(o)}catch(e){}return of.apply(this,arguments)}}"
+      + "var of=window.fetch;if(of){window.fetch=function(i,init){var o=null;try{var rq=(typeof Request!=='undefined'&&i instanceof Request);o={id:nid(),k:'fetch',url:new URL(rq?i.url:String(i),location.href).href,method:String((init&&init.method)||(rq&&i.method)||'GET').toUpperCase(),headers:{},page:location.href,ts:Date.now()};if(rq)hd(i.headers,o.headers);if(init)hd(init.headers,o.headers);if(init&&init.body!=null)bd(init.body,o);else if(rq&&o.method!=='GET'&&o.method!=='HEAD')o.bin=1;send(o)}catch(e){o=null}var p=of.apply(this,arguments);try{if(o&&p&&p.then)p.then(function(r){try{var ct=r.headers.get('content-type')||'';if(ct===''||/text|json|xml|javascript|html|urlencoded/i.test(ct)){r.clone().text().then(function(t){send({id:o.id,status:r.status,resp:String(t).slice(0,CAP)})},function(){send({id:o.id,status:r.status})})}else{send({id:o.id,status:r.status,rbin:ct})}}catch(e){}},function(){})}catch(e){}return p}}"
       + "var X=XMLHttpRequest.prototype,oo=X.open,os=X.send,oh=X.setRequestHeader;"
       + "X.open=function(m,u){try{this.__y={method:String(m).toUpperCase(),url:String(u),headers:{}}}catch(e){}return oo.apply(this,arguments)};"
       + "X.setRequestHeader=function(k,v){try{if(this.__y)this.__y.headers[k]=v}catch(e){}return oh.apply(this,arguments)};"
-      + "X.send=function(b){try{var y=this.__y;if(y){var o={k:'xhr',url:new URL(y.url,location.href).href,method:y.method,headers:y.headers,page:location.href,ts:Date.now()};if(b!=null)bd(b,o);send(o)}}catch(e){}return os.apply(this,arguments)};"
+      + "X.send=function(b){try{var y=this.__y;if(y){var o={id:nid(),k:'xhr',url:new URL(y.url,location.href).href,method:y.method,headers:y.headers,page:location.href,ts:Date.now()};if(b!=null)bd(b,o);send(o);this.addEventListener('loadend',function(){try{var t=this.responseType,r={id:o.id,status:this.status};if(t===''||t==='text'){r.resp=String(this.responseText||'').slice(0,CAP)}else if(t==='json'){r.resp=JSON.stringify(this.response).slice(0,CAP)}else{r.rbin=t}send(r)}catch(e){}})}}catch(e){}return os.apply(this,arguments)};"
       + "}catch(e){}})()";
 
     public static class NetBridge {
@@ -368,6 +369,23 @@ public class BrowserHelper {
             try {
                 if (s == null || s.length() > NET_IN_MAX) return;
                 JSONObject o = new JSONObject(s);
+                if (!o.has("url") && o.has("id")) {         // the answer to a request logged before: status, body
+                    String id = o.optString("id");
+                    synchronized (LOCK) {
+                        for (int i = netLog.size() - 1; i >= 0; i--) {
+                            String cur = netLog.get(i);
+                            if (cur.indexOf("\"id\":\"" + id + "\"") < 0) continue;
+                            JSONObject e = new JSONObject(cur);
+                            if (!id.equals(e.optString("id"))) continue;
+                            if (o.has("status")) e.put("status", o.optInt("status"));
+                            if (o.has("resp")) e.put("resp", o.optString("resp"));
+                            if (o.has("rbin")) e.put("rbin", o.optString("rbin"));
+                            netLog.set(i, e.toString());
+                            break;
+                        }
+                    }
+                    return;
+                }
                 String u = o.optString("url");
                 if (!(u.startsWith("http://") || u.startsWith("https://"))) return;
                 String c = CookieManager.getInstance().getCookie(u);
@@ -381,7 +399,7 @@ public class BrowserHelper {
         }
     }
 
-    /** JSON: {page, ua, items:[{k, url, method, headers, body, form, ctype, bin, page, cookie, ua}]} - oldest first. */
+    /** JSON: {page, ua, items:[{id, k, url, method, headers, body, form, ctype, bin, page, cookie, ua, status, resp, rbin}]} - oldest first. */
     public static String netLog() {
         JSONObject out = new JSONObject();
         try {
