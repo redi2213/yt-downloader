@@ -50,7 +50,7 @@
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
 ## گزارش گراف کد (Graphify)
-- docs/GRAPH_REPORT.md (~۵۶KB، ساخته‌شده ۲۰۲۶-۱۱-۱۸، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، و فقط بخش لازم را بخوان؛ روزانه خودکار با graph-report.yml به‌روز می‌شود.
+- docs/GRAPH_REPORT.md (~۵۶KB، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، فقط بخش لازم را بخوان. روزانه با graph-report.yml به‌روز می‌شود — graphify query روی Termux قابل نصب نیست (tree-sitter build fail)؛ جایگزین ندارد.
 
 ## قوانین کار
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
