@@ -153,7 +153,7 @@ def search_screen(host, query):
             return
         host.replace(scan_result_screen, res)
 
-    host.background(lambda: D.search_media(query, kind=S["kind"]), done=done)
+    host.background(lambda: D.search_media(query, kind=None), done=done)
     host.back_button("Back")
 
 
@@ -166,12 +166,20 @@ def browse_home_screen(host):
     host.back_button("Back")
 
 
+def _tap_file(host, p, name, ok, path):
+    # unsupported file: show a message and stay in the same folder
+    if not ok:
+        host.set_status("پشتیبانی نمی‌شود: %s" % name)
+        return
+    _pick_file(host, p, lambda: host.replace(browse_screen, path))
+
+
 def browse_screen(host, path):
     path = path.rstrip("/") or "/"
     host.title(os.path.basename(path) or path)
     host.text(path)
     try:
-        dirs, files, cut = D.list_dir(path, kind=S["kind"])
+        dirs, files, cut = D.list_dir(path, kind=None)
     except D.DlnaError as e:
         host.text(str(e))
         host.back_button("Back")
@@ -182,8 +190,11 @@ def browse_screen(host, path):
     for name, p in dirs:
         host.button("[DIR] " + name, lambda x=p: host.show(browse_screen, x))
     for name, p, size in files:
-        host.button("%s%s  [%s]" % (_mark(p), name, D.human_size(size)),
-                    lambda x=p: _pick_file(host, x, lambda: host.replace(browse_screen, path)))
+        ok = D.is_playable(name)
+        label = "%s%s  [%s]" % (_mark(p), name, D.human_size(size) if size is not None else "?")
+        if not ok:
+            label = "[FILE] " + label
+        host.button(label, lambda x=p, y=name, k=ok: _tap_file(host, x, y, k, path))
     if not dirs and not files:
         host.text("No folders or media files here.")
     if cut:
