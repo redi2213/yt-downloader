@@ -592,6 +592,36 @@ def storage_root():
     return os.path.expanduser("~")
 
 
+def has_all_files_access():
+    """True when the app can read every file (Android 11+ 'All files access'). Older Android / desktop: True."""
+    try:
+        from jnius import autoclass
+        if autoclass("android.os.Build$VERSION").SDK_INT < 30:
+            return True
+        return bool(autoclass("android.os.Environment").isExternalStorageManager())
+    except Exception:
+        return True
+
+
+def request_all_files_access():
+    """Open the system screen where the user allows 'All files access' for this app."""
+    try:
+        from jnius import autoclass
+        Intent = autoclass("android.content.Intent")
+        Settings = autoclass("android.provider.Settings")
+        Uri = autoclass("android.net.Uri")
+        act = autoclass("org.kivy.android.PythonActivity").mActivity
+        try:
+            it = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:" + act.getPackageName()))
+            act.startActivity(it)
+        except Exception:
+            act.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+        return True
+    except Exception:
+        return False
+
+
 def shortcuts():
     """Common media folders that exist on this phone: [(name, path)]."""
     root = storage_root()
