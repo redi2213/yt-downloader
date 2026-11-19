@@ -612,12 +612,18 @@ def list_dir(path, limit=300, kind=None):
         p = os.path.join(path, n)
         if os.path.isdir(p):
             dirs.append((n, p))
-        elif os.path.splitext(n)[1].lower() in MIME and kind_ok(n, kind):
+        else:
             try:
-                files.append((n, p, os.path.getsize(p)))
+                size = os.path.getsize(p)
             except OSError:
-                pass
+                size = None
+            files.append((n, p, size))
     return dirs[:limit], files[:limit], len(dirs) > limit or len(files) > limit
+
+
+def is_playable(name):
+    """True when the TV can play this file type (by extension)."""
+    return os.path.splitext(name)[1].lower() in MIME
 
 
 def kind_ok(name, kind):
@@ -652,6 +658,8 @@ def search_media(query, root=None, limit=100, max_depth=8, kind=None):
     rows = []
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if not d.startswith(".") and not (d == "Android" and dirpath == root)]
+        if len(rows) >= limit:
+            break
         if dirpath.count(os.sep) - base_depth >= max_depth:
             dirs[:] = []
         for fn in files:
