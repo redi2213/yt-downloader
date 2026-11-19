@@ -15,6 +15,7 @@
   - navigator.py (خیلی بزرگ، ~119KB: مسیریابی و منوها؛ فقط بخش لازم را بخوان)
   - history.py (Release History)، downloads.py (Downloads)، youtube_download.py، playlist.py
   - settings.py، appearance.py، app_update.py، follow.py، health.py، lab.py، plugin_host.py، arvan.py، storage.py، browser.py
+  - home_menu.py (منوی آبشاری Home: دکمه‌ی «Home» در نوار بالای همه‌ی صفحه‌ها (main.py: topbar/show_topbar؛ در Home و صفحه‌ی مرورگر پنهان است) و در Menu مرورگر؛ لیست دکمه‌های اصلی داخل خود فایل)
   - actions_dynamic.py / actions_status.py (دکمه‌های Download Anything و وضعیت اجرا)
 - services/: منطق و ارتباط با GitHub (download_service، history_service، runs_service، playlist_service، follow_service، file_download_service، repo_update_service، health_service، arvan_service، cookie_secret_service، ...)
 - api/: GitHub API و تنظیمات ذخیره‌شده
