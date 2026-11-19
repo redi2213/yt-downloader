@@ -111,7 +111,9 @@ class Navigator(ArvanController):
         def _name(b):   # the English text, also when the screen is shown in Persian
             return getattr(b, "_ytb_src", None) or b.text
 
-        back = [b for b in buttons if _name(b).startswith("Back")]
+        # "Back" or "Back to ...", but NOT words like "Backup project" (it was pressed by mistake).
+        back = [b for b in buttons
+                if _name(b).startswith("Back") and not _name(b)[4:5].isalnum()]
         cancel = [b for b in buttons if _name(b) == "Cancel"]
         target = back[-1] if back else (cancel[-1] if cancel else None)
         if target is None:
