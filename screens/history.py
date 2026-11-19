@@ -170,7 +170,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
 
     Compact list: one small card per file (title, grey size/date line, coloured days left, quick
     Copy). Tap a card = select / unselect it; the bar at the bottom then offers copy / share /
-    download in app / delete for the selected files. Hold a card = its menu (copy, share, download,
+    download in app / extend / delete for the selected files. Hold a card = its menu (copy, share, download,
     rename, zip, extend, delete)."""
     nav.clear()
     if back is None and not bot and not apk:
@@ -288,6 +288,18 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
             info.text = f"Starting {len(sel)} download(s)..."
             nav.start_history_download(sel, lambda text: setattr(info, "text", text))
 
+    def extend_selected(_inst):
+        sel = need_selection()
+        if not sel:
+            return
+        extendable = [it for it in sel
+                      if it.get("asset_id") is not None
+                      and (it.get("days_left") is not None or it.get("forever"))]
+        if not extendable:
+            info.text = "None of the selected files can be extended"
+            return
+        nav.show_extend_prompt(extendable, nav.show_live_history)
+
     def row_of(buttons):
         row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP / 2)
         for text, fn in buttons:
@@ -299,7 +311,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
     def make_sel_footer():
         """The bar shown while files are selected (replaces Back / Prev / Next until Clear)."""
         bar = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP / 2)
-        bar.height = dp(34) + 2 * BTN_H + GAP
+        bar.height = dp(34) + 3 * BTN_H + 2 * GAP
         if info.parent is not None:
             info.parent.remove_widget(info)
         bar.add_widget(info)
@@ -310,6 +322,7 @@ def build(nav, items, title="Release History", back=None, extra=None, page=0, ha
         bar.add_widget(row_of(top))
         bar.add_widget(row_of([("Copy links", copy_selected), ("Share", share_selected),
                                ("Download", download_selected), ("Delete", ask_delete)]))
+        bar.add_widget(row_of([("Extend selected files", extend_selected)]))
         return bar
 
     def detach(widget):
