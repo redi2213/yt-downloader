@@ -1,8 +1,8 @@
 {
  "api": 1,
- "app_version": "2.61",
- "built": "2026-11-16T10:39:21Z",
- "commit": "1b71d46857707c09787c7fe732a4d69697cc4e6b",
+ "app_version": "2.65",
+ "built": "2026-11-19T07:56:49Z",
+ "commit": "655a5845deb9f25d580b6897783b6102a2641c0f",
  "files": {
   "core/browser_cookies.py": {
    "sha256": "2be1377f598a7e3703093f3ab3bf15f81651f243bd59102e3411433395ba1535",
@@ -21,8 +21,8 @@
    "size": 1853
   },
   "screens/browser.py": {
-   "sha256": "3c3d3123634be2cb81fe9d55e938056f1e56fe3dfcf07e9d9428965af12b37db",
-   "size": 35287
+   "sha256": "b17cfde677447158b9dd1435d3d0a6a6b7393e4830b4ec05a542890bef9d6258",
+   "size": 35427
   },
   "screens/browser_cookies.py": {
    "sha256": "2d9162618d7fad8fa4fefbfced18955a4cd0874b38209bfee68bce0c27a41822",
@@ -43,5 +43,5 @@
  },
  "native_api": 1,
  "schema": 1,
- "version": "20261116.103921-1b71d46"
+ "version": "20261119.075649-655a584"
 }

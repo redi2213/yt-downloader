@@ -32,6 +32,10 @@ _CUSTOM_ERRORS = {"invalid": "Not a valid extension (letters and digits only, up
 
 def build(nav, url=None):
     nav.clear()
+    try:
+        nav.app.show_topbar(False)      # the page has its own bar; Home is in the browser Menu
+    except Exception:
+        pass
     if not android_browser.supported():
         nav.add(wrapped_label("The browser works only on the phone (Android)."))
         nav.add(back_button(nav))
