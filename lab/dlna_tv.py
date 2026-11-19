@@ -157,9 +157,17 @@ def search_screen(host, query):
     host.back_button("Back")
 
 
+def _access_hint(host):
+    if D.has_all_files_access():
+        return
+    host.text("The app cannot see files made by other apps. Allow 'All files access', then come back.")
+    host.button("Allow all files access", lambda: D.request_all_files_access())
+
+
 def browse_home_screen(host):
     host.title("Browse phone")
     host.text("Pick a folder, then a video or audio file.")
+    _access_hint(host)
     for name, p in D.shortcuts():
         host.button("[DIR] " + name, lambda x=p: host.show(browse_screen, x))
     host.button("All storage", lambda: host.show(browse_screen, D.storage_root()))
@@ -196,7 +204,8 @@ def browse_screen(host, path):
             label = "[FILE] " + label
         host.button(label, lambda x=p, y=name, k=ok: _tap_file(host, x, y, k, path))
     if not dirs and not files:
-        host.text("No folders or media files here.")
+        host.text("No folders or files here.")
+        _access_hint(host)
     if cut:
         host.text("Only the first 300 entries are shown.")
     host.status()
