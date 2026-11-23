@@ -173,6 +173,7 @@ jobs:
       - name: Extract links
         if: ${{ inputs.direct_link == '' && inputs.install_only != true }}
         env:
+          LAB_LOG_MODE: download
           URL: ${{ inputs.url }}
           PROXY: ${{ inputs.proxy }}
           V2RAY_CONFIG: ${{ inputs.v2ray_config }}
@@ -205,6 +206,7 @@ jobs:
       - name: Download HLS + GitHub Release
         if: ${{ inputs.install_only != true }}
         env:
+          LAB_LOG_MODE: download
           UPLOAD: "true"
           QUALITY: ${{ inputs.quality }}
           PROXY_IN: ${{ inputs.proxy }}
@@ -214,3 +216,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python lab_scripts/download.py
+
+      - name: Save failure logs (config branch, folder lab-logs)
+        if: ${{ always() && hashFiles('lab_logs_out/*') != '' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 lab_scripts/lab_log_push.py
