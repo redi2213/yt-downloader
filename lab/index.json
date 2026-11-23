@@ -208,6 +208,13 @@
       }
     },
     {
+      "id": "repo_visibility",
+      "title": "Repo visibility (public / private)",
+      "file": "repo_visibility.py",
+      "description": "Temporary manual buttons: make the repo public or private with the app's token (needs admin rights).",
+      "min_host": 1
+    },
+    {
       "id": "dlna_tv",
       "title": "TV cast (DLNA/UPnP)",
       "file": "dlna_tv.py",
