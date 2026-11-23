@@ -9,6 +9,17 @@
         "pt1269.com"
       ],
       "enabled": true
+    },
+    {
+      "id": "pornez",
+      "file": "pornez.py",
+      "title": "Pornez",
+      "domains": [
+        "pornez.cam",
+        "pornez.net",
+        "pornez.com"
+      ],
+      "enabled": true
     }
   ]
 }
