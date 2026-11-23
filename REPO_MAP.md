@@ -5,7 +5,7 @@
 
 ## شاخه‌ها
 - main: کد اپ (Kivy/Android) + همه workflowهای GitHub Actions + version.txt
-- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/
+- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/، lab-logs/ (لاگ خطای Lab: یک فایل برای هر لینک ناموفق)
 - lab: محیط آزمایشی Lab: workflowهای lab-*، lab/lib/*، lab_scripts/*، راهنماها (LAB.md, WORKFLOW_GUIDE.md, LINKLAB_SITE_GUIDE.md)
 - بکاپ: شاخه‌ی backup و پوشه‌ی config/backups/ حذف شده‌اند (۱۴۰۵/۰۸). بکاپ پروژه فقط با backup-project.yml ساخته می‌شود و zip آن در Release آپلود می‌شود (نه در هیچ شاخه‌ای).
 
@@ -47,6 +47,7 @@
 - پخش روی تلویزیون (DLNA/UPnP، تست در Lab): شاخه lab → lab/dlna_tv.py (UI) + lab/lib/dlna_core.py (SSDP، SOAP، سرور HTTP با Range، دانلود/اسکن)؛ مجوزهای ACCESS_WIFI_STATE/CHANGE_WIFI_MULTICAST_STATE در buildozer.spec (نیاز به Build)
 - Lab و Promote: شاخه lab → lab/promote.py، lab/lib/promote_*.py، lab/wf_import.py
 - Link Lab و «Get links only (this phone)» (اندازه‌ی کیفیت‌ها، پیشنهاد VPN): شاخه lab → lab/link_lab.py (توابع _phone_*)؛ نمایش جاب‌های Action هنگام ران ورکفلو در Lab: lab/lib/lab_jobs.py (در modules فایل lab/index.json ثبت شده)
+- لاگ خطای Lab (هر لینک ناموفق = یک فایل در config/lab-logs/): شاخه lab → lab_scripts/lab_log.py (نوشتن فایل، پنهان‌کردن توکن/کانفیگ) + lab_scripts/lab_log_push.py (commit به config؛ ۳۰۰ فایل آخر) + استفاده در lab_scripts/links.py و download.py (متغیر LAB_LOG_MODE) + مرحله‌ی آخر lab-links.yml و lab-download.yml؛ حالت گوشی: دکمه‌ی «Save log of failed links» در lab/link_lab.py (_phone_save_logs)
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
