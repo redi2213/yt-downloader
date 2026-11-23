@@ -42,10 +42,15 @@ on:
         default: ''
         type: string
       direct_title:
-        description: "Video title for the file name when direct_link is used (set by the app)"
+        description: "Video title for the file name when direct_link is used"
         required: false
         default: ''
         type: string
+      install_only:
+        description: "Only prepare and verify dependencies (maintenance test; no download)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -75,6 +80,13 @@ jobs:
           key: lab-pip-${{ runner.os }}-v1
           restore-keys: lab-pip-${{ runner.os }}-
 
+      - name: Cache static FFmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ffmpeg-static
+          key: lab-ffmpeg-${{ runner.os }}-amd64-v1
+
       - name: Install deps (yt-dlp + ffmpeg)
         timeout-minutes: 8
         env:
@@ -83,17 +95,48 @@ jobs:
           DIRECT_LINK: ${{ inputs.direct_link }}
         run: |
           set -e
-          # apt can stall on a bad mirror: every try has a time limit, then it tries again
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            for i in 1 2 3; do
-              echo "ffmpeg: try $i"
-              if timeout 120 sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
-                 && timeout 240 sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=20 ffmpeg; then
-                break
+          FFMPEG_CACHE_DIR="$HOME/.cache/ffmpeg-static"
+          mkdir -p "$FFMPEG_CACHE_DIR"
+
+          # Prefer cached static binaries: avoids slow apt mirrors and ~80 system packages.
+          if [ -x "$FFMPEG_CACHE_DIR/ffmpeg" ] && [ -x "$FFMPEG_CACHE_DIR/ffprobe" ]; then
+            echo "Using cached static FFmpeg"
+          else
+            echo "FFmpeg cache miss; downloading static build"
+            TMP_FFMPEG="$(mktemp -d)"
+            if curl -fL --retry 3 --connect-timeout 20 --max-time 180 \
+              https://www.johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+              -o "$TMP_FFMPEG/ffmpeg.tar.xz" \
+              && tar -xJf "$TMP_FFMPEG/ffmpeg.tar.xz" -C "$TMP_FFMPEG"; then
+              FFMPEG_BIN="$(find "$TMP_FFMPEG" -type f -name ffmpeg -perm -111 | head -1)"
+              FFPROBE_BIN="$(find "$TMP_FFMPEG" -type f -name ffprobe -perm -111 | head -1)"
+              if [ -n "$FFMPEG_BIN" ] && [ -n "$FFPROBE_BIN" ]; then
+                cp "$FFMPEG_BIN" "$FFMPEG_CACHE_DIR/ffmpeg"
+                cp "$FFPROBE_BIN" "$FFMPEG_CACHE_DIR/ffprobe"
+                chmod +x "$FFMPEG_CACHE_DIR/ffmpeg" "$FFMPEG_CACHE_DIR/ffprobe"
               fi
-              if [ "$i" = 3 ]; then echo "ffmpeg install failed"; exit 1; fi
-            done
+            fi
+            rm -rf "$TMP_FFMPEG"
           fi
+
+          if [ -x "$FFMPEG_CACHE_DIR/ffmpeg" ] && [ -x "$FFMPEG_CACHE_DIR/ffprobe" ]; then
+            echo "$FFMPEG_CACHE_DIR" >> "$GITHUB_PATH"
+            echo "Static FFmpeg ready"
+          else
+            echo "Static FFmpeg unavailable; falling back to Ubuntu packages"
+            # apt can stall on a bad mirror: every try has a time limit, then it tries again
+            if ! command -v ffmpeg >/dev/null 2>&1; then
+              for i in 1 2 3; do
+                echo "ffmpeg: apt try $i"
+                if timeout 120 sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=20 \
+                   && timeout 240 sudo apt-get install -y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=20 ffmpeg; then
+                  break
+                fi
+                if [ "$i" = 3 ]; then echo "ffmpeg install failed"; exit 1; fi
+              done
+            fi
+          fi
+
           pip install -U pip setuptools wheel
           pip install curl_cffi requests PySocks
           if [ -z "$DIRECT_LINK" ]; then
@@ -104,19 +147,18 @@ jobs:
           pip install -U yt-dlp
           yt-dlp --version
           ffmpeg -version | head -1
+          ffprobe -version | head -1
 
       - name: Setup Xray (optional, extract only)
-        if: ${{ inputs.direct_link == '' }}
-        env:
-          V2RAY_CONFIG: ${{ inputs.v2ray_config }}
+        if: ${{ inputs.direct_link == '' && inputs.install_only != true }}
         run: python3 lab_scripts/xray_setup.py || true
 
       - name: Default configs (auto-refreshed list; skipped when you set a proxy or config)
-        if: ${{ inputs.direct_link == '' && inputs.v2ray_config == '' && inputs.proxy == '' }}
+        if: ${{ inputs.direct_link == '' && inputs.v2ray_config == '' && inputs.proxy == '' && inputs.install_only != true }}
         run: python3 lab_scripts/xray_default.py || true
 
       - name: Prepare proxies for extract
-        if: ${{ inputs.direct_link == '' }}
+        if: ${{ inputs.direct_link == '' && inputs.install_only != true }}
         env:
           PROXY_IN: ${{ inputs.proxy }}
         run: |
@@ -129,7 +171,7 @@ jobs:
           cat working_proxies.txt 2>/dev/null || true
 
       - name: Extract links
-        if: ${{ inputs.direct_link == '' }}
+        if: ${{ inputs.direct_link == '' && inputs.install_only != true }}
         env:
           URL: ${{ inputs.url }}
           PROXY: ${{ inputs.proxy }}
@@ -137,7 +179,7 @@ jobs:
         run: python lab_scripts/links.py
 
       - name: Use the link the phone already found
-        if: ${{ inputs.direct_link != '' }}
+        if: ${{ inputs.direct_link != '' && inputs.install_only != true }}
         env:
           DIRECT_LINK: ${{ inputs.direct_link }}
           DIRECT_TITLE: ${{ inputs.direct_title }}
@@ -161,6 +203,7 @@ jobs:
           PY
 
       - name: Download HLS + GitHub Release
+        if: ${{ inputs.install_only != true }}
         env:
           UPLOAD: "true"
           QUALITY: ${{ inputs.quality }}
