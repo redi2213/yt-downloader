@@ -111,6 +111,7 @@ jobs:
 
       - name: Extract quality links
         env:
+          LAB_LOG_MODE: links
           URL: ${{ inputs.url }}
           LINKS: ${{ inputs.links }}
           PROXY: ${{ inputs.proxy }}
@@ -128,3 +129,10 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
             --title "Lab links #${{ github.run_number }}" \
             --notes-file lab_release_notes.md
+
+      - name: Save failure logs (config branch, folder lab-logs)
+        if: ${{ always() && hashFiles('lab_logs_out/*') != '' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 lab_scripts/lab_log_push.py
