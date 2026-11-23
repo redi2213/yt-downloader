@@ -7,10 +7,8 @@ name: Lab Schedule
 #   every 24 h  -> lab-refresh-configs.yml (best configs of the default subscription)
 # Edit the subscription / how many configs to keep in lab/default_sources.json on the lab branch.
 
+# Schedule removed (2026-11): Actions free minutes ran out. Runs only by hand.
 on:
-  schedule:
-    - cron: "23 */12 * * *"
-    - cron: "47 3 * * *"
   workflow_dispatch:
     inputs:
       what:
