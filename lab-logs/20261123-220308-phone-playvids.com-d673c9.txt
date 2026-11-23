@@ -1,0 +1,20 @@
+Lab link failure log
+mode: phone
+time (UTC): 2026-11-23 22:03:08
+url: https://www.playvids.com/v/zHNH8pnFn_I
+title: 
+extractor: 
+error: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue templat
+note: 
+video-only heights: 
+
+---- details ----
+read error trace:
+  File "<plugin lab/link_lab.py>", line 423, in _phone_one
+    info = ydl.extract_info(url, download=False) or {}
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/yt-downloader/yt-downloader/.buildozer/android/platform/build-arm64-v8a/build/python-installs/ytbridge_v4/arm64-v8a/yt_dlp/YoutubeDL.py", line 1717, in extract_info
+  File "/home/runner/work/yt-downloader/yt-downloader/.buildozer/android/platform/build-arm64-v8a/build/python-installs/ytbridge_v4/arm64-v8a/yt_dlp/YoutubeDL.py", line 1746, in wrapper
+  File "/home/runner/work/yt-downloader/yt-downloader/.buildozer/android/platform/build-arm64-v8a/build/python-installs/ytbridge_v4/arm64-v8a/yt_dlp/YoutubeDL.py", line 1162, in report_error
+  File "/home/runner/work/yt-downloader/yt-downloader/.buildozer/android/platform/build-arm64-v8a/build/python-installs/ytbridge_v4/arm64-v8a/yt_dlp/YoutubeDL.py", line 1100, in trouble
+yt_dlp.utils.DownloadError: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
