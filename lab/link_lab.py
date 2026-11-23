@@ -401,7 +401,19 @@ def _phone_read(host, urls, on_status):
     return out
 
 
+_PEEK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
 def _phone_one(yt_dlp, opts, url):
+    if "peekvids.com" in (url or "").lower():
+        # yt-dlp's own PeekVids extractor fails on this site ("Unable to extract short video ID").
+        # The GitHub lab_scripts/links.py reads it with Generic + HTML5, a browser UA and the page
+        # as referer - same here.
+        url = url.split("?", 1)[0].split("#", 1)[0]
+        opts = dict(opts)
+        opts["allowed_extractors"] = ["Generic", "HTML5"]
+        opts["http_headers"] = {"User-Agent": _PEEK_UA, "Referer": url}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False) or {}
