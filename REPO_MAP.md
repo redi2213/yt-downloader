@@ -50,6 +50,8 @@
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
+- عمومی/خصوصی کردن ریپو از Lab (دستی، بدون Build): شاخه lab → lab/repo_visibility.py
+- آرشیو README قدیمی: docs/README_ARCHIVE.md
 ## گزارش گراف کد (Graphify)
 - docs/GRAPH_REPORT.md (~۵۶KB، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، فقط بخش لازم را بخوان. روزانه با graph-report.yml به‌روز می‌شود — graphify query روی Termux قابل نصب نیست (tree-sitter build fail)؛ جایگزین ندارد.
 
