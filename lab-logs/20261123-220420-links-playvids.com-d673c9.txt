@@ -1,0 +1,37 @@
+Lab link failure log
+mode: links
+time (UTC): 2026-11-23 22:04:20
+workflow: Lab Links
+run: https://github.com/redi2213/yt-downloader/actions/runs/45275849273
+commit: 7b449a7
+url: https://www.playvids.com/v/zHNH8pnFn_I
+title: 
+error: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+method: yt-dlp
+proxy: socks5://127.0.0.1:10808
+
+---- console output for this link (the end) ----
+
+>>> Trying (direct, GitHub IP)
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+
+>>> Racing 6 proxies (the first that works wins)
+  [race] socks5://101.36.104.239:10808: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+  [race] socks5://103.124.172.134:1080: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+  [race] socks5://103.119.1.160:5555: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+  [race] socks5://103.126.173.159:1080: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to download webpage: (<SocksHTTPSConnection(host='www.playvids.com', port=443) at 0x7cc99a17d670>, 'Connection to www.playvids.com timed out. (connect timeout=15.0)') (caused by TransportError("(<SocksHTTPSConnection(host='www.playvids.com', port=443) at 0x7cc99a17d670>, 'Connection to www.playvids.com timed out. (connect timeout=15.0)')"))
+  [race] socks5://101.2.166.73:1080: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to download webpage: SocksHTTPSConnectionPool(host='www.playvids.com', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='www.playvids.com', port=443): Read timed out. (read timeout=15.0)"))
+  [race] socks5://101.36.112.205:1081: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+
+>>> Trying config socks5://127.0.0.1:10808
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+=======================================================
+unknown
+=======================================================
+URL    : https://www.playvids.com/v/zHNH8pnFn_I
+Method : yt-dlp
+Proxy  : socks5://127.0.0.1:10808
+ERROR  : yt-dlp: ERROR: [PlayVids] zHNH8pnFn_I: Unable to extract short video ID; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+
