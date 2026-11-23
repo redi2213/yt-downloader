@@ -272,6 +272,20 @@ def main() -> int:
         return 1
 
     results = json.loads(data_path.read_text(encoding="utf-8"))
+
+    try:
+        import lab_log  # failure logs: one file per link that failed (lab_scripts/lab_log.py)
+        _cap = lab_log.Capture()
+        _cap.start()
+    except Exception:
+        lab_log, _cap = None, None
+
+    def _save_fail(item, page, title, why):
+        # a link whose extract step already failed was logged by links.py: no second file
+        if lab_log is None or item.get("error"):
+            return
+        lab_log.save_failure(os.environ.get("LAB_LOG_MODE") or "download", page, title, why,
+                             _cap.since_mark() if _cap else "", extra={"quality": quality})
     quality = os.environ.get("QUALITY", "best")
     _qm = re.search(r"(\d{3,4})", quality or "")
     if _qm and (quality or "").strip().lower() not in ("best", "max"):
@@ -283,6 +297,8 @@ def main() -> int:
     notes = ["Lab download (HLS via yt-dlp, Upload-File style)", f"quality={quality}", ""]
 
     for i, item in enumerate(results, 1):
+        if _cap:
+            _cap.mark()
         page = item.get("url") or ""
         title = item.get("title") or f"video_{i}"
         media, kind = pick_media(item, quality)
@@ -295,6 +311,7 @@ def main() -> int:
 
         if not media:
             print("no media url")
+            _save_fail(item, page, title, "no media url found for the chosen quality")
             continue
 
         base = safe_name(title, i)
@@ -321,6 +338,7 @@ def main() -> int:
             print(f"Downloaded through: {route}", flush=True)
         else:
             print("FAILED this item")
+            _save_fail(item, page, title, "download failed on every route")
 
     if not files:
         print("All downloads failed")
