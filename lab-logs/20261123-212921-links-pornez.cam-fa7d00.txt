@@ -1,0 +1,37 @@
+Lab link failure log
+mode: links
+time (UTC): 2026-11-23 21:29:21
+workflow: Lab Links
+run: https://github.com/redi2213/yt-downloader/actions/runs/45269998268
+commit: b89555f
+url: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+title: 
+error: yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+method: yt-dlp
+proxy: socks5://127.0.0.1:10808
+
+---- console output for this link (the end) ----
+
+>>> Trying (direct, GitHub IP)
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+
+>>> Racing 6 proxies (the first that works wins)
+  [race] socks5://103.119.1.160:5555: yt-dlp: ERROR: [generic] morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2: Unable to download webpage: SocksHTTPSConnection(host='pornez.cam', port=443): Failed to establish a new connection: [Errno 111] Connection refused (caused by TransportError("SocksHTTPSConnection(host='pornez.cam', port=443): Failed to establish a new connection: [Errno 111] Connection refused"))
+  [race] socks5://103.124.172.134:1080: yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+  [race] socks5://103.126.173.159:1080: yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+  [race] socks5://101.2.166.73:1080: yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+  [race] socks5://101.36.112.205:1081: yt-dlp: ERROR: [generic] morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2: Unable to download webpage: SocksHTTPSConnectionPool(host='pornez.cam', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='pornez.cam', port=443): Read timed out. (read timeout=15.0)"))
+  [race] socks5://101.36.104.239:10808: yt-dlp: ERROR: [generic] morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2: Error reading response: SocksHTTPSConnectionPool(host='pornez.cam', port=443): Read timed out. (caused by TransportError("SocksHTTPSConnectionPool(host='pornez.cam', port=443): Read timed out."))
+
+>>> Trying config socks5://127.0.0.1:10808
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+=======================================================
+unknown
+=======================================================
+URL    : https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+Method : yt-dlp
+Proxy  : socks5://127.0.0.1:10808
+ERROR  : yt-dlp: ERROR: Unsupported URL: https://pornez.cam/morning-dick-phoenix-marie-kira-noir-manuel-ferrara-katie-lin-porn-e199f2/
+
