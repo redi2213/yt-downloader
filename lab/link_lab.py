@@ -230,6 +230,10 @@ def phone_result(host, results):
         if r.get("size_debug"):
             host.log(r["size_debug"])
     host.button("Copy report", lambda: (host.copy(report), host.set_status("Copied")))
+    failed = [r for r in results if not (r.get("rows") or [])]
+    if failed:
+        # One log file per failed link goes to the repo (config branch, folder lab-logs/) so it can be read later.
+        host.button("Save log of failed links (%d)" % len(failed), lambda f=failed: _phone_save_logs(host, f))
     host.row([("Copy log", lambda: _copy_log(host)), ("Clear log", lambda: _clear_log(host))])
     host.back_button()
 
@@ -1007,6 +1011,68 @@ def configs_view(host, heading, info):
             host.text("%d configs (updated %s):\n%s" % (len(items), updated or "?", "\n".join(items)))
     host.status()
     host.back_button()
+
+
+# ------------------------------------------------ failure logs (config branch, lab-logs/)
+def _lab_log_name(mode, url):
+    import hashlib
+    from urllib.parse import urlsplit
+    try:
+        site = (urlsplit(url or "").netloc or "site").lower().replace("www.", "")
+    except Exception:
+        site = "site"
+    site = re.sub(r"[^a-z0-9.-]", "", site)[:40] or "site"
+    short = hashlib.sha1((url or "").encode("utf-8", "ignore")).hexdigest()[:6]
+    return "%s-%s-%s-%s.txt" % (time.strftime("%Y%m%d-%H%M%S", time.gmtime()), mode, site, short)
+
+
+def _lab_log_text(mode, r):
+    """The log of ONE link that this phone could not read. The link is saved without ?query / #fragment."""
+    from urllib.parse import urlsplit, urlunsplit
+    url = r.get("url") or ""
+    try:
+        p = urlsplit(url)
+        shown = urlunsplit((p.scheme, p.netloc, p.path, "", ""))
+    except Exception:
+        shown = url.split("?", 1)[0].split("#", 1)[0]
+    lines = [
+        "Lab link failure log",
+        "mode: %s" % mode,
+        "time (UTC): %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+        "url: %s" % shown,
+        "title: %s" % (r.get("title") if r.get("title") != url else ""),
+        "extractor: %s" % (r.get("extractor") or ""),
+        "error: %s" % (r.get("error") or "no video link found"),
+        "note: %s" % (r.get("note") or ""),
+        "video-only heights: %s" % (r.get("video_heights") or ""),
+        "",
+        "---- details ----",
+        (r.get("size_debug") or "")[:6000],
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _phone_save_logs(host, failed):
+    host.set_status("Saving %d log file(s)..." % len(failed))
+
+    def work():
+        from api.github import repo_files
+        saved = []
+        for r in failed:
+            name = _lab_log_name("phone", r.get("url") or "")
+            repo_files.replace_file("config", "lab-logs/" + name,
+                                    _lab_log_text("phone", r).encode("utf-8"), "lab log (phone): " + name)
+            saved.append(name)
+        return saved
+
+    def done(res, err):
+        if err is not None:
+            host.set_status("Could not save the log: %s" % str(err)[:80])
+            host.log("save log failed:", err)
+            return
+        host.set_status("Saved %d log file(s) to config/lab-logs" % len(res))
+
+    host.background(work, done=done)
 
 
 def _copy_log(host):
