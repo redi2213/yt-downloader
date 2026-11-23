@@ -794,12 +794,34 @@ async def main() -> None:
     for p in proxies[:10]:
         print(" ", p)
 
+    try:
+        import lab_log  # failure logs: one file per link that could not be read (lab_scripts/lab_log.py)
+    except Exception:
+        lab_log = None
+    log_mode = os.environ.get("LAB_LOG_MODE") or "links"
+
     results = []
     for i, url in enumerate(urls, 1):
-        data = await try_with_proxies(url, proxies)
-        add_sizes(data)
-        print_result(data, index=i if len(urls) > 1 else None)
+        cap = lab_log.Capture() if lab_log else None
+        if cap:
+            cap.start()
+        try:
+            data = await try_with_proxies(url, proxies)
+            add_sizes(data)
+            print_result(data, index=i if len(urls) > 1 else None)
+        except Exception as e:
+            if cap:
+                cap.stop()
+                import traceback
+                lab_log.save_failure(log_mode, url, "", "crashed: %s: %s" % (type(e).__name__, e),
+                                     cap.text() + "\n" + traceback.format_exc())
+            raise
+        if cap:
+            cap.stop()
         results.append(data)
+        if cap and (data.get("error") or not (data.get("qualities") or data.get("m3u8"))):
+            lab_log.save_failure(log_mode, url, data.get("title") or "", data.get("error") or "no video link found",
+                                 cap.text(), extra={"method": data.get("method"), "proxy": data.get("proxy_used")})
 
     with open("xh_links.json", "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
