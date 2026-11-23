@@ -325,6 +325,26 @@ def _phone_label(row):
 _PHONE_SKIP = ("dash", "ism", "f4m", "rtmp", "mhtml")
 
 
+class _PhoneLog:
+    """yt-dlp logger kept in memory. On Android sys.stderr can be a plain string, so yt-dlp's own
+    error print crashed with "'str' object has no attribute 'write'" and hid the real error."""
+
+    def __init__(self):
+        self.errors = []
+
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        self.errors.append(str(msg))
+
+
 def _phone_read(host, urls, on_status):
     """Reads each link on this phone. A site added to Link Lab (Add workflow > Add a tested site) is read
     by its adapter first (this phone's network); everything else, and an adapter that finds nothing, goes
@@ -346,7 +366,7 @@ def _phone_read(host, urls, on_status):
     if yt_dlp is None and not entries:
         raise RuntimeError("yt-dlp is not inside this build")
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
-            "socket_timeout": 30, "retries": 2}
+            "socket_timeout": 30, "retries": 2, "logger": _PhoneLog()}
     out = []
     for n, url in enumerate(urls, 1):
         if on_status:
