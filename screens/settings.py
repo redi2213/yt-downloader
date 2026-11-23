@@ -214,6 +214,16 @@ def _tools(nav):
     browser_btn.bind(on_press=lambda i: nav.show_browser_pack())
     nav.add(browser_btn)
 
+    nav.add(Label(text="Repository visibility", size_hint_y=None, height=32))
+    vis_btn = Button(text="Repo visibility: checking...", size_hint_y=None, height=48)
+    nav.add(vis_btn)
+    nav.add(wrapped_label("Needs a token with admin rights. Before making the repo public, remember that "
+                          "ntfy.json (the ntfy topic) and the other config files become readable by everyone."))
+    vis_info = Label(text="", size_hint_y=None, height=40, color=(1, 0.75, 0.4, 1))
+    nav.add(vis_info)
+    nav.set_status_label(vis_info)
+    nav.setup_repo_visibility_button(vis_btn)
+
 
 def _reveal_token_field(nav):
     nav.show_token_field = True

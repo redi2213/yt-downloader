@@ -21,7 +21,7 @@ from services import remote_config_service, generic_action_service
 from services import error_help_service, follow_service, health_service, ntfy_service
 from core import follow as follow_core
 from api import run_mode_prefs
-from services import auth_service, storage_service, file_download_service, runs_service
+from services import auth_service, storage_service, file_download_service, runs_service, visibility_service
 from screens import common
 from screens.arvan_controller import ArvanController
 
@@ -1248,6 +1248,39 @@ class Navigator(ArvanController):
         generic_action_service.run_action_job(
             self.job_manager, job, on_status=on_status, on_complete=on_complete
         )
+
+    def setup_repo_visibility_button(self, btn):
+        """Settings > App tools: the button shows whether the repo is private or
+        public; tapping it makes the repo the other one."""
+        state = {"private": None}
+
+        def show_state(private):
+            state["private"] = private
+            word, other = ("PRIVATE", "PUBLIC") if private else ("PUBLIC", "PRIVATE")
+            self.schedule(lambda: setattr(btn, "text", f"Repo is {word} (tap to make it {other})"))
+
+        def loaded(res):
+            if res.get("ok"):
+                show_state(res["private"])
+            else:
+                self.set_status(res["error"])
+                self.schedule(lambda: setattr(btn, "text", "Repo visibility (could not read)"))
+
+        def changed(res):
+            if res.get("ok"):
+                show_state(res["private"])
+                self.set_status("Done: the repo is now " + ("private." if res["private"] else "public."))
+            else:
+                self.set_status(res["error"])
+
+        def pressed(_instance):
+            if state["private"] is None:
+                return
+            self.set_status("Changing...")
+            visibility_service.start_set_private(not state["private"], changed)
+
+        btn.bind(on_press=pressed)
+        visibility_service.start_load(loaded)
 
     def handle_shared_text(self, text):
         """Entry point for text/links shared from other apps. YouTube links
