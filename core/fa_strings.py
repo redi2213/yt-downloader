@@ -446,3 +446,6 @@ PATTERNS.extend(MORE_PATTERNS)
 from core.fa_strings_browser_pack import BP_EXACT, BP_PATTERNS   # noqa: E402
 EXACT.update(BP_EXACT)
 PATTERNS.extend(BP_PATTERNS)
+from core.fa_strings_browser_links import BL_EXACT, BL_PATTERNS   # noqa: E402
+EXACT.update(BL_EXACT)
+PATTERNS.extend(BL_PATTERNS)

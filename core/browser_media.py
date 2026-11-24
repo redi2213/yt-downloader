@@ -279,6 +279,11 @@ def name_from_url(url, kind, title=""):
     return seg
 
 
+def name_has_ext(name):
+    """True when a file name ends with a short extension (\".mp4\", \".zip\")."""
+    return bool(re.search(r"\.[A-Za-z0-9]{1,6}$", name or ""))
+
+
 def fmt_size(size):
     if not size:
         return ""
@@ -620,6 +625,20 @@ class Session:
         if changed:
             self.version += 1
         return changed
+
+    def add_link(self, url, title=""):
+        """A link picked by hand (the long-press menu of a link): it joins the list like a file the page started,
+        whatever its type, so the actions menu can work on it. Returns its key."""
+        key = dedupe_key(url)
+        if key not in self.items:
+            kind, ext = self.rules.classify(url)
+            rec = {"src": "link", "referer": self.page}
+            item = self._new_item(key, url, kind, ext, rec, True)
+            if title and kind not in ("hls", "dash") and not name_has_ext(item["name"]):
+                item["name"] = title.strip()[:120]
+            self.items[key] = item
+            self.version += 1
+        return key
 
     def count(self):
         return sum(1 for item in self.items.values() if self.visible(item))

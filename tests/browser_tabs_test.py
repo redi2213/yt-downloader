@@ -90,4 +90,18 @@ assert bt.LinkList.from_data({"x": 1}).items == [] and bt.LinkList.from_data([1,
 assert bt.short_url("https://www.site.test/a/b/") == "site.test/a/b"
 assert len(bt.short_url("https://site.test/" + "x" * 200)) == 70
 assert bt.when(0, now=0) != "" and bt.when("bad") == ""
+# -- a background tab keeps the active tab; a picked link joins the list whatever its type
+bg = bt.Tabs()
+cur = bg.active
+tb = bg.new("https://bg.test/", activate=False)
+assert bg.active == cur and bg.count() == 2 and tb["url"] == "https://bg.test/"
+ss = bt.Session() if hasattr(bt, "Session") else bm.Session()
+ss.page = "https://p.test/page"
+k1 = ss.add_link("https://cdn.test/files/a.zip?t=1", "Download A")
+assert ss.count() == 1 and ss.add_link("https://cdn.test/files/a.zip?t=2") == k1 and ss.count() == 1
+e1 = ss.all_entries()[0]
+assert e1["kind"] == "archive" and e1["name"] == "a.zip" and e1["headers"].get("Referer") == "https://p.test/page"
+k2 = ss.add_link("https://site.test/get/123", "My file")
+e2 = [e for e in ss.all_entries() if e["key"] == k2][0]
+assert e2["kind"] == "other" and e2["name"] == "My file"
 print("browser tabs tests: ok")

@@ -71,6 +71,7 @@ public class BrowserHelper {
     private static volatile boolean noVideos = false;
     private static volatile boolean adBlock = true;
     private static volatile String lastTapHref = "";
+    private static String linkMenu = "";   // a long-pressed link as JSON {url, text} (guarded by LOCK; poll() hands it over)
     private static String newTab = "";   // an address the page wants in a new tab (guarded by LOCK; poll() hands it over)
     private static volatile long lastTapAt = 0;
     private static volatile int findIdx = 0;
@@ -138,6 +139,34 @@ public class BrowserHelper {
                 s.setSupportMultipleWindows(adBlock);
                 web.addJavascriptInterface(new NetBridge(), "YtbNet");
                 web.addJavascriptInterface(new TapBridge(), "YtbTap");
+                // a long press on a link: the app opens its link menu (open in a background tab, copy, share ...).
+                // requestFocusNodeHref gives the address and the text of the link under the finger.
+                web.setOnLongClickListener(new View.OnLongClickListener() {
+                    public boolean onLongClick(View v) {
+                        WebView.HitTestResult hit = web.getHitTestResult();
+                        int type = hit == null ? 0 : hit.getType();
+                        if (type != WebView.HitTestResult.SRC_ANCHOR_TYPE
+                                && type != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) return false;
+                        final String extra = hit.getExtra() == null ? "" : hit.getExtra();
+                        android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper()) {
+                            @Override
+                            public void handleMessage(Message m) {
+                                String url = m.getData().getString("url");
+                                String text = m.getData().getString("title");
+                                if (url == null || url.length() == 0) url = extra;
+                                if (url.length() == 0) return;
+                                try {
+                                    JSONObject o = new JSONObject();
+                                    o.put("url", url);
+                                    o.put("text", text == null ? "" : text);
+                                    synchronized (LOCK) { linkMenu = o.toString(); }
+                                } catch (Exception e) { }
+                            }
+                        };
+                        web.requestFocusNodeHref(h.obtainMessage());
+                        return true;
+                    }
+                });
                 web.setFindListener(new WebView.FindListener() {
                     public void onFindResultReceived(int active, int total, boolean done) {
                         findCount = total;
@@ -346,12 +375,14 @@ public class BrowserHelper {
                 out.put("tapped", badgeTapped);
                 out.put("can_back", canBack);
                 out.put("new_tab", newTab);
+                out.put("link_menu", linkMenu);
                 out.put("find_idx", findIdx);
                 out.put("find_n", findCount);
                 out.put("items", arr);
             } catch (Exception e) { }
             badgeTapped = false;
             newTab = "";
+            linkMenu = "";
         }
         return out.toString();
     }

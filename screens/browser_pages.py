@@ -142,6 +142,84 @@ def build_menu(nav):
     nav.add(_button("Back to browser", nav.show_browser))
 
 
+# -- a link pressed and held in the page ----------------------------------------------------------------------------
+def open_link_menu(nav, url, text=""):
+    nav.remember(lambda: open_link_menu(nav, url, text))
+    build_link_menu(nav, url, text)
+
+
+def build_link_menu(nav, url, text=""):
+    from screens import browser
+    from core import android_actions
+    nav.clear()
+    try:
+        nav.app.show_topbar(False)
+    except Exception:
+        pass
+    st = browser_service.state()
+    sess = nav.browser_session
+    web = bt.is_web(url)
+    nav.add(Label(text="Link", size_hint_y=None, height=BTN_H))
+    if text:
+        head = wrapped_label(text)
+        kw = fa_font_kwargs(text)
+        if kw:
+            head.font_name = kw["font_name"]
+        nav.add(head)
+    nav.add(wrapped_label(url))
+    status = _status()
+    nav.add(status)
+
+    def bg_tab():
+        if st.tabs.new(url, activate=False) is None:
+            status.text = f"Tab limit reached ({bt.MAX_TABS})"
+            return
+        st.flush()
+        status.text = "Opened in a background tab"
+
+    def editor():
+        try:
+            from core import share_routing
+            if share_routing.classify_quick(url):       # a YouTube link goes to its own screen
+                nav.handle_shared_text(url)
+                return
+        except Exception:
+            pass
+        browser.open_actions(nav, [sess.add_link(url, text)])
+
+    def add_to_list():
+        key = sess.add_link(url, text)
+        browser._add_waiting([e for e in sess.all_entries() if e["key"] == key], status, False)
+
+    def copy_text():
+        if text:
+            browser._copy(text)
+            status.text = "Link text copied"
+        else:
+            browser._copy(url)
+            status.text = "This link has no text - the link was copied"
+
+    def copy_link():
+        browser._copy(url)
+        status.text = "Link copied"
+
+    def share_link():
+        if not android_actions.share_text(url):
+            browser._copy(url)
+            status.text = "Share is not available - copied to the clipboard"
+
+    items = []
+    if web:
+        items += [("Open in a background tab", bg_tab), ("Open in the download editor", editor)]
+    items += [("Copy link text", copy_text), ("Copy link", copy_link), ("Share link", share_link)]
+    if web:
+        items += [("Add to the list (don't start)", add_to_list),
+                  ("Send to workflows", lambda: nav.show_share_chooser(url))]
+    for label, fn in items:
+        nav.add(_button(label, fn))
+    nav.add(_button("Back to the page", nav.show_browser))
+
+
 def _new_tab(nav, status, url=""):
     st = browser_service.state()
     if st.tabs.new(url) is None:

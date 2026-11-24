@@ -128,13 +128,14 @@ class Tabs:
     def full(self):
         return len(self.tabs) >= MAX_TABS
 
-    def new(self, url=""):
-        """A new tab (it becomes the active one); None when MAX_TABS are open."""
+    def new(self, url="", activate=True):
+        """A new tab (the active one unless ``activate`` is False: a background tab); None when MAX_TABS are open."""
         if self.full():
             return None
         tab = self._blank(url)
         self.tabs.append(tab)
-        self.activate(tab["id"])
+        if activate:
+            self.activate(tab["id"])
         self.dirty = True
         return tab
 
