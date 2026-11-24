@@ -50,11 +50,11 @@ def save_rules(rules):
         pass
 
 
-TOOL_FLAGS = ("dark", "no_images", "no_videos")
+TOOL_FLAGS = ("dark", "no_images", "no_videos", "ads_off")   # ads_off: the ad / pop-up blocking was switched OFF (on by default)
 
 
 def load_tools():
-    """The saved page-tool choices {"dark", "no_images", "no_videos"} (all off when nothing was saved yet)."""
+    """The saved page-tool choices {"dark", "no_images", "no_videos", "ads_off"} (all off when nothing was saved yet)."""
     out = {}
     for name in TOOL_FLAGS:
         try:
