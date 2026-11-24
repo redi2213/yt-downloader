@@ -33,12 +33,22 @@ def _status():
     return label
 
 
+def _set_ads(br, on):
+    """Ad / pop-up blocking in the helper; False on an APK built before it existed (also without the method)."""
+    fn = getattr(br, "set_adblock", None)
+    try:
+        return bool(fn and fn(on))
+    except Exception:
+        return False
+
+
 def apply_saved(br, state, tab_id):
     """Gives the helper the saved choices (dark mode, blocking, desktop view of this tab). Called each time the
     browser screen is built, so a tab switch also switches the user agent before the page loads."""
     flags = browser_service.load_tools()
     br.set_dark(flags["dark"])
     br.set_block(flags["no_images"], flags["no_videos"])
+    _set_ads(br, not flags.get("ads_off"))
     br.set_desktop(state.tabs.is_desktop(tab_id))
 
 
@@ -109,6 +119,24 @@ def add_menu(nav, status):
                           "and pages that need a sign-in may not work."))
     button("Find in page", find)
     button("Reload", reload_page)
+
+    _title(nav, "Ads and pop-ups")
+
+    def ads(btn):
+        off = not flags["ads_off"]
+        flags["ads_off"] = off
+        browser_service.save_tool("ads_off", off)
+        btn.text = _on_off("Block ads and pop-ups", not off)
+        if _set_ads(br, not off):
+            br.reload()
+            say("Ads and pop-ups are allowed now; the page reloads" if off
+                else "Ads and pop-ups are blocked now; the page reloads")
+        else:
+            say(_NEEDS_UPDATE)
+
+    button(_on_off("Block ads and pop-ups", not flags["ads_off"]), ads)
+    nav.add(wrapped_label("Stops pop-up windows, jumps to ad sites and invisible click-catchers. "
+                          "If a site stops working, switch this off."))
 
     _title(nav, "Data saving")
 
