@@ -415,6 +415,8 @@ def _phone_read(host, urls, on_status):
             _phone_add_sizes(res)
         except Exception:
             pass
+    for res in out:
+        _phone_drop_same_file(res)
     if on_status:
         on_status("Done")
     return out
@@ -449,7 +451,7 @@ def _phone_kvs(url):
         seen.add(link)
         m = re.search(r"(\d{3,4})", labels.get(key, "")) or re.search(r"[-_/](\d{3,4})p?\.mp4", link)
         rows.append({"h": int(m.group(1)) if m else None, "ext": "mp4", "hls": False, "size": "",
-                     "url": link, "_tbr": None, "_hdr": {"Referer": url, "User-Agent": _PEEK_UA}})
+                     "url": link, "_tbr": None, "_kvs": True, "_hdr": {"Referer": url, "User-Agent": _PEEK_UA}})
     if not rows:
         if hidden:
             raise RuntimeError("the page's player links are encrypted (function/0/), decoding is not supported yet")
@@ -461,6 +463,25 @@ def _phone_kvs(url):
             "note": "yt-dlp found nothing; these links come from the page's player settings. "
                     "They are time-limited: download right away, do not keep them for later.",
             "rows": rows, "video_heights": [], "duration": None}
+
+
+def _phone_drop_same_file(res):
+    """Some sites list a quality (e.g. 1080p) in the player settings but serve the lower one's file. A quality
+    read from the page that has exactly the size of a lower quality is the same file: hide it."""
+    rows = res.get("rows") or []
+    by_size = {}
+    for row in rows:
+        if row.get("size"):
+            by_size.setdefault(row["size"], []).append(row)
+    drop = []
+    for grp in by_size.values():
+        if len(grp) > 1:
+            grp.sort(key=lambda r: r.get("h") or 0)
+            drop.extend(r for r in grp[1:] if r.get("_kvs"))
+    if drop:
+        res["rows"] = [r for r in rows if not any(r is d for d in drop)]
+        res["note"] = ((res.get("note") or "") + " Hidden: %s (same file as a lower quality; the site lists it but serves the lower one)."
+                       % ", ".join("%sp" % d.get("h") for d in drop)).strip()
 
 
 _PEEK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
