@@ -5,10 +5,12 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Message;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.WebChromeClient;
 import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -63,6 +65,7 @@ public class BrowserHelper {
     private static volatile boolean darkOn = false;
     private static volatile boolean noImages = false;
     private static volatile boolean noVideos = false;
+    private static volatile boolean adBlock = true;
     private static volatile int findIdx = 0;
     private static volatile int findCount = 0;
 
@@ -124,6 +127,8 @@ public class BrowserHelper {
                 cm.setAcceptCookie(true);
                 cm.setAcceptThirdPartyCookies(web, true);
                 web.setWebViewClient(new Client());
+                web.setWebChromeClient(new PopupGuard());
+                s.setSupportMultipleWindows(adBlock);
                 web.addJavascriptInterface(new NetBridge(), "YtbNet");
                 web.setFindListener(new WebView.FindListener() {
                     public void onFindResultReceived(int active, int total, boolean done) {
@@ -489,6 +494,7 @@ public class BrowserHelper {
 
     static void applyPageTools(WebView v) {
         v.evaluateJavascript(NET_JS, null);
+        if (adBlock) v.evaluateJavascript(AD_JS, null);
         if (darkOn) v.evaluateJavascript(DARK_ON, null);
         if (desktop) v.evaluateJavascript(DESKTOP_JS, null);
         if (noVideos) v.evaluateJavascript(NOVIDEO_JS, null);
@@ -709,12 +715,169 @@ public class BrowserHelper {
         });
     }
 
+    // ---- ads and pop-ups ----------------------------------------------------------------
+    // Known ad / pop-up networks (host or any sub-host). Their requests are not made; a page that tries to
+    // open one is stopped. Pop-up windows opened by a page are refused unless they go to the same site.
+    private static final String[] AD_HOSTS = {
+        "doubleclick.net",
+        "googlesyndication.com",
+        "googleadservices.com",
+        "adservice.google.com",
+        "2mdn.net",
+        "adnxs.com",
+        "adsrvr.org",
+        "criteo.com",
+        "pubmatic.com",
+        "rubiconproject.com",
+        "openx.net",
+        "casalemedia.com",
+        "smartadserver.com",
+        "adform.net",
+        "amazon-adsystem.com",
+        "moatads.com",
+        "zedo.com",
+        "taboola.com",
+        "outbrain.com",
+        "revcontent.com",
+        "mgid.com",
+        "adskeeper.com",
+        "popads.net",
+        "popcash.net",
+        "propellerads.com",
+        "propellerclick.com",
+        "onclickads.com",
+        "onclkds.com",
+        "exoclick.com",
+        "exosrv.com",
+        "realsrv.com",
+        "magsrv.com",
+        "juicyads.com",
+        "trafficjunky.com",
+        "trafficfactory.biz",
+        "ero-advertising.com",
+        "adsterra.com",
+        "highperformanceformat.com",
+        "highcpmrevenuegate.com",
+        "profitablecpmrate.com",
+        "clickadu.com",
+        "hilltopads.net",
+        "adcash.com",
+        "a-ads.com",
+        "ad-maven.com",
+        "admaven.com",
+        "tsyndicate.com",
+        "yllix.com",
+        "adspyglass.com",
+        "yandexadexchange.net",
+        "yektanet.com",
+        "tapsell.ir",
+        "adivery.com",
+        "adro.co",
+        "chavoosh.com"
+    };
+    private static final String AD_JS =
+        "(function(){try{if(window.__ytbAd)return;window.__ytbAd=true;"
+      + "var st=document.createElement('style');"
+      + "st.textContent='ins.adsbygoogle,iframe[src*=\"doubleclick\"],iframe[src*=\"googlesyndication\"],[id^=\"google_ads\"],[id*=\"yektanet\"],[class*=\"yektanet\"]{display:none!important}';"
+      + "(document.head||document.documentElement).appendChild(st);"
+      + "function sweep(){try{var W=innerWidth,H=innerHeight;var els=document.body?document.body.querySelectorAll('div,a,span'):[];"
+      + "for(var i=0;i<els.length;i++){var e=els[i];var c=getComputedStyle(e);"
+      + "if(c.position!=='fixed'&&c.position!=='absolute')continue;"
+      + "var z=parseInt(c.zIndex,10);if(!(z>=100000))continue;"
+      + "var r=e.getBoundingClientRect();if(r.width<W*0.8||r.height<H*0.8)continue;"
+      + "if(e.querySelector('video,img,iframe,input,button,canvas'))continue;"
+      + "if((e.textContent||'').trim().length>0)continue;"
+      + "e.remove()}}catch(x){}}"
+      + "sweep();var n=0;var t=setInterval(function(){sweep();if(++n>40)clearInterval(t)},1500)"
+      + "}catch(e){}})()";
+
+    private static boolean isAdHost(String host) {
+        if (host == null) return false;
+        host = host.toLowerCase();
+        for (String d : AD_HOSTS) {
+            if (host.equals(d) || host.endsWith("." + d)) return true;
+        }
+        return false;
+    }
+
+    private static String baseDomain(String host) {
+        if (host == null) return "";
+        String[] p = host.toLowerCase().split("\\.");
+        int n = p.length;
+        if (n <= 2) return host.toLowerCase();
+        String sl = p[n - 2];
+        boolean cc = p[n - 1].length() == 2 && (sl.equals("co") || sl.equals("com") || sl.equals("org")
+            || sl.equals("net") || sl.equals("gov") || sl.equals("ac"));
+        return cc ? p[n - 3] + "." + sl + "." + p[n - 1] : sl + "." + p[n - 1];
+    }
+
+    private static boolean sameSite(String a, String b) {
+        return a != null && b != null && baseDomain(a).equals(baseDomain(b));
+    }
+
+    /** Turns the ad / pop-up blocking on or off (on by default). The page should be loaded again. */
+    public static void setAdBlock(final boolean on) {
+        adBlock = on;
+        ui(new Runnable() {
+            public void run() {
+                if (web != null) web.getSettings().setSupportMultipleWindows(on);
+            }
+        });
+    }
+
+    /** New windows a page opens (window.open, target=_blank). Without a tap: refused. With a tap: the address is
+     *  read in a throw-away WebView (no scripts, no requests) and opened in this view only when it is the same
+     *  site and not a known ad host; anything else is a pop-up ad and is dropped. */
+    static class PopupGuard extends WebChromeClient {
+        @Override
+        public boolean onCreateWindow(WebView v, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+            if (!adBlock || resultMsg == null || !isUserGesture) return false;
+            try {
+                final WebView tmp = new WebView(v.getContext());
+                tmp.setWebViewClient(new WebViewClient() {
+                    private boolean done = false;
+                    private void decide(String url) {
+                        if (done || url == null || url.equals("about:blank")) return;
+                        done = true;
+                        Uri u = Uri.parse(url);
+                        String sch = u.getScheme();
+                        String host = u.getHost();
+                        boolean ok = ("http".equals(sch) || "https".equals(sch)) && !isAdHost(host)
+                            && sameSite(host, Uri.parse(pageUrl).getHost());
+                        if (ok) {
+                            final String go = url;
+                            ui(new Runnable() { public void run() { if (web != null) web.loadUrl(go); } });
+                        }
+                        ui(new Runnable() { public void run() { try { tmp.destroy(); } catch (Exception e) { } } });
+                    }
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView w, WebResourceRequest r) {
+                        decide(r.getUrl().toString());
+                        return true;
+                    }
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView w, WebResourceRequest r) {
+                        if (r.isForMainFrame()) decide(r.getUrl().toString());
+                        return blockedResponse();
+                    }
+                });
+                WebView.WebViewTransport t = (WebView.WebViewTransport) resultMsg.obj;
+                t.setWebView(tmp);
+                resultMsg.sendToTarget();
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+    }
+
     static class Client extends WebViewClient {
         @Override
         public void onPageStarted(WebView v, String url, Bitmap favicon) {
             newPage(url);
             canBack = v.canGoBack();
             v.evaluateJavascript(NET_JS, null);
+            if (adBlock) v.evaluateJavascript(AD_JS, null);
             if (darkOn) v.evaluateJavascript(DARK_ON, null);
         }
 
@@ -747,6 +910,7 @@ public class BrowserHelper {
         public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
             try {
                 String u = r.getUrl().toString();
+                if (adBlock && !r.isForMainFrame() && isAdHost(r.getUrl().getHost())) return blockedResponse();
                 Pattern pt = extPattern;
                 if (pt != null && "GET".equalsIgnoreCase(r.getMethod()) && pt.matcher(u).find()) record(u, "net");
                 if (noVideos && isVideoRequest(r, u)) return blockedResponse();      // seen above, so still listed
@@ -758,6 +922,7 @@ public class BrowserHelper {
         @Override
         public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
             String s = r.getUrl().getScheme();
+            if (adBlock && isAdHost(r.getUrl().getHost())) return true;   // a jump to an ad site is stopped
             return !("http".equals(s) || "https".equals(s));   // intent:, market: ... are not opened
         }
     }
