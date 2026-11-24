@@ -1,6 +1,6 @@
 {
-  "id": "2026-11-25-tpb-4",
-  "title": "thepornbang: does the real player's &rnd=<ms> parameter fix 'error 1'?",
+  "id": "2026-11-25-tpb-5",
+  "title": "thepornbang: do all three qualities (480/720/1080) really answer with video?",
   "steps": [
     {
       "step": "probe",
@@ -8,7 +8,7 @@
     },
     {
       "step": "media_test",
-      "count": 1
+      "count": 3
     }
   ]
 }
