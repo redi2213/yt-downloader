@@ -15,6 +15,13 @@
       "min_host": 1
     },
     {
+      "id": "diag_browser",
+      "title": "Browser capture (Claude's browser job)",
+      "file": "diag_browser.py",
+      "description": "Opens the page Claude prepared in a real in-app browser, tries to start the video, records what the browser requests and gets back, and saves it to config/diag-results/latest.txt for Claude. Job: config/diag-jobs/browser.json.",
+      "min_host": 1
+    },
+    {
       "id": "mornye_lab",
       "title": "Mornye (lab copy)",
       "file": "mornye_lab.py",
