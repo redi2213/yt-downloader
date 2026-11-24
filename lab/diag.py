@@ -16,6 +16,7 @@ import platform
 import re
 import sys
 import time
+import urllib.parse as _up
 
 REPO = "redi2213/yt-downloader"
 API = "https://api.github.com/repos/" + REPO
@@ -168,6 +169,7 @@ def step_probe(host, url):
         ("external scripts", re.findall(r"(?i)<script[^>]+src=[\"']([^\"']+)", txt)),
     ]
     _PROBE["page"] = url
+    _PROBE["body"] = body
     _PROBE["cookies"] = _cookie_header(r)
     out.append("cookies from page: %s" % (", ".join(c.split("=")[0] for c in _PROBE["cookies"].split("; ")) if _PROBE["cookies"] else "none"))
     _PROBE["media"] = _uniq(_MEDIA.findall(txt))
@@ -203,7 +205,7 @@ def step_media_test(host, url="", referer="", count=3):
     for n, u in enumerate(urls[:int(count)]):
         variants = [("ref+cookie+range", ref, cookie, True)]
         if n == 0:
-            variants += [("ref+cookie, no range", ref, cookie, False), ("bare, no ref/cookie", "", "", True)]
+            variants += [("ref+cookie, no range", ref, cookie, False), ("bare, no ref/cookie", "", "", True), ("video-like headers", ref, cookie, True)]
         for name, rf, ck, rng in variants:
             h = dict(_UA)
             if rng:
@@ -212,6 +214,8 @@ def step_media_test(host, url="", referer="", count=3):
                 h["Referer"] = rf
             if ck:
                 h["Cookie"] = ck
+            if name.startswith("video"):
+                h.update({"Accept": "*/*", "Sec-Fetch-Dest": "video", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Site": "same-origin"})
             label = "%s [%s]" % (u[:150], name)
             try:
                 r = host.get(u, headers=h, stream=True)
@@ -242,10 +246,41 @@ def step_media_test(host, url="", referer="", count=3):
     return "\n".join(out)
 
 
+def step_context(host, pattern="get_stream", url="", width=250, limit=3):
+    """Shows the text around matches of a regex, in the probed page or in another file (relative path ok)."""
+    if url:
+        target = _up.urljoin(_PROBE["page"] or url, url)
+        r = _fetch(host, target)
+        body = getattr(r, "text", "") or ""
+        head = "%s: HTTP %s, %d chars" % (target, getattr(r, "status_code", "?"), len(body))
+    else:
+        body = _PROBE.get("body", "")
+        head = "page (from probe), %d chars" % len(body)
+    if not body:
+        return head + "\nno content (run probe first)"
+    out = [head]
+    last_end = -1
+    seen = 0
+    for m in re.finditer(pattern, body, re.I):
+        if m.start() < last_end:
+            continue
+        a = max(0, m.start() - int(width))
+        b = min(len(body), m.end() + int(width))
+        out.append("--- match at %d ---\n%s" % (m.start(), body[a:b].replace("\n", " ")))
+        last_end = b
+        seen += 1
+        if seen >= int(limit):
+            break
+    if not seen:
+        out.append("no match for: " + pattern)
+    return "\n".join(out)
+
+
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
     ("media_test", "Media link test", step_media_test),
+    ("context", "Context grep", step_context),
 ]
 
 
@@ -406,6 +441,7 @@ def _run_job(host):
             args = dict((k, v) for k, v in item.items() if k != "step")
             if sid in known:
                 _, title, fn = known[sid]
+                title = str(item.get("label") or title)
                 selected.append((sid, title, lambda h, fn=fn, args=args: _call(fn, h, args)))
             else:
                 selected.append((sid, "Unknown step", lambda h, sid=sid: "unknown step: " + sid))
