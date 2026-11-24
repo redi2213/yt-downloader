@@ -42,6 +42,52 @@ def _set_ads(br, on):
         return False
 
 
+_last = {"text": ""}
+
+
+def _copy_text(text):
+    try:
+        from kivy.core.clipboard import Clipboard
+        Clipboard.copy(text)
+        return True
+    except Exception:
+        return False
+
+
+def _deliver(text, say):
+    _last["text"] = text
+    ok = _copy_text(text)
+    size = max(1, len(text) // 1000)
+    say((f"Copied ({size} KB): paste it in the chat" if ok else "Could not copy: use Share last result")
+        + ". A very long text is cut.")
+
+
+def _inspect(br, kind, say):
+    """Reads the shown page (HTML or links) through the helper and copies it. Needs the latest build."""
+    start = getattr(br, "inspect", None)
+    if start is None or not start(kind):
+        say(_NEEDS_UPDATE)
+        return
+    say("Reading the page...")
+    tries = {"n": 0}
+
+    def poll(_dt):
+        tries["n"] += 1
+        out = br.inspect_result()
+        if out is None:
+            if tries["n"] >= 25:
+                say("The page did not answer")
+                return False
+            return True
+        if not out:
+            say("Nothing was read: open a page first")
+        else:
+            _deliver(out, say)
+        return False
+
+    Clock.schedule_interval(poll, 0.3)
+
+
 def apply_saved(br, state, tab_id):
     """Gives the helper the saved choices (dark mode, blocking, desktop view of this tab). Called each time the
     browser screen is built, so a tab switch also switches the user agent before the page loads."""
@@ -167,6 +213,43 @@ def add_menu(nav, status):
 
     _title(nav, "Cookies and headers")
     button("Export cookies", lambda b: _open_cookies(nav))
+
+    _title(nav, "Inspect page (to share)")
+
+    def nav_log(_btn):
+        getter = getattr(br, "nav_log", None)
+        text = getter() if getter else None
+        if text is None:
+            say(_NEEDS_UPDATE)
+        elif not text.strip():
+            say("The navigation log is empty")
+        else:
+            _deliver(text, say)
+
+    def clear_log(_btn):
+        fn = getattr(br, "clear_nav_log", None)
+        say("Navigation log cleared" if fn and fn() else _NEEDS_UPDATE)
+
+    def share_last(_btn):
+        text = _last["text"]
+        if not text:
+            say("Nothing to share yet")
+            return
+        try:
+            from core import android_actions
+            if android_actions.share_text(text):
+                return
+        except Exception:
+            pass
+        say("Share is not available" + (" - the text is on the clipboard" if _copy_text(text) else ""))
+
+    button("Copy page HTML", lambda b: _inspect(br, "html", say))
+    button("Copy page links", lambda b: _inspect(br, "links", say))
+    button("Copy navigation log", nav_log)
+    button("Clear navigation log", clear_log)
+    button("Share last result", share_last)
+    nav.add(wrapped_label("Open the page first, do what you want to show (tap the link), then come back here. "
+                          "The page HTML can hold personal data: look before you share."))
 
 
 def _open_cookies(nav):
