@@ -7,7 +7,7 @@
 
 ## شاخه‌ها
 - main: کد اپ (Kivy/Android) + همه workflowهای GitHub Actions + version.txt
-- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/، diag-results/ (نتیجه‌ی دکمه‌های Lab > Diagnostics؛ آخرین: latest.txt)، lab-logs/ (لاگ خطای Lab: یک فایل برای هر لینک ناموفق)
+- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/، diag-results/ (نتیجه‌ی دکمه‌های Lab > Diagnostics؛ آخرین: latest.txt)، diag-jobs/ (next.json: کاری که Claude برای دکمه‌ی Run Claude's job می‌نویسد)، lab-logs/ (لاگ خطای Lab: یک فایل برای هر لینک ناموفق)
 - lab: محیط آزمایشی Lab: workflowهای lab-*، lab/lib/*، lab_scripts/*، راهنماها (LAB.md, WORKFLOW_GUIDE.md, LINKLAB_SITE_GUIDE.md)
 - بکاپ: شاخه‌ی backup و پوشه‌ی config/backups/ حذف شده‌اند (۱۴۰۵/۰۸). بکاپ پروژه فقط با backup-project.yml ساخته می‌شود و zip آن در Release آپلود می‌شود (نه در هیچ شاخه‌ای).
 
@@ -61,7 +61,7 @@
 - docs/GRAPH_REPORT.md (~۵۶KB، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، فقط بخش لازم را بخوان. روزانه با graph-report.yml به‌روز می‌شود — graphify query روی Termux قابل نصب نیست (tree-sitter build fail)؛ جایگزین ندارد.
 
 ## قوانین کار
-- تست واقعی/عیب‌یابی: اگر برای ادامه‌ی کار لازم است چیزی روی گوشی یا سایت واقعاً اجرا شود، اول DIAG_TOOLS.md را بخوان. ابزار موجود بود، از کاربر بخواه فقط دکمه‌اش را بزند (Lab > Diagnostics)؛ نبود، دکمه‌ی جدید در lab/diag.py (STEPS) بساز، در DIAG_TOOLS.md ثبت کن، و بعد نتیجه را از config/diag-results/latest.txt بخوان. از کاربر نخواه لاگ یا کد را کپی کند.
+- تست واقعی/عیب‌یابی: اگر برای ادامه‌ی کار لازم است چیزی روی گوشی یا سایت واقعاً اجرا شود، اول DIAG_TOOLS.md را بخوان. کار را به شکل job در config/diag-jobs/next.json بنویس (لینک و آرگومان‌ها داخل job) و از کاربر فقط بخواه Lab > Diagnostics > Run Claude's job را بزند؛ بعد نتیجه را از config/diag-results/latest.txt بخوان. step مناسب نبود، step جدید در lab/diag.py بساز و در DIAG_TOOLS.md ثبت کن. از کاربر نخواه لینک تایپ کند یا لاگ/کد کپی کند.
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
 - workflowهای lab-* در هر دو شاخه main و lab هستند (نسخه‌ها متفاوت‌اند)؛ قبل از تغییر، شاخه‌ی درست را مشخص کن.
 - فایل بزرگ (navigator.py، fa_strings_more.py، releases.py، history.py) را کامل بازنویسی نکن؛ فقط بخش لازم.
