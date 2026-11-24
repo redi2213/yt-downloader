@@ -42,6 +42,52 @@ def _set_ads(br, on):
         return False
 
 
+_last = {"text": ""}
+
+
+def _copy_text(text):
+    try:
+        from kivy.core.clipboard import Clipboard
+        Clipboard.copy(text)
+        return True
+    except Exception:
+        return False
+
+
+def _deliver(text, say):
+    _last["text"] = text
+    ok = _copy_text(text)
+    size = max(1, len(text) // 1000)
+    say((f"Copied ({size} KB): paste it in the chat" if ok else "Could not copy: use Share last result")
+        + ". A very long text is cut.")
+
+
+def _inspect(br, kind, say):
+    """Reads the shown page (HTML or links) through the helper and copies it. Needs the latest build."""
+    start = getattr(br, "inspect", None)
+    if start is None or not start(kind):
+        say(_NEEDS_UPDATE)
+        return
+    say("Reading the page...")
+    tries = {"n": 0}
+
+    def poll(_dt):
+        tries["n"] += 1
+        out = br.inspect_result()
+        if out is None:
+            if tries["n"] >= 25:
+                say("The page did not answer")
+                return False
+            return True
+        if not out:
+            say("Nothing was read: open a page first")
+        else:
+            _deliver(out, say)
+        return False
+
+    Clock.schedule_interval(poll, 0.3)
+
+
 def apply_saved(br, state, tab_id):
     """Gives the helper the saved choices (dark mode, blocking, desktop view of this tab). Called each time the
     browser screen is built, so a tab switch also switches the user agent before the page loads."""
@@ -53,8 +99,32 @@ def apply_saved(br, state, tab_id):
 
 
 # -- the Browser menu ----------------------------------------------------------------------------------------------
+# The menu has one button per category; each opens a screen of its own (build_section), so the buttons are not
+# scattered. Every button inside does what it did before.
+_SECTIONS = (
+    ("page", "Page tools"),
+    ("ads", "Ads and pop-ups"),
+    ("clean", "Clean up"),
+    ("inspect", "Inspect page (to share)"),
+)
+
+
 def add_menu(nav, status):
-    """Adds the page-tool buttons to the Browser menu (``status`` is the menu's message line)."""
+    """Adds one button per category to the Browser menu (``status`` is the menu's message line)."""
+    for key, title in _SECTIONS:
+        btn = Button(text=title, size_hint_y=None, height=BTN_H)
+        btn.bind(on_press=lambda i, k=key: open_section(nav, k))
+        nav.add(btn)
+
+
+def open_section(nav, key):
+    nav.remember(lambda: open_section(nav, key))
+    build_section(nav, key)
+
+
+def build_section(nav, key):
+    from types import SimpleNamespace
+    from screens import browser_pages
     br = nav.browser
     st = browser_service.state()
     tab = st.tabs.current()
@@ -62,6 +132,12 @@ def add_menu(nav, status):
     sess = st.tabs.session_for(tab_id)
     page = sess.page if bt.is_web(sess.page) else tab.get("url")
     flags = browser_service.load_tools()
+    nav.clear()
+    _title(nav, dict(_SECTIONS).get(key, ""))
+    status = _status()
+    nav.add(status)
+    if br is None or not br.native_ready():
+        nav.add(wrapped_label("Some page tools need the latest app update (a new build)."))
 
     def button(text, action):
         btn = Button(text=text, size_hint_y=None, height=BTN_H)
@@ -72,9 +148,17 @@ def add_menu(nav, status):
     def say(text):
         status.text = text
 
-    _title(nav, "Page tools")
-    if br is None or not br.native_ready():
-        nav.add(wrapped_label("Some page tools need the latest app update (a new build)."))
+    ctx = SimpleNamespace(nav=nav, br=br, st=st, tab_id=tab_id, page=page, flags=flags, button=button, say=say)
+    fill = {"page": _sec_page, "ads": _sec_ads, "clean": _sec_clean, "inspect": _sec_inspect}.get(key)
+    if fill is not None:
+        fill(ctx)
+    back = Button(text="Back to the menu", size_hint_y=None, height=BTN_H)
+    back.bind(on_press=lambda i: browser_pages.open_menu(nav))
+    nav.add(back)
+
+
+def _sec_page(c):
+    nav, br, st, tab_id, page, flags, button, say = (c.nav, c.br, c.st, c.tab_id, c.page, c.flags, c.button, c.say)
 
     def desktop(btn):
         on = not st.tabs.is_desktop(tab_id)
@@ -120,7 +204,9 @@ def add_menu(nav, status):
     button("Find in page", find)
     button("Reload", reload_page)
 
-    _title(nav, "Ads and pop-ups")
+
+def _sec_ads(c):
+    nav, br, flags, button, say = c.nav, c.br, c.flags, c.button, c.say
 
     def ads(btn):
         off = not flags["ads_off"]
@@ -160,13 +246,53 @@ def add_menu(nav, status):
            block("no_videos", "Videos disabled", "Videos are blocked now; the page reloads",
                  "Videos are loaded again; the page reloads"))
 
-    _title(nav, "Clean up")
+
+def _sec_clean(c):
+    nav, br, button, say = c.nav, c.br, c.button, c.say
     button("Clear cache", lambda b: say("Cache cleared" if br.clear_cache() else _NEEDS_UPDATE))
     button("Clear this site's data", lambda b: open_confirm(nav, "site"))
     button("Clear data of all sites", lambda b: open_confirm(nav, "all"))
-
     _title(nav, "Cookies and headers")
     button("Export cookies", lambda b: _open_cookies(nav))
+
+
+def _sec_inspect(c):
+    nav, br, button, say = c.nav, c.br, c.button, c.say
+
+    def nav_log(_btn):
+        getter = getattr(br, "nav_log", None)
+        text = getter() if getter else None
+        if text is None:
+            say(_NEEDS_UPDATE)
+        elif not text.strip():
+            say("The navigation log is empty")
+        else:
+            _deliver(text, say)
+
+    def clear_log(_btn):
+        fn = getattr(br, "clear_nav_log", None)
+        say("Navigation log cleared" if fn and fn() else _NEEDS_UPDATE)
+
+    def share_last(_btn):
+        text = _last["text"]
+        if not text:
+            say("Nothing to share yet")
+            return
+        try:
+            from core import android_actions
+            if android_actions.share_text(text):
+                return
+        except Exception:
+            pass
+        say("Share is not available" + (" - the text is on the clipboard" if _copy_text(text) else ""))
+
+    button("Copy page HTML", lambda b: _inspect(br, "html", say))
+    button("Copy page links", lambda b: _inspect(br, "links", say))
+    button("Copy navigation log", nav_log)
+    button("Clear navigation log", clear_log)
+    button("Share last result", share_last)
+    nav.add(wrapped_label("Open the page first, do what you want to show (tap the link), then come back here. "
+                          "The page HTML can hold personal data: look before you share."))
 
 
 def _open_cookies(nav):
@@ -212,7 +338,7 @@ def build_confirm(nav, scope):
     yes.bind(on_press=run)
     nav.add(yes)
     cancel = Button(text="Cancel", size_hint_y=None, height=BTN_H)
-    cancel.bind(on_press=lambda i: browser_pages.open_menu(nav))
+    cancel.bind(on_press=lambda i: open_section(nav, "clean"))
     nav.add(cancel)
     back = Button(text="Back to browser", size_hint_y=None, height=BTN_H)
     back.bind(on_press=lambda i: nav.show_browser())
