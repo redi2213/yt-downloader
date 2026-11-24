@@ -3,9 +3,11 @@
 هدف: Claude اول این فایل را بخواند، نه کل درخت ریپو را. هر وقت فایل/پوشه‌ی مهمی اضافه، حذف یا جابجا شد، همین فایل را به‌روز کن.
 جزئیات بیشتر: ARCHITECTURE.md (لایه‌بندی و جریان اجرا؛ به‌روز؛ فقط برای کار معماری) و PROJECT_NOTES.md (رفتار قابلیت‌ها، ~۱۴KB، خلاصه‌شده ۱۴۰۵/۰۸؛ قابلیت‌های جدیدتر در آن نیست؛ فقط وقتی صریحاً لازم شد).
 
+ابزارهای تست و عیب‌یابی (دکمه‌های Lab > Diagnostics، ابزارهای مرورگر/Lab، جای ذخیره‌ی نتیجه): DIAG_TOOLS.md (شاخه main). قبل از اینکه از کاربر بخواهی چیزی را دستی تست کند، فقط این فایل را بخوان.
+
 ## شاخه‌ها
 - main: کد اپ (Kivy/Android) + همه workflowهای GitHub Actions + version.txt
-- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/، lab-logs/ (لاگ خطای Lab: یک فایل برای هر لینک ناموفق)
+- config: داده و تنظیم، بدون کد اپ: config.json، follows.json، follow-state.json، ntfy.json، promotions.json، site-log.jsonl، working_proxies.txt، plugins/، lab/ (کپی‌های کاری)، logs/، diag-results/ (نتیجه‌ی دکمه‌های Lab > Diagnostics؛ آخرین: latest.txt)، lab-logs/ (لاگ خطای Lab: یک فایل برای هر لینک ناموفق)
 - lab: محیط آزمایشی Lab: workflowهای lab-*، lab/lib/*، lab_scripts/*، راهنماها (LAB.md, WORKFLOW_GUIDE.md, LINKLAB_SITE_GUIDE.md)
 - بکاپ: شاخه‌ی backup و پوشه‌ی config/backups/ حذف شده‌اند (۱۴۰۵/۰۸). بکاپ پروژه فقط با backup-project.yml ساخته می‌شود و zip آن در Release آپلود می‌شود (نه در هیچ شاخه‌ای).
 
@@ -53,6 +55,7 @@
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
 
 - عمومی/خصوصی کردن ریپو از Lab (دستی، بدون Build): شاخه lab → lab/repo_visibility.py
+- Diagnostics (دکمه‌ی تست با ذخیره‌ی خودکار نتیجه، بدون Build): شاخه lab → lab/diag.py (STEPS = دکمه‌ها؛ ثبت در lab/index.json) → نتیجه در config/diag-results/latest.txt؛ فهرست ابزارها: DIAG_TOOLS.md
 - آرشیو README قدیمی: docs/README_ARCHIVE.md
 ## گزارش گراف کد (Graphify)
 - docs/GRAPH_REPORT.md (~۵۶KB، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، فقط بخش لازم را بخوان. روزانه با graph-report.yml به‌روز می‌شود — graphify query روی Termux قابل نصب نیست (tree-sitter build fail)؛ جایگزین ندارد.
