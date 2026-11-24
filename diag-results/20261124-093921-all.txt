@@ -1,0 +1,41 @@
+# Diagnostics (all) 2026-11-24 09:39:14 UTC
+
+## Environment (phone, python, space) (env)
+time_utc: 2026-11-24 09:39:14
+python: 3.14.2
+platform: android / aarch64
+kivy: 2.3.1
+free_space_mb: 1305
+
+## yt-dlp version (ytdlp)
+yt_dlp: 2026.10.26
+
+## Network reach (GitHub, YouTube, Google) (net)
+github_api: HTTP 200 in 637 ms
+youtube: HTTP 204 in 579 ms
+google: HTTP 204 in 564 ms
+
+## GitHub access (token, repo, branches) (github)
+repo: redi2213/yt-downloader private=False default_branch=main
+permissions: {'admin': True, 'maintain': True, 'push': True, 'triage': True, 'pull': True}
+rate_limit: 4986 of 5000 left
+branches: config, lab, main
+
+## Last workflow runs (runs)
+Arvan list [c7e06de8708e] | completed/success | main | 2026-11-24T08:53:20Z | https://github.com/redi2213/yt-downloader/actions/runs/45360046573
+Build APK [215e87936d16] | completed/success | main | 2026-11-24T08:47:54Z | https://github.com/redi2213/yt-downloader/actions/runs/45359261990
+Arvan list [56f09a1bd3ac] | completed/success | main | 2026-11-24T08:35:41Z | https://github.com/redi2213/yt-downloader/actions/runs/45357487162
+Build APK [f40cb0d001e0] | completed/success | main | 2026-11-24T08:29:50Z | https://github.com/redi2213/yt-downloader/actions/runs/45356608028
+Publish browser pack | completed/success | main | 2026-11-24T08:29:01Z | https://github.com/redi2213/yt-downloader/actions/runs/45356495694
+Publish browser pack | completed/success | main | 2026-11-24T08:25:56Z | https://github.com/redi2213/yt-downloader/actions/runs/45356047770
+Publish browser pack | completed/cancelled | main | 2026-11-24T08:25:54Z | https://github.com/redi2213/yt-downloader/actions/runs/45356043511
+Build APK [] | completed/cancelled | main | 2026-11-24T08:25:54Z | https://github.com/redi2213/yt-downloader/actions/runs/45356043450
+
+## Lab failed-link logs (list) (lablogs)
+count: 5
+last 5 by name:
+20261123-212816-phone-pornez.cam-fa7d00.txt
+20261123-212921-links-pornez.cam-fa7d00.txt
+20261123-220308-phone-playvids.com-d673c9.txt
+20261123-220420-links-playvids.com-d673c9.txt
+20261123-225655-links-thepornbang.com-74b837.txt
