@@ -24,7 +24,7 @@
 | Last workflow runs (runs) | ۸ اجرای آخر workflow (نام، وضعیت، شاخه، لینک) |
 | Lab failed-link logs (lablogs) | تعداد و ۵ نام آخر در config/lab-logs/ |
 | Page probe (probe) | ورودی: لینک صفحه. صفحه را از گوشی می‌گیرد و سرنخ ویدیو را لیست می‌کند: iframe، source/video، og:video، لینک‌های m3u8/mp4/mpd، کلیدهای JSON/JS. اگر چیزی نبود یعنی ویدیو با JavaScript بارگذاری می‌شود. فقط در job (آرگومان url) یا از دکمه‌ی Page probe |
-| Media link test (media_test) | فقط در job. آرگومان‌ها: url (خالی = لینک‌های پیدا شده توسط probe قبلی در همان job)، referer، count. با Range و stream فقط ۱KB اول را می‌گیرد: وضعیت HTTP، نوع، و ftyp (نشانه‌ی mp4 واقعی). لینک‌های get_stream زمان‌دارند، پس probe و media_test را در یک job بگذار |
+| Media link test (media_test) | فقط در job. آرگومان‌ها: url (خالی = لینک‌های پیدا شده توسط probe قبلی در همان job)، referer، count. با Range و stream فقط ۱KB اول را می‌گیرد: وضعیت HTTP، هدرهای مهم، ftyp (نشانه‌ی mp4 واقعی) و متن بدنه اگر mp4 نبود؛ برای لینک اول ۳ حالت: ref+cookie+range، بدون range، بدون ref/cookie (کوکی‌ها از probe همان job می‌آیند). لینک‌های get_stream زمان‌دارند، پس probe و media_test را در یک job بگذار |
 
 خروجی: `config/diag-results/latest.txt` (آخرین اجرا) + `<زمان>-<id>.txt` (۲۰ تای آخر). توکن، کوکی و هدر Authorization پنهان می‌شود. سقف: ۶۰۰۰ کاراکتر برای هر مرحله، ۲۴۰۰۰ کل. ریپو عمومی است، پس نتیجه برای همه خوانا است. روی صفحه هم دکمه‌ی Copy دارد.
 
