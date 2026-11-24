@@ -1,0 +1,218 @@
+"""Lab: Diagnostics. Test buttons whose result is saved in the repo (no build needed).
+
+Every button runs a check on this phone, shows the result here (with Copy) and
+saves it to the config branch: diag-results/latest.txt (plus a timestamped copy,
+last 20 kept). Claude reads that file, so nothing has to be pasted.
+
+To add a check: write step_xxx(host) -> str and add it to STEPS (end of file).
+Tokens, cookies and Authorization headers are hidden before saving.
+"""
+import base64
+import os
+import platform
+import re
+import sys
+import time
+
+REPO = "redi2213/yt-downloader"
+API = "https://api.github.com/repos/" + REPO
+RESULT_BRANCH = "config"
+RESULT_DIR = "diag-results"
+KEEP = 20
+MAX_STEP = 6000
+MAX_TOTAL = 24000
+
+_LAST = {"report": "", "saved": ""}
+
+_HIDE = [
+    (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
+    (re.compile(r"(?i)\b(authorization|cookie|set-cookie|x-api-key)\b\s*[:=]\s*[^\n]+"), r"\1: <hidden>"),
+    (re.compile(r"(?i)([?&;][\w-]*(?:token|key|secret|passw|sig|session|auth)[\w-]*)=[^&\s\"']+"), r"\1=<hidden>"),
+]
+
+
+def _hide(text):
+    text = str(text)
+    for rx, rep in _HIDE:
+        text = rx.sub(rep, text)
+    return text
+
+
+# ---------------------------------------------------------------- steps
+def step_env(host):
+    out = ["time_utc: " + time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+           "python: " + sys.version.split()[0],
+           "platform: %s / %s" % (sys.platform, platform.machine())]
+    try:
+        import kivy
+        out.append("kivy: " + str(kivy.__version__))
+    except Exception as e:
+        out.append("kivy: n/a (%s)" % str(e)[:60])
+    try:
+        st = os.statvfs(os.getcwd())
+        out.append("free_space_mb: %d" % (st.f_bavail * st.f_frsize // 1048576))
+    except Exception as e:
+        out.append("free_space_mb: n/a (%s)" % str(e)[:60])
+    return "\n".join(out)
+
+
+def step_ytdlp(host):
+    try:
+        from yt_dlp.version import __version__
+        return "yt_dlp: " + str(__version__)
+    except Exception as e:
+        return "yt_dlp: not available (%s)" % str(e)[:100]
+
+
+_NET = [("github_api", "https://api.github.com/zen"),
+        ("youtube", "https://www.youtube.com/generate_204"),
+        ("google", "https://www.google.com/generate_204")]
+
+
+def step_net(host):
+    out = []
+    for name, url in _NET:
+        t = time.time()
+        try:
+            r = host.get(url)
+            out.append("%s: HTTP %s in %d ms" % (name, getattr(r, "status_code", "?"), (time.time() - t) * 1000))
+        except Exception as e:
+            out.append("%s: FAILED %s: %s" % (name, type(e).__name__, str(e)[:100]))
+    return "\n".join(out)
+
+
+def step_github(host):
+    out = []
+    r = host.gh.request("GET", API).json()
+    out.append("repo: %s private=%s default_branch=%s" % (r.get("full_name"), r.get("private"), r.get("default_branch")))
+    out.append("permissions: %s" % (r.get("permissions"),))
+    try:
+        core = host.gh.request("GET", "https://api.github.com/rate_limit").json()["resources"]["core"]
+        out.append("rate_limit: %s of %s left" % (core.get("remaining"), core.get("limit")))
+    except Exception as e:
+        out.append("rate_limit: FAILED %s" % str(e)[:80])
+    try:
+        names = [b.get("name") for b in host.gh.request("GET", API + "/branches?per_page=30").json()]
+        out.append("branches: " + ", ".join(names))
+    except Exception as e:
+        out.append("branches: FAILED %s" % str(e)[:80])
+    return "\n".join(out)
+
+
+def step_runs(host):
+    runs = host.gh.request("GET", API + "/actions/runs?per_page=8").json().get("workflow_runs", [])
+    out = []
+    for w in runs:
+        out.append("%s | %s/%s | %s | %s | %s" % (w.get("name"), w.get("status"), w.get("conclusion"),
+                                                  w.get("head_branch"), w.get("created_at"), w.get("html_url")))
+    return "\n".join(out) or "no runs"
+
+
+def step_lablogs(host):
+    items = host.gh.request("GET", API + "/contents/lab-logs?ref=" + RESULT_BRANCH).json()
+    names = sorted(i.get("name", "") for i in items)
+    return "count: %d\nlast 5 by name:\n%s" % (len(names), "\n".join(names[-5:]))
+
+
+# (id, button title, function). Add new checks here.
+STEPS = [
+    ("env", "Environment (phone, python, space)", step_env),
+    ("ytdlp", "yt-dlp version", step_ytdlp),
+    ("net", "Network reach (GitHub, YouTube, Google)", step_net),
+    ("github", "GitHub access (token, repo, branches)", step_github),
+    ("runs", "Last workflow runs", step_runs),
+    ("lablogs", "Lab failed-link logs (list)", step_lablogs),
+]
+
+
+# ---------------------------------------------------------------- saving
+def _put(host, path, text, msg):
+    url = API + "/contents/" + path
+    sha = None
+    try:
+        sha = host.gh.request("GET", url + "?ref=" + RESULT_BRANCH).json().get("sha")
+    except Exception:
+        sha = None
+    body = {"message": msg, "branch": RESULT_BRANCH,
+            "content": base64.b64encode(text.encode("utf-8")).decode("ascii")}
+    if sha:
+        body["sha"] = sha
+    host.gh.request("PUT", url, json=body)
+
+
+def _prune(host):
+    try:
+        items = host.gh.request("GET", API + "/contents/" + RESULT_DIR + "?ref=" + RESULT_BRANCH).json()
+        old = sorted((i for i in items if i.get("name", "").endswith(".txt") and i.get("name") != "latest.txt"),
+                     key=lambda i: i["name"])
+        for i in old[:-KEEP]:
+            host.gh.request("DELETE", API + "/contents/" + i["path"],
+                            json={"message": "diag: prune", "sha": i["sha"], "branch": RESULT_BRANCH})
+    except Exception:
+        pass
+
+
+def _save(host, report, tag):
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    try:
+        _put(host, RESULT_DIR + "/latest.txt", report, "diag: " + tag)
+        _put(host, "%s/%s-%s.txt" % (RESULT_DIR, stamp, tag), report, "diag: " + tag)
+    except Exception as e:
+        return "NOT saved to repo: %s" % str(e)[:120]
+    _prune(host)
+    return "Saved: %s branch, %s/latest.txt" % (RESULT_BRANCH, RESULT_DIR)
+
+
+# ---------------------------------------------------------------- screens
+def build(host):
+    host.title("Diagnostics")
+    host.text("Each button runs a check, saves the result to the repo "
+              "(config branch, diag-results/latest.txt) and shows it here with Copy. "
+              "Then just tell Claude it is done.")
+    host.status()
+    host.button("Run all", lambda: _run(host, STEPS, "all"))
+    for s in STEPS:
+        host.button(s[1], lambda s=s: _run(host, [s], s[0]))
+    host.button("Show last result", lambda: host.show(result_screen))
+    host.back_button("Back")
+
+
+def result_screen(host):
+    host.title("Result")
+    host.status()
+    host.set_status(_LAST["saved"] or "Nothing run yet")
+    rep = _LAST["report"]
+    if rep:
+        shown = rep[:2500]
+        if len(rep) > 2500:
+            shown += "\n... (cut here; Copy gives everything)"
+    else:
+        shown = "Nothing run yet."
+    host.text(shown)
+    host.button("Copy all", lambda: host.copy(_LAST["report"] or "(empty)"))
+    host.back_button()
+
+
+def _run(host, selected, tag):
+    host.set_status("Running %d check(s)..." % len(selected))
+
+    def work():
+        parts = ["# Diagnostics (%s) %s UTC" % (tag, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))]
+        for sid, title, fn in selected:
+            try:
+                txt = fn(host)
+            except Exception as e:
+                txt = "ERROR %s: %s" % (type(e).__name__, str(e)[:200])
+            parts.append("## %s (%s)\n%s" % (title, sid, _hide(txt)[:MAX_STEP]))
+        report = "\n\n".join(parts)[:MAX_TOTAL]
+        return report, _save(host, report, tag)
+
+    def done(result, error):
+        if error:
+            host.set_status("Failed: %s" % str(error)[:120])
+            return
+        _LAST["report"], _LAST["saved"] = result
+        host.set_status(result[1])
+        host.show(result_screen)
+
+    host.background(work, done=done)
