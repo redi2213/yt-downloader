@@ -130,13 +130,15 @@ def build_menu(nav):
 
     mark.bind(on_press=toggle_mark)
     draw_mark()
+    nav.add(Label(text="Tabs and bookmarks", size_hint_y=None, height=BTN_H))
     nav.add(_button("New tab", new_tab))
     nav.add(_button(f"Tabs ({st.tabs.count()})", lambda: open_tabs(nav)))
     nav.add(mark)
     nav.add(_button("Bookmarks", lambda: open_bookmarks(nav)))
     nav.add(_button("History", lambda: open_history(nav)))
+    nav.add(Label(text="Tools", size_hint_y=None, height=BTN_H))
+    browser_tools.add_menu(nav, status)         # one button per category: Page tools, Ads and pop-ups, Clean up, Inspect
     nav.add(_button("Browser settings", lambda: browser.open_settings(nav, nav.show_browser, "Back to browser")))
-    browser_tools.add_menu(nav, status)         # Desktop view, Dark mode, Translate, Find, Reload, data saving, clean up
     nav.add(_button("Back to browser", nav.show_browser))
 
 
