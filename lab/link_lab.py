@@ -390,10 +390,17 @@ def _phone_read(host, urls, on_status):
             out.append({"url": url, "title": url, "error": "yt-dlp is not inside this build"})
             continue
         res = _phone_one(yt_dlp, opts, url)
-        if not res.get("rows"):
+        if not res.get("rows") or (res.get("extractor") or "").lower() in ("generic", "html5"):
             try:
                 alt = _phone_kvs(url)
-                if alt:
+                if alt and res.get("rows"):
+                    # yt-dlp found only some qualities: add the ones from the page's player settings
+                    have = set(r.get("h") for r in res["rows"])
+                    extra = [r for r in alt["rows"] if r.get("h") not in have]
+                    if extra:
+                        res["rows"] = sorted(res["rows"] + extra, key=lambda r: -(r.get("h") or 0))
+                        res["note"] = ((res.get("note") or "") + " More qualities come from the page's player settings (time-limited links).").strip()
+                elif alt:
                     res = alt
             except Exception as e:
                 key = "error" if res.get("error") else "note"
