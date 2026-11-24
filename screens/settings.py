@@ -10,7 +10,7 @@ from kivy.uix.checkbox import CheckBox
 from kivy.uix.boxlayout import BoxLayout
 
 from api import (auto_build_prefs, download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs,
-                 release_delete_prefs)
+                 open_link_prefs, release_delete_prefs)
 from core import android_downloads
 from screens.common import back_button, GAP, paste_row, wrapped_label
 from services import ntfy_service, token_service
@@ -213,6 +213,15 @@ def _tools(nav):
     browser_btn = Button(text="Browser online update", size_hint_y=None, height=48)
     browser_btn.bind(on_press=lambda i: nav.show_browser_pack())
     nav.add(browser_btn)
+
+    open_btn = Button(text=f"Open GitHub links with: {open_link_prefs.label()}", size_hint_y=None, height=48)
+
+    def cycle_open(btn):
+        open_link_prefs.set_choice(open_link_prefs.next_choice())
+        btn.text = f"Open GitHub links with: {open_link_prefs.label()}"
+
+    open_btn.bind(on_press=cycle_open)
+    nav.add(open_btn)
 
     nav.add(Label(text="Repository visibility", size_hint_y=None, height=32))
     vis_btn = Button(text="Repo visibility: checking...", size_hint_y=None, height=48)

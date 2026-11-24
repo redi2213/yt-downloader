@@ -2,6 +2,7 @@
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 
@@ -42,4 +43,31 @@ def confirm(text, yes_text, on_yes, no_text="Cancel", danger=True):
     dialog.add_widget(box)
     no_btn.bind(on_press=lambda i: dialog.dismiss())
     yes_btn.bind(on_press=lambda i: (dialog.dismiss(), on_yes()))
+    dialog.open()
+
+
+def choose_open(title, options, on_pick, remember_text="Remember my choice"):
+    """A popup with one button per option (``options``: (key, text)) and a tick-box; the chosen
+    ``on_pick(key, remember)`` runs after the popup closes."""
+    box = BoxLayout(orientation="vertical", padding=dp(12), spacing=GAP)
+    head = Label(text=title, size_hint_y=None, height=dp(44))
+    head.text_size = (content_width() * 0.84, None)
+    box.add_widget(head)
+    dialog = ModalView(size_hint=(0.92, None), background="", background_color=(0.13, 0.10, 0.09, 1))
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(48), spacing=GAP)
+    check = CheckBox(active=False, size_hint_x=None, width=dp(48))
+    text = Label(text=remember_text, halign="left", valign="middle")
+    text.bind(size=lambda inst, size: setattr(inst, "text_size", size))
+    row.add_widget(check)
+    row.add_widget(text)
+    for key, label in options:
+        btn = Button(text=label, size_hint_y=None, height=BTN_H)
+        btn.bind(on_press=lambda i, k=key: (dialog.dismiss(), on_pick(k, bool(check.active))))
+        box.add_widget(btn)
+    box.add_widget(row)
+    close = Button(text="Close", size_hint_y=None, height=BTN_H)
+    close.bind(on_press=lambda i: dialog.dismiss())
+    box.add_widget(close)
+    dialog.height = 2 * dp(12) + dp(44) + (len(options) + 1) * (BTN_H + GAP) + dp(48) + GAP
+    dialog.add_widget(box)
     dialog.open()

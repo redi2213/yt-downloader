@@ -30,6 +30,54 @@ def open_url(url) -> bool:
         return False
 
 
+GITHUB_PKG = "com.github.android"
+CHROME_PKG = "com.android.chrome"
+
+
+def open_in_github_app(url) -> bool:
+    """Opens ``url`` in the official GitHub app only. False when it is not installed."""
+    try:
+        from jnius import autoclass
+        Intent = autoclass("android.content.Intent")
+        Uri = autoclass("android.net.Uri")
+        intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        intent.setPackage(GITHUB_PKG)
+        _android_activity().startActivity(intent)
+        return True
+    except Exception:
+        return False
+
+
+def open_in_browser(url) -> bool:
+    """Opens ``url`` in Chrome, else in the phone's default browser - never in the GitHub app
+    (a plain VIEW intent on a github.com link jumps there)."""
+    try:
+        from jnius import autoclass
+        Intent = autoclass("android.content.Intent")
+        Uri = autoclass("android.net.Uri")
+        intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        intent.setPackage(CHROME_PKG)
+        _android_activity().startActivity(intent)
+        return True
+    except Exception:
+        pass
+    try:
+        from jnius import autoclass
+        Intent = autoclass("android.content.Intent")
+        Uri = autoclass("android.net.Uri")
+        intent = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER)
+        intent.setData(Uri.parse(url))
+        _android_activity().startActivity(intent)
+        return True
+    except Exception:
+        pass
+    try:
+        import webbrowser
+        return bool(webbrowser.open(url))
+    except Exception:
+        return False
+
+
 def share_text(text) -> bool:
     """Opens the Android Share sheet with ``text``. If that isn't possible the
     text is copied to the clipboard instead; returns True only when the Share

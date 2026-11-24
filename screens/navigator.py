@@ -428,11 +428,35 @@ class Navigator(ArvanController):
 
     # -- opening runs on GitHub / running jobs ----------------------------------
     def open_run_on_github(self, run_id):
-        """Opens the run's GitHub Actions page (live logs) in the browser."""
-        from core import android_actions
+        """Opens the run's GitHub Actions page (live logs): with the remembered choice, or after asking
+        (GitHub app / Chrome / this app's browser)."""
+        from api import open_link_prefs
         from core.config import run_url
         url = run_url(run_id)
-        if not android_actions.open_url(url):
+        choice = open_link_prefs.get_choice()
+        if choice:
+            self._open_github_url(url, choice)
+            return
+        from screens import dialogs
+        dialogs.choose_open("Open on GitHub with", open_link_prefs.OPTIONS,
+                            lambda key, remember: self._on_open_choice(url, key, remember))
+
+    def _on_open_choice(self, url, choice, remember):
+        if remember:
+            from api import open_link_prefs
+            open_link_prefs.set_choice(choice)
+        self._open_github_url(url, choice)
+
+    def _open_github_url(self, url, choice):
+        from core import android_actions
+        if choice == "inapp":
+            self.show_browser(url)
+            return
+        if choice == "app":
+            if android_actions.open_in_github_app(url):
+                return
+            self.set_status("GitHub app not found - opened in the browser")
+        if not android_actions.open_in_browser(url):
             from kivy.core.clipboard import Clipboard
             Clipboard.copy(url)
             self.set_status("Could not open the browser - link copied")
