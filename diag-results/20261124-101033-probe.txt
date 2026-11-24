@@ -1,0 +1,27 @@
+# Diagnostics (probe) 2026-11-24 10:10:30 UTC
+
+## Page probe (probe)
+url: https://www.thepornbang.com/video/summer-of-jolee-love_v1
+HTTP 200, 310988 chars, content-type: text/html; charset=UTF-8
+title: Summer Of Jolee Love (Jolee Love) #Evil Angel
+meta og:video / twitter:player (2):
+  video/mp4
+  Cowgirl
+video/source src (0):
+iframe src (0):
+media urls in page (3):
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008×tamp=1795515032_869267344
+  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008×tamp=1795515032_491977943
+  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008×tamp=1795515032_848074740
+JSON/JS video keys (1):
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008×tamp=1795515032_869267344
+external scripts (8):
+  https://www.googletagmanager.com/gtag/js?id=G-58TQGC608V
+  /ktplayer/kt_player_v2.js
+  https://static.addtoany.com/menu/page.js
+  https://js.onclckmn.com/static/onclicka.js
+  https://live.lzrtrz.com/ctrl/18870.js
+  /theme/bang/js/main.deps.js?v=7.3
+  /theme/bang/js/custom.js?v=71795473637
+  https://cdn.jsdelivr.net/npm/disable-devtool
+inline scripts: 6
