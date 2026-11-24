@@ -376,9 +376,13 @@ def _merge(obj):
 def _fetch_test():
     d = S["data"]
     cands = []
-    for u in list(d["entries"].keys()) + list(d["hooks"].keys()) + [v.get("cur") or v.get("src") for v in d["videos"]]:
+    from urllib.parse import urlsplit
+    site = urlsplit(str(S["job"].get("url", ""))).netloc
+    allu = [v.get("cur") or v.get("src") for v in d["videos"]] + list(d["entries"].keys()) + list(d["hooks"].keys())
+    for u in allu:
         if u and u.startswith("http") and u not in cands:
             cands.append(u)
+    cands.sort(key=lambda u: urlsplit(u).netloc != site)   # the site's own media first, ads last
     cands = cands[:3]
     if not cands:
         d["actions"].append("in-page fetch test: no candidate url seen yet")
