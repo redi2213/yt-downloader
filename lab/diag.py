@@ -173,6 +173,11 @@ def step_probe(host, url):
     _PROBE["body"] = body
     _PROBE["cookies"] = _cookie_header(r)
     out.append("cookies from page: %s" % (", ".join(c.split("=")[0] for c in _PROBE["cookies"].split("; ")) if _PROBE["cookies"] else "none"))
+    try:
+        sc = r.headers.get("set-cookie", "")
+    except Exception:
+        sc = ""
+    out.append("set-cookie names: %s" % (", ".join(re.findall(r"(?:^|,\s*)([\w.-]+)=", sc)) or "none"))
     _PROBE["media"] = _uniq(_MEDIA.findall(txt))
     found = False
     for name, items in sections:
@@ -204,9 +209,9 @@ def step_media_test(host, url="", referer="", count=3):
     cookie = _PROBE.get("cookies", "")
     out = ["referer: %s" % (ref or "-"), "cookie sent: %s" % ("yes" if cookie else "no")]
     for n, u in enumerate(urls[:int(count)]):
-        variants = [("ref+cookie+range", ref, cookie, True)]
+        variants = [("rnd+ref+range", ref, cookie, True)]
         if n == 0:
-            variants += [("ref+cookie, no range", ref, cookie, False), ("bare, no ref/cookie", "", "", True), ("video-like headers", ref, cookie, True)]
+            variants += [("rnd+ref+kt_tcookie", ref, (cookie + "; " if cookie else "") + "kt_tcookie=1", True), ("no rnd, ref+range", ref, cookie, True), ("bare, no ref/cookie", "", "", True)]
         for name, rf, ck, rng in variants:
             h = dict(_UA)
             if rng:
@@ -217,9 +222,12 @@ def step_media_test(host, url="", referer="", count=3):
                 h["Cookie"] = ck
             if name.startswith("video"):
                 h.update({"Accept": "*/*", "Sec-Fetch-Dest": "video", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Site": "same-origin"})
-            label = "%s [%s]" % (u[:150], name)
+            uu = u
+            if name.startswith("rnd"):
+                uu = u + ("&" if "?" in u else "?") + "rnd=%d" % int(time.time() * 1000)
+            label = "%s [%s]" % (uu[:170], name)
             try:
-                r = host.get(u, headers=h, stream=True)
+                r = host.get(uu, headers=h, stream=True)
             except TypeError:
                 out.append("%s -> skipped: host.get has no headers/stream support (would download the whole file)" % label)
                 break
