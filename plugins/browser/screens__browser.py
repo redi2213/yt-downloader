@@ -140,6 +140,14 @@ def build(nav, url=None):
         data = br.poll()
         if not data:
             return
+        new_tab = data.get("new_tab")
+        if new_tab:
+            # the page asked for a new window (a link the user tapped): a new tab; this page stays as it is
+            if state.tabs.new(new_tab) is not None:
+                state.flush()
+                nav.show_browser()
+                return
+            br.load(new_tab)                # the tab limit is reached: open it here
         sess.merge(data)
         find.update(data)
         state.page_seen(tab_id, sess.page, sess.title)
