@@ -1,11 +1,11 @@
-# Diagnostics (job) 2026-11-24 10:35:36 UTC
+# Diagnostics (job) 2026-11-24 10:40:44 UTC, diag.py v2026-11-24c
 
 job: 2026-11-24-tpb-3
 title: thepornbang: why get_stream answers 'error 1' (page and player JS context)
 
 ## Page probe (probe)
 url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
-HTTP 200, 311002 chars, content-type: text/html; charset=UTF-8
+HTTP 200, 310986 chars, content-type: text/html; charset=UTF-8
 title: Summer Of Jolee Love (Jolee Love) #Evil Angel
 cookies from page: none
 meta og:video / twitter:player (2):
@@ -14,11 +14,11 @@ meta og:video / twitter:player (2):
 video/source src (0):
 iframe src (0):
 media urls in page (3):
-  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_1172527267
-  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_1401945651
-  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_350133655
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221
+  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1568163551
+  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_687602412
 JSON/JS video keys (1):
-  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_1172527267
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221
 external scripts (8):
   https://www.googletagmanager.com/gtag/js?id=G-58TQGC608V
   /ktplayer/kt_player_v2.js
@@ -33,15 +33,27 @@ inline scripts: 6
 ## Media link test (media_test)
 referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
 cookie sent: no
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_1172527267 [ref+cookie+range] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_1172527267 [ref+cookie, no range] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516536_1172527267 [bare, no ref/cookie] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221 [ref+cookie+range] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221 [ref+cookie, no range] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221 [bare, no ref/cookie] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221 [video-like headers] -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first_bytes=7 ftyp=False body=b'error 1'
 
-## Unknown step (context)
-unknown step: context
+## page around get_stream (context)
+page (from probe), 310986 chars
+--- match at 160223 ---
+												video_title: 'Summer Of Jolee Love',														video_categories: 'Big Ass, Big Tits, Blowjob, MILF, Threesome',														video_tags: 'Cowgirl',														license_code: '$580503219151815',														rnd: '1689538181',														video_url: 'https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1983859221', video_url_text: '480', video_alt_url: 'https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1568163551', video_alt_url_text: '720', video_alt_url_hd: '1', v
+--- match at 160577 ---
+59e9008&timestamp=1795516846_1983859221', video_url_text: '480', video_alt_url: 'https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_1568163551', video_alt_url_text: '720', video_alt_url_hd: '1', video_alt_url2: 'https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795516846_687602412', video_alt_url2_text: '1080', video_alt_url2_hd: '1',														skin: 'bang.css',														logo_position: '0,0',														logo_anchor: 'topleft',														hide_controlbar: '1',														hide_s
 
-## Unknown step (context)
-unknown step: context
+## custom.js (context)
+https://www.thepornbang.com/theme/bang/js/custom.js?v=71795473637: HTTP 200, 12353 chars
+no match for: get_stream|timestamp|md5|error 1
 
-## Unknown step (context)
-unknown step: context
+## kt_player_v2.js (context)
+https://www.thepornbang.com/ktplayer/kt_player_v2.js: HTTP 200, 303581 chars
+--- match at 27359 ---
+ac(0x142)][_0x5c26ac(0x128)](this);return _0x30144d['_hash']=this[_0x5c26ac(0x123)][_0x5c26ac(0x142)](),_0x30144d;}}),_0x26e844[_0x50dd4e(0x1d1)]=_0x13a6b5[_0x50dd4e(0x10e)](_0x173410),_0x26e844['HmacMD5']=_0x13a6b5[_0x50dd4e(0x143)](_0x173410),_0x173410=(_0x26e844=_0x19e2ca)[_0x50dd4e(0x1ec)],_0x4fd5dd=_0x173410[_0x50dd4e(0x169)],_0x38e61a=_0x173410['Hasher'],_0x173410=_0x26e844[_0x50dd4e(0x1e1)],_0
+--- match at 126636 ---
+or\x20>192.','HmacRIPEMD160','sigBytes','hasOwnProperty','exports','json','_data','SHA512','x64','_parse','_state','_doCryptBlock','update','ZeroPadding','enc','SerializableCipher','AES','360','CBC','MD5','240','setRequestHeader'];_0x256e=function(){return _0x4911a5;};return _0x256e();}function _0x42c4(_0x67289e,_0x594d18){var _0x256e44=_0x256e();return _0x42c4=function(_0x42c4dd,_0x34d336){_0x42c4dd
+--- match at 133402 ---
+or(var t;t=this.lastChild;)this.removeChild(t);null!=e&&this.appendChild(document.createTextNode(e))}function u(t,n){return n||(n=e.event),n.target||(n.target=n.srcElement||n.fromElement||document),n.timeStamp||(n.timeStamp=(new Date).getTime()),n}if(!document.createEvent){var c=!0,f=!1,d="onreadystatechange",p="DOMContentLoaded",m="__IE8__"+Math.random(),v=e.Object,g=v.defineProperty||function(e,t,n){e[t]
