@@ -17,8 +17,9 @@
 | GitHub access (github) | ریپو، دسترسی توکن، rate limit، شاخه‌ها |
 | Last workflow runs (runs) | ۸ اجرای آخر workflow (نام، وضعیت، شاخه، لینک) |
 | Lab failed-link logs (lablogs) | تعداد و ۵ نام آخر در config/lab-logs/ |
+| Page probe (probe) | ورودی: لینک صفحه. صفحه را از گوشی می‌گیرد و سرنخ ویدیو را لیست می‌کند: iframe، source/video، og:video، لینک‌های m3u8/mp4/mpd، کلیدهای JSON/JS. اگر چیزی نبود یعنی ویدیو با JavaScript بارگذاری می‌شود |
 
-خروجی: `config/diag-results/latest.txt` (آخرین اجرا) + `<زمان>-<id>.txt` (۲۰ تای آخر). توکن، کوکی و هدر Authorization پنهان می‌شود. سقف: ۶۰۰۰ کاراکتر برای هر مرحله، ۲۴۰۰۰ کل. روی صفحه هم دکمه‌ی Copy دارد.
+خروجی: `config/diag-results/latest.txt` (آخرین اجرا) + `<زمان>-<id>.txt` (۲۰ تای آخر). توکن، کوکی و هدر Authorization پنهان می‌شود. سقف: ۶۰۰۰ کاراکتر برای هر مرحله، ۲۴۰۰۰ کل. ریپو عمومی است، پس نتیجه برای همه خوانا است. روی صفحه هم دکمه‌ی Copy دارد.
 
 ## ابزارهای موجود دیگر (جزئیات در REPO_MAP.md)
 - مرورگر داخلی > Menu > Inspect page (to share): کپی HTML صفحه، لینک‌ها، navigation log (دستی؛ کاربر کپی می‌کند)
