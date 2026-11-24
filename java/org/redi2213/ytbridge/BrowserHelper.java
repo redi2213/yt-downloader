@@ -29,10 +29,13 @@ import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.io.ByteArrayInputStream;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -716,6 +719,75 @@ public class BrowserHelper {
         });
     }
 
+    // ---- inspector: what the page looks like, for sharing (Browser menu > Inspect page) ---------------
+    private static final int INSPECT_MAX = 300000;
+    private static final String HTML_JS =
+        "'<!-- '+location.href+' -->\\n'+document.documentElement.outerHTML";
+    private static final String LINKS_JS =
+        "(function(){var o=['PAGE '+location.href];"
+      + "function t(e){return (e.textContent||e.getAttribute('title')||'').replace(/\\s+/g,' ').trim().slice(0,80)}"
+      + "document.querySelectorAll('a[href],area[href]').forEach(function(a){var x=a.href;if(!x||x.indexOf('javascript:')===0)return;"
+      + "o.push('A | '+t(a)+' | '+x+(a.target?' | target='+a.target:'')+(a.getAttribute('onclick')?' | onclick='+a.getAttribute('onclick').slice(0,120):''))});"
+      + "document.querySelectorAll('iframe[src],embed[src],source[src],video[src]').forEach(function(e){o.push(e.tagName+' | '+e.src)});"
+      + "document.querySelectorAll('[data-href],[data-url],[data-link],[data-src]').forEach(function(e){o.push('DATA | '+t(e)+' | '+(e.dataset.href||e.dataset.url||e.dataset.link||e.dataset.src))});"
+      + "document.querySelectorAll('form[action]').forEach(function(f){o.push('FORM | '+f.method+' | '+f.action)});"
+      + "return o.join('\\n')})()";
+    private static final List<String> NAV = new ArrayList<String>();
+    private static final Set<String> adLogged = new HashSet<String>();
+    private static final SimpleDateFormat HMS = new SimpleDateFormat("HH:mm:ss", Locale.US);
+    private static volatile String inspectOut = null;
+
+    /** One line of the navigation log (page starts, jumps, pop-ups, shortener links, blocked ad hosts). */
+    static void navNote(String s) {
+        synchronized (NAV) {
+            NAV.add(HMS.format(new Date()) + "  " + s);
+            while (NAV.size() > 300) NAV.remove(0);
+        }
+    }
+
+    static void noteAd(String host) {
+        synchronized (NAV) { if (!adLogged.add(String.valueOf(host))) return; }
+        navNote("ad request blocked: " + host);
+    }
+
+    public static String navLogText() {
+        synchronized (NAV) {
+            StringBuilder b = new StringBuilder();
+            for (String s : NAV) b.append(s).append('\n');
+            return b.toString();
+        }
+    }
+
+    public static void clearNavLog() {
+        synchronized (NAV) { NAV.clear(); adLogged.clear(); }
+    }
+
+    /** Reads the shown page: kind "html" (whole HTML) or "links" (links, frames, forms). The answer comes with
+     *  inspectResult() (null while the page has not answered yet). */
+    public static void inspect(final String kind) {
+        inspectOut = null;
+        ui(new Runnable() {
+            public void run() {
+                if (web == null) { inspectOut = ""; return; }
+                String js = "html".equals(kind) ? HTML_JS : LINKS_JS;
+                web.evaluateJavascript("(function(){try{return " + js + "}catch(e){return 'ERROR '+e}})()",
+                    new ValueCallback<String>() {
+                        public void onReceiveValue(String value) {
+                            String out = "";
+                            try {
+                                Object o = new JSONTokener(value).nextValue();
+                                out = (o == null || o == JSONObject.NULL) ? "" : String.valueOf(o);
+                            } catch (Exception e) { out = ""; }
+                            if (out.length() > INSPECT_MAX) out = out.substring(0, INSPECT_MAX) + "\n<!-- cut -->";
+                            inspectOut = out;
+                        }
+                    });
+            }
+        });
+    }
+
+    public static String inspectResult() { return inspectOut; }
+
     // ---- ads and pop-ups ----------------------------------------------------------------
     // Known ad / pop-up networks (host or any sub-host). Their requests are not made; a page that tries to
     // open one is stopped. Pop-up windows opened by a page are refused unless they go to the same site.
@@ -887,6 +959,7 @@ public class BrowserHelper {
     static class PopupGuard extends WebChromeClient {
         @Override
         public boolean onCreateWindow(WebView v, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+            if (adBlock && !isUserGesture) navNote("pop-up window without a tap  => BLOCKED");
             if (!adBlock || resultMsg == null || !isUserGesture) return false;
             try {
                 final WebView tmp = new WebView(v.getContext());
@@ -902,6 +975,8 @@ public class BrowserHelper {
                         String host = u.getHost();
                         boolean ok = ("http".equals(sch) || "https".equals(sch)) && !isAdHost(host)
                             && (via != null || sameSite(host, Uri.parse(pageUrl).getHost()));
+                        navNote("pop-up window (tap) " + url + (via != null ? " [shortener]" : "")
+                            + (ok ? "  => opened in this view" : "  => BLOCKED"));
                         if (ok) {
                             final String go = url;
                             ui(new Runnable() { public void run() { if (web != null) web.loadUrl(go); } });
@@ -932,6 +1007,7 @@ public class BrowserHelper {
     static class Client extends WebViewClient {
         @Override
         public void onPageStarted(WebView v, String url, Bitmap favicon) {
+            navNote("page started: " + url);
             newPage(url);
             canBack = v.canGoBack();
             v.evaluateJavascript(NET_JS, null);
@@ -968,7 +1044,10 @@ public class BrowserHelper {
         public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
             try {
                 String u = r.getUrl().toString();
-                if (adBlock && !r.isForMainFrame() && isAdHost(r.getUrl().getHost())) return blockedResponse();
+                if (adBlock && !r.isForMainFrame() && isAdHost(r.getUrl().getHost())) {
+                    noteAd(r.getUrl().getHost());
+                    return blockedResponse();
+                }
                 Pattern pt = extPattern;
                 if (pt != null && "GET".equalsIgnoreCase(r.getMethod()) && pt.matcher(u).find()) record(u, "net");
                 if (noVideos && isVideoRequest(r, u)) return blockedResponse();      // seen above, so still listed
@@ -980,14 +1059,22 @@ public class BrowserHelper {
         @Override
         public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
             String s = r.getUrl().getScheme();
+            String cur = r.getUrl().toString();
+            String how = (r.isForMainFrame() ? "jump" : "frame jump") + (r.hasGesture() ? " (tap)" : "")
+                + (r.isRedirect() ? " (redirect)" : "") + " -> " + cur;
             if (adBlock) {
-                String real = unwrapAll(r.getUrl().toString());   // shortener link: open the real address
+                String real = unwrapAll(cur);   // shortener link: open the real address
                 if (real != null && !isAdHost(Uri.parse(real).getHost())) {
+                    navNote(how + "  => SHORTENER, opening " + real);
                     v.loadUrl(real);
                     return true;
                 }
             }
-            if (adBlock && isAdHost(r.getUrl().getHost())) return true;   // a jump to an ad site is stopped
+            if (adBlock && isAdHost(r.getUrl().getHost())) {   // a jump to an ad site is stopped
+                navNote(how + "  => BLOCKED (ad host)");
+                return true;
+            }
+            navNote(how);
             return !("http".equals(s) || "https".equals(s));   // intent:, market: ... are not opened
         }
     }
