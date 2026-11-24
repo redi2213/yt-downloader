@@ -9,6 +9,8 @@ Tokens, cookies and Authorization headers are hidden before saving.
 """
 import base64
 import html as _html
+import inspect
+import json
 import os
 import platform
 import re
@@ -24,6 +26,8 @@ MAX_STEP = 6000
 MAX_TOTAL = 24000
 
 _LAST = {"report": "", "saved": ""}
+_PROBE = {"page": "", "media": []}
+JOB_PATH = "diag-jobs/next.json"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -129,7 +133,7 @@ def _fetch(host, url):
 def _uniq(items, n=15):
     seen = []
     for i in items:
-        i = _html.unescape(i).strip()
+        i = i.replace("&amp;", "&").strip()
         if i and i not in seen:
             seen.append(i)
     return seen[:n]
@@ -156,6 +160,8 @@ def step_probe(host, url):
         ("JSON/JS video keys", re.findall(r"(?i)[\"']?(?:contentUrl|embedUrl|video_url|videoUrl|stream_url|hls|file)[\"']?\s*[:=]\s*[\"']([^\"']+)", txt)),
         ("external scripts", re.findall(r"(?i)<script[^>]+src=[\"']([^\"']+)", txt)),
     ]
+    _PROBE["page"] = url
+    _PROBE["media"] = _uniq(_MEDIA.findall(txt))
     found = False
     for name, items in sections:
         items = _uniq(items)
@@ -167,6 +173,63 @@ def step_probe(host, url):
     if not found:
         out.append("NOTE: no video clue in the static HTML; it is probably loaded by JavaScript (needs Page Sniffer / network log).")
     return "\n".join(out)
+
+
+def _call(fn, host, args):
+    try:
+        params = inspect.signature(fn).parameters
+    except Exception:
+        params = {}
+    return fn(host, **dict((k, v) for k, v in args.items() if k in params))
+
+
+def step_media_test(host, url="", referer="", count=3):
+    """Fetches only the first 1 KB of each media link (Range + stream) and checks it is a real mp4."""
+    urls = [url] if url and url != "auto" else list(_PROBE["media"])
+    if not urls:
+        return "no media URL (run probe first in the same job, or give url)"
+    ref = referer or _PROBE["page"]
+    out = ["referer: %s" % (ref or "-")]
+    for n, u in enumerate(urls[:int(count)]):
+        for use_ref in ([True, False] if n == 0 else [True]):
+            h = dict(_UA)
+            h["Range"] = "bytes=0-1023"
+            if use_ref and ref:
+                h["Referer"] = ref
+            label = "%s%s" % (u[:110], "" if use_ref else " [no referer]")
+            if not use_ref and not ref:
+                continue
+            try:
+                r = host.get(u, headers=h, stream=True)
+            except TypeError:
+                out.append("%s -> skipped: host.get has no headers/stream support (would download the whole file)" % label)
+                break
+            except Exception as e:
+                out.append("%s -> FAILED %s: %s" % (label, type(e).__name__, str(e)[:100]))
+                continue
+            head = b""
+            try:
+                head = next(r.iter_content(1024))
+            except Exception:
+                pass
+            try:
+                hd = r.headers
+                info = "type=%s range=%s length=%s" % (hd.get("content-type", "?"), hd.get("content-range", "-"), hd.get("content-length", "-"))
+            except Exception:
+                info = "headers n/a"
+            try:
+                r.close()
+            except Exception:
+                pass
+            out.append("%s -> HTTP %s %s first_bytes=%d ftyp=%s" % (label, getattr(r, "status_code", "?"), info, len(head), head[4:8] == b"ftyp"))
+    return "\n".join(out)
+
+
+# Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
+ARG_STEPS = [
+    ("probe", "Page probe", step_probe),
+    ("media_test", "Media link test", step_media_test),
+]
 
 
 # (id, button title, function). Add new checks here.
@@ -225,6 +288,7 @@ def build(host):
               "(config branch, diag-results/latest.txt) and shows it here with Copy. "
               "Then just tell Claude it is done.")
     host.status()
+    host.button("Run Claude's job (ready-made task)", lambda: _run_job(host))
     host.button("Run all", lambda: _run(host, STEPS, "all"))
     for s in STEPS:
         host.button(s[1], lambda s=s: _run(host, [s], s[0]))
@@ -274,20 +338,20 @@ def result_screen(host):
     host.back_button()
 
 
-def _run(host, selected, tag):
-    host.set_status("Running %d check(s)..." % len(selected))
+def _report(host, selected, tag, head=""):
+    parts = ["# Diagnostics (%s) %s UTC" % (tag, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))]
+    if head:
+        parts.append(_hide(head))
+    for sid, title, fn in selected:
+        try:
+            txt = fn(host)
+        except Exception as e:
+            txt = "ERROR %s: %s" % (type(e).__name__, str(e)[:200])
+        parts.append("## %s (%s)\n%s" % (title, sid, _hide(txt)[:MAX_STEP]))
+    return "\n\n".join(parts)[:MAX_TOTAL]
 
-    def work():
-        parts = ["# Diagnostics (%s) %s UTC" % (tag, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))]
-        for sid, title, fn in selected:
-            try:
-                txt = fn(host)
-            except Exception as e:
-                txt = "ERROR %s: %s" % (type(e).__name__, str(e)[:200])
-            parts.append("## %s (%s)\n%s" % (title, sid, _hide(txt)[:MAX_STEP]))
-        report = "\n\n".join(parts)[:MAX_TOTAL]
-        return report, _save(host, report, tag)
 
+def _finish(host):
     def done(result, error):
         if error:
             host.set_status("Failed: %s" % str(error)[:120])
@@ -295,5 +359,41 @@ def _run(host, selected, tag):
         _LAST["report"], _LAST["saved"] = result
         host.set_status(result[1])
         host.show(result_screen)
+    return done
 
-    host.background(work, done=done)
+
+def _run(host, selected, tag):
+    host.set_status("Running %d check(s)..." % len(selected))
+
+    def work():
+        report = _report(host, selected, tag)
+        return report, _save(host, report, tag)
+
+    host.background(work, done=_finish(host))
+
+
+def _read_job(host):
+    r = host.gh.request("GET", API + "/contents/" + JOB_PATH + "?ref=" + RESULT_BRANCH).json()
+    return json.loads(base64.b64decode(r["content"]).decode("utf-8"))
+
+
+def _run_job(host):
+    host.set_status("Reading Claude's job...")
+
+    def work():
+        job = _read_job(host)
+        known = dict((s[0], s) for s in STEPS + ARG_STEPS)
+        selected = []
+        for item in job.get("steps", []):
+            sid = str(item.get("step"))
+            args = dict((k, v) for k, v in item.items() if k != "step")
+            if sid in known:
+                _, title, fn = known[sid]
+                selected.append((sid, title, lambda h, fn=fn, args=args: _call(fn, h, args)))
+            else:
+                selected.append((sid, "Unknown step", lambda h, sid=sid: "unknown step: " + sid))
+        head = "job: %s\ntitle: %s" % (job.get("id"), job.get("title"))
+        report = _report(host, selected, "job", head)
+        return report, _save(host, report, "job")
+
+    host.background(work, done=_finish(host))
