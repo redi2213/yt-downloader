@@ -8,6 +8,7 @@ To add a check: write step_xxx(host) -> str and add it to STEPS (end of file).
 Tokens, cookies and Authorization headers are hidden before saving.
 """
 import base64
+import html as _html
 import os
 import platform
 import re
@@ -114,6 +115,60 @@ def step_lablogs(host):
     return "count: %d\nlast 5 by name:\n%s" % (len(names), "\n".join(names[-5:]))
 
 
+_UA = {"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"}
+_MEDIA = re.compile(r"""https?://[^\s"'<>\\]+?\.(?:m3u8|mp4|webm|mpd|mkv)(?:\?[^\s"'<>\\]*)?""", re.I)
+
+
+def _fetch(host, url):
+    try:
+        return host.get(url, headers=_UA)
+    except TypeError:
+        return host.get(url)
+
+
+def _uniq(items, n=15):
+    seen = []
+    for i in items:
+        i = _html.unescape(i).strip()
+        if i and i not in seen:
+            seen.append(i)
+    return seen[:n]
+
+
+def step_probe(host, url):
+    if not url.startswith("http"):
+        return "No valid URL (must start with http)"
+    r = _fetch(host, url)
+    body = getattr(r, "text", "") or ""
+    try:
+        ctype = r.headers.get("content-type", "?")
+    except Exception:
+        ctype = "?"
+    out = ["url: " + url, "HTTP %s, %d chars, content-type: %s" % (getattr(r, "status_code", "?"), len(body), ctype)]
+    m = re.search(r"(?is)<title[^>]*>(.*?)</title>", body)
+    out.append("title: " + (_html.unescape(m.group(1)).strip()[:120] if m else "-"))
+    txt = body.replace("\\/", "/")
+    sections = [
+        ("meta og:video / twitter:player", re.findall(r"(?i)<meta[^>]+(?:og:video[\w:]*|twitter:player[\w:]*)[^>]*content=[\"']([^\"']+)", txt)),
+        ("video/source src", re.findall(r"(?i)<(?:video|source)[^>]+src=[\"']([^\"']+)", txt)),
+        ("iframe src", re.findall(r"(?i)<iframe[^>]+src=[\"']([^\"']+)", txt)),
+        ("media urls in page", _MEDIA.findall(txt)),
+        ("JSON/JS video keys", re.findall(r"(?i)[\"']?(?:contentUrl|embedUrl|video_url|videoUrl|stream_url|hls|file)[\"']?\s*[:=]\s*[\"']([^\"']+)", txt)),
+        ("external scripts", re.findall(r"(?i)<script[^>]+src=[\"']([^\"']+)", txt)),
+    ]
+    found = False
+    for name, items in sections:
+        items = _uniq(items)
+        if items and not name.startswith("external"):
+            found = True
+        out.append("%s (%d):" % (name, len(items)))
+        out.extend("  " + i[:200] for i in items)
+    out.append("inline scripts: %d" % len(re.findall(r"(?i)<script(?![^>]*\bsrc=)", body)))
+    if not found:
+        out.append("NOTE: no video clue in the static HTML; it is probably loaded by JavaScript (needs Page Sniffer / network log).")
+    return "\n".join(out)
+
+
 # (id, button title, function). Add new checks here.
 STEPS = [
     ("env", "Environment (phone, python, space)", step_env),
@@ -173,8 +228,34 @@ def build(host):
     host.button("Run all", lambda: _run(host, STEPS, "all"))
     for s in STEPS:
         host.button(s[1], lambda s=s: _run(host, [s], s[0]))
+    host.button("Page probe (enter a URL)", lambda: host.show(probe_screen))
     host.button("Show last result", lambda: host.show(result_screen))
     host.back_button("Back")
+
+
+def probe_screen(host):
+    host.title("Page probe")
+    host.text("Enter a page URL. The phone fetches the page and lists the video clues it finds "
+              "(iframes, sources, m3u8/mp4 links). The result is saved to the repo.")
+    field = host.input("Page URL")
+    try:
+        saved = host.store.get("probe_url", "")
+        if saved:
+            field.text = saved
+    except Exception:
+        pass
+    host.status()
+
+    def go():
+        url = (field.text or "").strip()
+        try:
+            host.store.set("probe_url", url)
+        except Exception:
+            pass
+        _run(host, [("probe", "Page probe", lambda h: step_probe(h, url))], "probe")
+
+    host.button("Probe this page", go)
+    host.back_button()
 
 
 def result_screen(host):
