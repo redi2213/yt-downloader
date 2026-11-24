@@ -183,6 +183,11 @@ class Browser:
         images, videos = bool(images), bool(videos)
         return self._push("block", (images, videos), "setBlock", images, videos)
 
+    def set_adblock(self, on):
+        """Blocks known ad hosts and pop-up windows (native; an older APK answers False)."""
+        on = bool(on)
+        return self._push("adblock", on, "setAdBlock", on)
+
     def find(self, text):
         return self._call("find", str(text or ""))
 
