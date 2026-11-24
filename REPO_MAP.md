@@ -61,6 +61,7 @@
 - docs/GRAPH_REPORT.md (~۵۶KB، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، فقط بخش لازم را بخوان. روزانه با graph-report.yml به‌روز می‌شود — graphify query روی Termux قابل نصب نیست (tree-sitter build fail)؛ جایگزین ندارد.
 
 ## قوانین کار
+- تست واقعی/عیب‌یابی: اگر برای ادامه‌ی کار لازم است چیزی روی گوشی یا سایت واقعاً اجرا شود، اول DIAG_TOOLS.md را بخوان. ابزار موجود بود، از کاربر بخواه فقط دکمه‌اش را بزند (Lab > Diagnostics)؛ نبود، دکمه‌ی جدید در lab/diag.py (STEPS) بساز، در DIAG_TOOLS.md ثبت کن، و بعد نتیجه را از config/diag-results/latest.txt بخوان. از کاربر نخواه لاگ یا کد را کپی کند.
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
 - workflowهای lab-* در هر دو شاخه main و lab هستند (نسخه‌ها متفاوت‌اند)؛ قبل از تغییر، شاخه‌ی درست را مشخص کن.
 - فایل بزرگ (navigator.py، fa_strings_more.py، releases.py، history.py) را کامل بازنویسی نکن؛ فقط بخش لازم.
