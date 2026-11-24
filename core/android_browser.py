@@ -188,6 +188,33 @@ class Browser:
         on = bool(on)
         return self._push("adblock", on, "setAdBlock", on)
 
+    # -- inspector (screens/browser_tools.py, Inspect page): native too; an older APK has none of these methods.
+    def inspect(self, kind):
+        """Starts reading the shown page ("html" or "links"); the text comes with inspect_result()."""
+        return self._call("inspect", str(kind))
+
+    def inspect_result(self):
+        """The text read by inspect(), or None while the page has not answered."""
+        if not self._created:
+            return None
+        try:
+            out = self._helper().inspectResult()
+            return None if out is None else str(out)
+        except Exception:
+            return None
+
+    def nav_log(self):
+        """The navigation log (page starts, jumps, pop-ups, blocked ad hosts) as text, or None (older APK)."""
+        if not self._created:
+            return None
+        try:
+            return str(self._helper().navLogText())
+        except Exception:
+            return None
+
+    def clear_nav_log(self):
+        return self._call("clearNavLog")
+
     def find(self, text):
         return self._call("find", str(text or ""))
 
