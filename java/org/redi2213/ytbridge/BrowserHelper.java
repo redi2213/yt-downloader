@@ -71,6 +71,7 @@ public class BrowserHelper {
     private static volatile boolean noVideos = false;
     private static volatile boolean adBlock = true;
     private static volatile String lastTapHref = "";
+    private static String newTab = "";   // an address the page wants in a new tab (guarded by LOCK; poll() hands it over)
     private static volatile long lastTapAt = 0;
     private static volatile int findIdx = 0;
     private static volatile int findCount = 0;
@@ -344,11 +345,13 @@ public class BrowserHelper {
                 out.put("title", pageTitle);
                 out.put("tapped", badgeTapped);
                 out.put("can_back", canBack);
+                out.put("new_tab", newTab);
                 out.put("find_idx", findIdx);
                 out.put("find_n", findCount);
                 out.put("items", arr);
             } catch (Exception e) { }
             badgeTapped = false;
+            newTab = "";
         }
         return out.toString();
     }
@@ -966,6 +969,19 @@ public class BrowserHelper {
         }
     }
 
+    /** A page asked for a new window and it is allowed: the app opens it in a new tab and the page stays as it is.
+     *  When the app does not take it within 3 seconds (an older screen), it opens in this view instead. */
+    private static void openNewTab(final String url) {
+        synchronized (LOCK) { newTab = url; }
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+            public void run() {
+                boolean still;
+                synchronized (LOCK) { still = url.equals(newTab); if (still) newTab = ""; }
+                if (still && web != null) web.loadUrl(url);
+            }
+        }, 3000);
+    }
+
     private static String normUrl(String u) {
         if (u == null) return "";
         int h = u.indexOf('#');
@@ -1003,11 +1019,8 @@ public class BrowserHelper {
                         boolean ok = ("http".equals(sch) || "https".equals(sch)) && !isAdHost(host)
                             && (via != null || tapped || sameSite(host, Uri.parse(pageUrl).getHost()));
                         navNote("pop-up window (tap) " + url + (via != null ? " [shortener]" : "") + (tapped ? " [tapped link]" : "")
-                            + (ok ? "  => opened in this view" : "  => BLOCKED"));
-                        if (ok) {
-                            final String go = url;
-                            ui(new Runnable() { public void run() { if (web != null) web.loadUrl(go); } });
-                        }
+                            + (ok ? "  => opened in a new tab" : "  => BLOCKED"));
+                        if (ok) openNewTab(url);
                         ui(new Runnable() { public void run() { try { tmp.destroy(); } catch (Exception e) { } } });
                     }
                     @Override
