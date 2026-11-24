@@ -29,6 +29,9 @@
 
 خروجی: `config/diag-results/latest.txt` (آخرین اجرا) + `<زمان>-<id>.txt` (۲۰ تای آخر). توکن، کوکی و هدر Authorization پنهان می‌شود. سقف: ۶۰۰۰ کاراکتر برای هر مرحله، ۲۴۰۰۰ کل. ریپو عمومی است، پس نتیجه برای همه خوانا است. روی صفحه هم دکمه‌ی Copy دارد.
 
+## Browser capture (شاخه lab → lab/diag_browser.py؛ منوی Lab > Browser capture)
+برای سایت‌هایی که با کلاینت ساده (yt-dlp، python) خطا می‌دهند ولی در مرورگر واقعی کار می‌کنند. Claude کار را در `config/diag-jobs/browser.json` می‌نویسد: `url`، `wait_s` (پیش‌فرض ۴۰)، `pattern` (regex آدرس‌های مهم)، `desktop`، `auto_play`. کاربر Lab > Browser capture > «Start Claude's browser job» را می‌زند (اگر ویدیو خودکار پخش نشد یک بار روی play می‌زند). خروجی در `latest.txt`: آدرس نهایی، user agent، نام کوکی‌ها، وضعیت و حجم درخواست‌های مدیا در مرورگر، وضعیت عناصر video، و تست fetch داخل صفحه (۱KB اول، با همان کوکی‌ها) با hex و متن بایت‌های اول.
+
 ## ابزارهای موجود دیگر (جزئیات در REPO_MAP.md)
 - مرورگر داخلی > Menu > Inspect page (to share): کپی HTML صفحه، لینک‌ها، navigation log (دستی؛ کاربر کپی می‌کند)
 - مرورگر داخلی > Export cookies > Network requests: لاگ Fetch/XHR، Copy as cURL، Copy response body (دستی)
