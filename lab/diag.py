@@ -29,6 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
+VERSION = "2026-11-24c"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -391,7 +392,7 @@ def result_screen(host):
 
 
 def _report(host, selected, tag, head=""):
-    parts = ["# Diagnostics (%s) %s UTC" % (tag, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))]
+    parts = ["# Diagnostics (%s) %s UTC, diag.py v%s" % (tag, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), VERSION)]
     if head:
         parts.append(_hide(head))
     for sid, title, fn in selected:
