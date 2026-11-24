@@ -277,6 +277,22 @@ class Browser:
     def clear_net_log(self):
         return self._call("clearNetLog")
 
+    # -- save the page (screens/browser_tools.py, Save page as...): native too, an older APK answers False / None.
+    def export_page(self, kind, name):
+        """Starts writing the shown page ("pdf", "html" or "shot") to a file in the app's cache;
+        the result comes with export_result()."""
+        return self._call("exportPage", str(kind), str(name))
+
+    def export_result(self):
+        """{'ok': True, 'path': ...} or {'ok': False, 'error': ...} when finished; None while it still runs."""
+        if not self._created:
+            return None
+        try:
+            out = self._helper().exportResult()
+            return None if out is None else json.loads(str(out))
+        except Exception:
+            return None
+
     def can_back(self):
         try:
             return bool(self._created and self._helper().canBack())

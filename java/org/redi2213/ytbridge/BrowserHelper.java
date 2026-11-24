@@ -387,6 +387,95 @@ public class BrowserHelper {
         return out.toString();
     }
 
+    // ---- save the page as PDF / HTML / screenshot (Browser menu > Save page as...) -------------------------
+    // The file is written into the app's cache (pages/); the Python side moves it to Download/Yt-bridge/Pages.
+    private static volatile String exportOut = null;     // JSON {ok, path|error} when finished, null while running
+    private static final String HTML_EXPORT_JS =
+        "(function(){try{var d=document.documentElement.cloneNode(true);var h=d.querySelector('head');"
+        + "if(h&&!d.querySelector('base')){var b=document.createElement('base');b.href=location.href;"
+        + "h.insertBefore(b,h.firstChild);}return '<!DOCTYPE html>\\n'+d.outerHTML;}catch(e){return '';}})()";
+
+    private static void exportDone(boolean ok, String info) {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("ok", ok);
+            o.put(ok ? "path" : "error", info);
+            exportOut = o.toString();
+        } catch (Exception e) {
+            exportOut = "{\"ok\":false,\"error\":\"failed\"}";
+        }
+    }
+
+    public static String exportResult() { return exportOut; }
+
+    /** kind: "pdf" (the whole page, paged), "html" (the page as it is now, with a base address) or "shot" (what is on
+     *  screen). The page may be hidden (a menu is shown): a screenshot shows the view for a moment. */
+    public static void exportPage(final String kind, final String fileName) {
+        exportOut = null;
+        ui(new Runnable() {
+            public void run() {
+                if (web == null || activity == null) { exportDone(false, "The browser is not open"); return; }
+                try {
+                    java.io.File dir = new java.io.File(activity.getCacheDir(), "pages");
+                    dir.mkdirs();
+                    final java.io.File out = new java.io.File(dir, fileName);
+                    if ("shot".equals(kind)) {
+                        final int old = web.getVisibility();
+                        web.setVisibility(View.VISIBLE);
+                        web.postDelayed(new Runnable() {
+                            public void run() {
+                                try {
+                                    int w = web.getWidth(), h = web.getHeight();
+                                    if (w <= 0 || h <= 0) { exportDone(false, "The page is not shown"); return; }
+                                    Bitmap bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                                    web.draw(new android.graphics.Canvas(bm));
+                                    java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+                                    bm.compress(Bitmap.CompressFormat.PNG, 100, fo);
+                                    fo.close();
+                                    bm.recycle();
+                                    exportDone(true, out.getAbsolutePath());
+                                } catch (Throwable t) {
+                                    exportDone(false, String.valueOf(t));
+                                } finally {
+                                    web.setVisibility(old);
+                                }
+                            }
+                        }, 400);
+                    } else if ("pdf".equals(kind)) {
+                        android.print.PrintDocumentAdapter ad = web.createPrintDocumentAdapter(fileName);
+                        android.print.PdfPrint.save(ad, out, new android.print.PdfPrint.Done() {
+                            public void finished(boolean ok, String error) {
+                                exportDone(ok, ok ? out.getAbsolutePath() : error);
+                            }
+                        });
+                    } else {
+                        web.evaluateJavascript(HTML_EXPORT_JS, new ValueCallback<String>() {
+                            public void onReceiveValue(final String v) {
+                                new Thread(new Runnable() {
+                                    public void run() {
+                                        try {
+                                            Object o = new JSONTokener(v == null ? "\"\"" : v).nextValue();
+                                            String html = o instanceof String ? (String) o : "";
+                                            if (html.length() == 0) { exportDone(false, "Nothing to save: open a page first"); return; }
+                                            java.io.FileOutputStream fo = new java.io.FileOutputStream(out);
+                                            fo.write(html.getBytes("UTF-8"));
+                                            fo.close();
+                                            exportDone(true, out.getAbsolutePath());
+                                        } catch (Throwable t) {
+                                            exportDone(false, String.valueOf(t));
+                                        }
+                                    }
+                                }).start();
+                            }
+                        });
+                    }
+                } catch (Throwable t) {
+                    exportDone(false, String.valueOf(t));
+                }
+            }
+        });
+    }
+
     // ---- network log: Fetch / XHR requests of the page (headers and body) for "Copy as cURL" -----------------
     // A small script (NET_JS) wraps fetch and XMLHttpRequest in the page and reports every request to NetBridge.
     // Requests made before the script runs (very early in a page load) are not seen. Python reads netLog().

@@ -8,6 +8,17 @@ BL_EXACT = {
     "Copy link": "کپی لینک",
     "Share link": "اشتراک\u200cگذاری لینک",
     "Open in the Browser": "باز کردن در مرورگر",
+    "Save page as...": "ذخیره\u200cی صفحه",
+    "Save as PDF": "ذخیره به صورت PDF",
+    "Save as HTML": "ذخیره به صورت HTML",
+    "Save as screenshot (visible part)": "ذخیره به صورت اسکرین\u200cشات (بخش دیده\u200cشده)",
+    "Saving...": "در حال ذخیره...",
+    "Open a page first": "اول یک صفحه را باز کنید",
+    "The page took too long to answer": "صفحه دیر پاسخ داد",
+    "Files go to Download/Yt-bridge/Pages (or the folder chosen in Settings). The PDF holds the whole page; "
+    "the screenshot only what is on the screen.":
+        "فایل\u200cها در Download/Yt-bridge/Pages (یا پوشه\u200cی انتخاب\u200cشده در تنظیمات) ذخیره می\u200cشوند. "
+        "PDF کل صفحه را دارد؛ اسکرین\u200cشات فقط آنچه روی صفحه دیده می\u200cشود.",
     "Back to the page": "بازگشت به صفحه",
     "Opened in a background tab": "در تب پس\u200cزمینه باز شد",
     "Link text copied": "متن لینک کپی شد",
@@ -21,5 +32,7 @@ BL_EXACT = {
 }
 
 BL_PATTERNS = [
+    (r"Saved: (.+)", "ذخیره شد: {0}"),
+    (r"Could not save: (.+)", "ذخیره نشد: {0}"),
     (r"Tab limit reached \((\d+)\)", "به سقف تب\u200cها رسیدید ({0})"),
 ]

@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlsplit
 import requests
 
 ROOT_FOLDER = "Yt-bridge"
-CATEGORIES = ("APK", "Backup", "YouTube", "Aparat", "Telegram", "Filimo", "Mornye", "Any-site", "Drive", "Auto", "Browser", "Logs", "Other")
+CATEGORIES = ("APK", "Backup", "YouTube", "Aparat", "Telegram", "Filimo", "Mornye", "Any-site", "Drive", "Auto", "Browser", "Pages", "Logs", "Other")
 
 # workflow file -> subfolder of Download/Yt-bridge
 _WORKFLOW_CATEGORY = {
@@ -120,6 +120,12 @@ def save_text_file(text, name, category="Logs"):
             os.remove(tmp_path)
         except OSError:
             pass
+
+
+def save_local_file(src, name, category="Other"):
+    """Copies a file that is already on the phone into Download/Yt-bridge/<category> (or the chosen folder).
+    Returns the same kind of ``Saved`` text as ``download_to_downloads``."""
+    return _save_in_downloads(src, name, category)
 
 
 def safe_file_name(name, default="file"):
