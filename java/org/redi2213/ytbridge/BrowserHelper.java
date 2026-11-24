@@ -70,6 +70,8 @@ public class BrowserHelper {
     private static volatile boolean noImages = false;
     private static volatile boolean noVideos = false;
     private static volatile boolean adBlock = true;
+    private static volatile String lastTapHref = "";
+    private static volatile long lastTapAt = 0;
     private static volatile int findIdx = 0;
     private static volatile int findCount = 0;
 
@@ -134,6 +136,7 @@ public class BrowserHelper {
                 web.setWebChromeClient(new PopupGuard());
                 s.setSupportMultipleWindows(adBlock);
                 web.addJavascriptInterface(new NetBridge(), "YtbNet");
+                web.addJavascriptInterface(new TapBridge(), "YtbTap");
                 web.setFindListener(new WebView.FindListener() {
                     public void onFindResultReceived(int active, int total, boolean done) {
                         findCount = total;
@@ -850,6 +853,7 @@ public class BrowserHelper {
     };
     private static final String AD_JS =
         "(function(){try{if(window.__ytbAd)return;window.__ytbAd=true;"
+      + "window.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;var h=a.href;if(!h||h.indexOf('http')!==0)return;var r=a.getBoundingClientRect();if(r.width>innerWidth*0.9&&r.height>innerHeight*0.9)return;if(!((a.textContent||'').trim().length>0||a.querySelector('img')))return;YtbTap.tap(h)}catch(x){}},true);"
       + "var st=document.createElement('style');"
       + "st.textContent='ins.adsbygoogle,iframe[src*=\"doubleclick\"],iframe[src*=\"googlesyndication\"],[id^=\"google_ads\"],[id*=\"yektanet\"],[class*=\"yektanet\"]{display:none!important}';"
       + "(document.head||document.documentElement).appendChild(st);"
@@ -953,6 +957,28 @@ public class BrowserHelper {
         });
     }
 
+    /** The JavaScript of the page tells which real link the user tapped (text or picture, not a hidden overlay). */
+    public static class TapBridge {
+        @JavascriptInterface
+        public void tap(String href) {
+            lastTapHref = href == null ? "" : href;
+            lastTapAt = System.currentTimeMillis();
+        }
+    }
+
+    private static String normUrl(String u) {
+        if (u == null) return "";
+        int h = u.indexOf('#');
+        if (h >= 0) u = u.substring(0, h);
+        while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
+        return u.trim();
+    }
+
+    private static boolean tappedLink(String url) {
+        String t = lastTapHref;
+        return t.length() > 0 && System.currentTimeMillis() - lastTapAt < 6000 && normUrl(t).equalsIgnoreCase(normUrl(url));
+    }
+
     /** New windows a page opens (window.open, target=_blank). Without a tap: refused. With a tap: the address is
      *  read in a throw-away WebView (no scripts, no requests) and opened in this view only when it is the same
      *  site and not a known ad host; anything else is a pop-up ad and is dropped. */
@@ -968,14 +994,15 @@ public class BrowserHelper {
                     private void decide(String url) {
                         if (done || url == null || url.equals("about:blank")) return;
                         done = true;
+                        boolean tapped = tappedLink(url);   // the very link the user tapped
                         String via = unwrapAll(url);   // a shortener: go to the real address
                         if (via != null) url = via;
                         Uri u = Uri.parse(url);
                         String sch = u.getScheme();
                         String host = u.getHost();
                         boolean ok = ("http".equals(sch) || "https".equals(sch)) && !isAdHost(host)
-                            && (via != null || sameSite(host, Uri.parse(pageUrl).getHost()));
-                        navNote("pop-up window (tap) " + url + (via != null ? " [shortener]" : "")
+                            && (via != null || tapped || sameSite(host, Uri.parse(pageUrl).getHost()));
+                        navNote("pop-up window (tap) " + url + (via != null ? " [shortener]" : "") + (tapped ? " [tapped link]" : "")
                             + (ok ? "  => opened in this view" : "  => BLOCKED"));
                         if (ok) {
                             final String go = url;
