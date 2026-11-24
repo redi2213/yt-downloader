@@ -432,7 +432,7 @@ def _read_job(host):
 def _run_job(host):
     host.set_status("Reading Claude's job...")
 
-    def work():
+    def inner():
         job = _read_job(host)
         known = dict((s[0], s) for s in STEPS + ARG_STEPS)
         selected = []
@@ -448,5 +448,13 @@ def _run_job(host):
         head = "job: %s\ntitle: %s" % (job.get("id"), job.get("title"))
         report = _report(host, selected, "job", head)
         return report, _save(host, report, "job")
+
+    def work():
+        try:
+            return inner()
+        except Exception:
+            import traceback
+            report = "# Diagnostics (job) FAILED\n" + _hide(traceback.format_exc())[-3000:]
+            return report, _save(host, report, "job-error")
 
     host.background(work, done=_finish(host))
