@@ -106,6 +106,7 @@ _SECTIONS = (
     ("ads", "Ads and pop-ups"),
     ("clean", "Clean up"),
     ("inspect", "Inspect page (to share)"),
+    ("save", "Save page as..."),
 )
 
 
@@ -149,7 +150,8 @@ def build_section(nav, key):
         status.text = text
 
     ctx = SimpleNamespace(nav=nav, br=br, st=st, tab_id=tab_id, page=page, flags=flags, button=button, say=say)
-    fill = {"page": _sec_page, "ads": _sec_ads, "clean": _sec_clean, "inspect": _sec_inspect}.get(key)
+    fill = {"page": _sec_page, "ads": _sec_ads, "clean": _sec_clean, "inspect": _sec_inspect,
+                                                           "save": _sec_save}.get(key)
     if fill is not None:
         fill(ctx)
     back = Button(text="Back to the menu", size_hint_y=None, height=BTN_H)
@@ -293,6 +295,70 @@ def _sec_inspect(c):
     button("Share last result", share_last)
     nav.add(wrapped_label("Open the page first, do what you want to show (tap the link), then come back here. "
                           "The page HTML can hold personal data: look before you share."))
+
+
+# -- Save page as: PDF, HTML or a screenshot, into Download/Yt-bridge/Pages -----------------------------------------
+def _export_name(title, page, ext):
+    import time
+    from core import android_downloads as ad
+    base = (title or "").strip() or tools.host_of(page) or "page"
+    return f"{ad.safe_file_name(base)[:60]}_{time.strftime('%Y%m%d_%H%M%S')}{ext}"
+
+
+def _store_export(path, name):
+    import os
+    try:
+        from core import android_downloads as ad
+        return f"Saved: {ad.save_local_file(path, name, 'Pages')}"
+    except Exception as e:
+        return f"Could not save: {str(e)[:80]}"
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+
+def _export(br, kind, ext, title, page, say):
+    """Writes the shown page to a file through the helper (needs the latest build), then saves it in Pages."""
+    start = getattr(br, "export_page", None)
+    if not bt.is_web(page):
+        say("Open a page first")
+        return
+    name = _export_name(title, page, ext)
+    if start is None or not start(kind, name):
+        say(_NEEDS_UPDATE)
+        return
+    say("Saving...")
+    tries = {"n": 0}
+
+    def poll(_dt):
+        tries["n"] += 1
+        out = br.export_result()
+        if out is None:
+            if tries["n"] >= 80:
+                say("The page took too long to answer")
+                return False
+            return True
+        if not out.get("ok"):
+            say("Could not save: " + str(out.get("error") or "")[:80])
+        else:
+            say(_store_export(out.get("path"), name))
+        return False
+
+    Clock.schedule_interval(poll, 0.4)
+
+
+def _sec_save(c):
+    nav, br, button, say = c.nav, c.br, c.button, c.say
+    sess = c.st.tabs.session_for(c.tab_id)
+    tab = c.st.tabs.find(c.tab_id) or {}
+    title = sess.title or tab.get("title") or ""
+    button("Save as PDF", lambda b: _export(br, "pdf", ".pdf", title, c.page, say))
+    button("Save as HTML", lambda b: _export(br, "html", ".html", title, c.page, say))
+    button("Save as screenshot (visible part)", lambda b: _export(br, "shot", ".png", title, c.page, say))
+    nav.add(wrapped_label("Files go to Download/Yt-bridge/Pages (or the folder chosen in Settings). The PDF holds "
+                          "the whole page; the screenshot only what is on the screen."))
 
 
 def _open_cookies(nav):
