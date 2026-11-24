@@ -1,13 +1,14 @@
 {
-  "id": "2026-11-24-tpb-1",
-  "title": "thepornbang: probe the page, then test the mp4 links",
+  "id": "2026-11-24-tpb-2",
+  "title": "thepornbang: probe page, then test mp4 links with cookie/referer variants and show the body",
   "steps": [
     {
       "step": "probe",
       "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/"
     },
     {
-      "step": "media_test"
+      "step": "media_test",
+      "count": 2
     }
   ]
 }
