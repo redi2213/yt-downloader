@@ -8,6 +8,13 @@
       "min_host": 1
     },
     {
+      "id": "diag",
+      "title": "Diagnostics (test buttons, result saved to repo)",
+      "file": "diag.py",
+      "description": "Test buttons: each runs a check on the phone, shows a copyable result and saves it to config/diag-results/latest.txt for Claude to read. New checks are added in diag.py (STEPS), no build.",
+      "min_host": 1
+    },
+    {
       "id": "mornye_lab",
       "title": "Mornye (lab copy)",
       "file": "mornye_lab.py",
