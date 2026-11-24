@@ -1,0 +1,69 @@
+Lab link failure log
+mode: download
+time (UTC): 2026-11-24 23:55:04
+workflow: Lab Download Release
+run: https://github.com/redi2213/yt-downloader/actions/runs/45512832675
+commit: e477669
+url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+title: Summer Of Jolee Love
+error: download failed on every route
+quality: best
+
+---- console output for this link (the end) ----
+
+=== [1] Summer Of Jolee Love
+page: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+pick (direct): https://www.thepornbang.com/get_stream/10261-480.mp4?md5=6a59a040a43b707569ea963564bc8460&timestamp=1795563990_310369138
+yt-dlp: yt-dlp --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/get_stream/10261-480.mp4?md5=6a59a040a43b707569ea963564bc8460&timestamp=1795563990_310369138
+yt-dlp failed or empty — ffmpeg fallback
+ffmpeg: ffmpeg -hide_banner -loglevel warning -y -user_agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 -headers Referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+ -i https://www.thepornbang.com/get_stream/10261-480.mp4?md5=6a59a040a43b707569ea963564bc8460&timestamp=1795563990_310369138 -c copy downloads/01_Summer_Of_Jolee_Love.mp4
+retry via page URL
+yt-dlp: yt-dlp --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+yt-dlp failed or empty — ffmpeg fallback
+ffmpeg: ffmpeg -hide_banner -loglevel warning -y -user_agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 -headers Referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+ -i https://www.thepornbang.com/video/summer-of-jolee-love_v1/ -c copy downloads/01_Summer_Of_Jolee_Love.mp4
+retry via proxy socks5://103.124.172.134:1080
+yt-dlp: yt-dlp --proxy socks5://103.124.172.134:1080 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via proxy socks5://103.119.1.160:5555
+yt-dlp: yt-dlp --proxy socks5://103.119.1.160:5555 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via proxy socks5://101.36.112.205:1081
+yt-dlp: yt-dlp --proxy socks5://101.36.112.205:1081 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via proxy socks5://101.36.104.239:10808
+yt-dlp: yt-dlp --proxy socks5://101.36.104.239:10808 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via proxy socks5://103.126.173.159:1080
+yt-dlp: yt-dlp --proxy socks5://103.126.173.159:1080 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via proxy socks5://101.2.166.73:1080
+yt-dlp: yt-dlp --proxy socks5://101.2.166.73:1080 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via config socks5://127.0.0.1:10811
+yt-dlp: yt-dlp --proxy socks5://127.0.0.1:10811 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via config socks5://127.0.0.1:10812
+yt-dlp: yt-dlp --proxy socks5://127.0.0.1:10812 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+retry via config socks5://127.0.0.1:10813
+yt-dlp: yt-dlp --proxy socks5://127.0.0.1:10813 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+last chance: installing yt-dlp nightly
+nightly retry via GitHub IP (no proxy)
+yt-dlp: yt-dlp --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+yt-dlp failed or empty — ffmpeg fallback
+ffmpeg: ffmpeg -hide_banner -loglevel warning -y -user_agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 -headers Referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+ -i https://www.thepornbang.com/video/summer-of-jolee-love_v1/ -c copy downloads/01_Summer_Of_Jolee_Love.mp4
+nightly retry via socks5://103.124.172.134:1080
+yt-dlp: yt-dlp --proxy socks5://103.124.172.134:1080 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://103.119.1.160:5555
+yt-dlp: yt-dlp --proxy socks5://103.119.1.160:5555 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://101.36.112.205:1081
+yt-dlp: yt-dlp --proxy socks5://101.36.112.205:1081 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://101.36.104.239:10808
+yt-dlp: yt-dlp --proxy socks5://101.36.104.239:10808 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://103.126.173.159:1080
+yt-dlp: yt-dlp --proxy socks5://103.126.173.159:1080 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://101.2.166.73:1080
+yt-dlp: yt-dlp --proxy socks5://101.2.166.73:1080 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://127.0.0.1:10811
+yt-dlp: yt-dlp --proxy socks5://127.0.0.1:10811 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://127.0.0.1:10812
+yt-dlp: yt-dlp --proxy socks5://127.0.0.1:10812 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+nightly retry via socks5://127.0.0.1:10813
+yt-dlp: yt-dlp --proxy socks5://127.0.0.1:10813 --socket-timeout 30 --no-playlist --no-part --no-mtime -N 16 --retries 10 --fragment-retries 10 --user-agent Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 --referer https://www.thepornbang.com/video/summer-of-jolee-love_v1/ --remux-video mp4 -o downloads/01_Summer_Of_Jolee_Love.%(ext)s https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+FAILED this item
+
