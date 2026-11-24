@@ -26,7 +26,7 @@ MAX_STEP = 6000
 MAX_TOTAL = 24000
 
 _LAST = {"report": "", "saved": ""}
-_PROBE = {"page": "", "media": []}
+_PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
 
 _HIDE = [
@@ -130,6 +130,13 @@ def _fetch(host, url):
         return host.get(url)
 
 
+def _cookie_header(r):
+    try:
+        return "; ".join("%s=%s" % (k, v) for k, v in r.cookies.items())
+    except Exception:
+        return ""
+
+
 def _uniq(items, n=15):
     seen = []
     for i in items:
@@ -161,6 +168,8 @@ def step_probe(host, url):
         ("external scripts", re.findall(r"(?i)<script[^>]+src=[\"']([^\"']+)", txt)),
     ]
     _PROBE["page"] = url
+    _PROBE["cookies"] = _cookie_header(r)
+    out.append("cookies from page: %s" % (", ".join(c.split("=")[0] for c in _PROBE["cookies"].split("; ")) if _PROBE["cookies"] else "none"))
     _PROBE["media"] = _uniq(_MEDIA.findall(txt))
     found = False
     for name, items in sections:
@@ -184,21 +193,26 @@ def _call(fn, host, args):
 
 
 def step_media_test(host, url="", referer="", count=3):
-    """Fetches only the first 1 KB of each media link (Range + stream) and checks it is a real mp4."""
+    """Fetches only the first 1 KB of each media link (stream) and shows what the server answers."""
     urls = [url] if url and url != "auto" else list(_PROBE["media"])
     if not urls:
         return "no media URL (run probe first in the same job, or give url)"
     ref = referer or _PROBE["page"]
-    out = ["referer: %s" % (ref or "-")]
+    cookie = _PROBE.get("cookies", "")
+    out = ["referer: %s" % (ref or "-"), "cookie sent: %s" % ("yes" if cookie else "no")]
     for n, u in enumerate(urls[:int(count)]):
-        for use_ref in ([True, False] if n == 0 else [True]):
+        variants = [("ref+cookie+range", ref, cookie, True)]
+        if n == 0:
+            variants += [("ref+cookie, no range", ref, cookie, False), ("bare, no ref/cookie", "", "", True)]
+        for name, rf, ck, rng in variants:
             h = dict(_UA)
-            h["Range"] = "bytes=0-1023"
-            if use_ref and ref:
-                h["Referer"] = ref
-            label = "%s%s" % (u[:110], "" if use_ref else " [no referer]")
-            if not use_ref and not ref:
-                continue
+            if rng:
+                h["Range"] = "bytes=0-1023"
+            if rf:
+                h["Referer"] = rf
+            if ck:
+                h["Cookie"] = ck
+            label = "%s [%s]" % (u[:150], name)
             try:
                 r = host.get(u, headers=h, stream=True)
             except TypeError:
@@ -214,14 +228,17 @@ def step_media_test(host, url="", referer="", count=3):
                 pass
             try:
                 hd = r.headers
-                info = "type=%s range=%s length=%s" % (hd.get("content-type", "?"), hd.get("content-range", "-"), hd.get("content-length", "-"))
+                info = " ".join("%s=%s" % (k, str(hd.get(k))[:80]) for k in
+                                ("content-type", "content-length", "content-range", "server", "location", "content-disposition") if hd.get(k))
             except Exception:
                 info = "headers n/a"
             try:
                 r.close()
             except Exception:
                 pass
-            out.append("%s -> HTTP %s %s first_bytes=%d ftyp=%s" % (label, getattr(r, "status_code", "?"), info, len(head), head[4:8] == b"ftyp"))
+            is_mp4 = head[4:8] == b"ftyp"
+            body = "" if is_mp4 else " body=%r" % head[:120]
+            out.append("%s -> HTTP %s %s first_bytes=%d ftyp=%s%s" % (label, getattr(r, "status_code", "?"), info, len(head), is_mp4, body))
     return "\n".join(out)
 
 
