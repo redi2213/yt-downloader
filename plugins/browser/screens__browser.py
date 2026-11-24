@@ -149,9 +149,27 @@ def build(nav, url=None):
                 return
             br.load(new_tab)                # the tab limit is reached: open it here
         sess.merge(data)
+        menu = data.get("link_menu")
+        if menu:
+            # a link was pressed and held: its menu (background tab, copy, share ...)
+            try:
+                import json
+                info = json.loads(menu)
+            except Exception:
+                info = None
+            if isinstance(info, dict) and info.get("url"):
+                browser_pages.open_link_menu(nav, str(info["url"]), str(info.get("text") or ""))
+                return
         find.update(data)
         state.page_seen(tab_id, sess.page, sess.title)
         if sess.notice and not data.get("tapped"):
+            if browser_prefs.get_flag("click_editor"):
+                # the setting asks for the download editor of a clicked direct file link
+                newest = max(sess.items.values(), key=lambda i: i["seq"], default=None)
+                sess.take_notice()
+                if newest is not None:
+                    open_actions(nav, [newest["key"]])
+                    return
             nav.show_browser_list()         # a download started on the page: its file is in the list now
             return
         page = sess.page
@@ -514,6 +532,8 @@ RUN_MODES = ("ask", "background", "now")
 _RUN_TEXT = {"ask": "Run mode: Ask every time", "background": "Run mode: Always in the background",
              "now": "Run mode: Always now"}
 _QUEUED = "Added to the queue - it runs in the background"
+_CLICK_TEXT = {True: "Direct file link click: open the download editor",
+               False: "Direct file link click: add to the list (default)"}
 
 
 def run_mode():
@@ -796,6 +816,17 @@ def build_settings(nav, back, back_text):
     nav.add(mode_btn)
     nav.add(wrapped_label("Ask every time shows the choice each time. The other two start at once "
                           "without asking - this setting wins."))
+    click_btn = Button(text=_CLICK_TEXT[browser_prefs.get_flag("click_editor")], size_hint_y=None, height=BTN_H)
+
+    def flip_click(_i):
+        on = not browser_prefs.get_flag("click_editor")
+        browser_prefs.set_flag("click_editor", on)
+        click_btn.text = _CLICK_TEXT[on]
+
+    click_btn.bind(on_press=flip_click)
+    nav.add(click_btn)
+    nav.add(wrapped_label("Pressing and holding a link in a page opens its menu: background tab, download "
+                          "editor, copy, share."))
     nav.add(wrapped_label("File types the browser looks for. Turn a type off to hide it from the results."))
     status = Label(text="", size_hint_y=None, height=BTN_H, color=(1, 0.75, 0.4, 1), halign="center")
     status.text_size = (content_width(), None)
