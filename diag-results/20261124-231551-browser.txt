@@ -1,0 +1,25 @@
+# Diagnostics (browser) 2026-11-24 23:15:51 UTC
+
+job: tpb-browser-1
+title: thepornbang: what does a real WebView get from get_stream?
+
+## Browser capture (browser)
+start_url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+final_url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+user_agent: Mozilla/5.0 (Linux; Android 13; M2101K6G Build/TKQ1.221013.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.8127.46 Mobile Safari/537.36
+cookie names (7): PHPSESSID, kt_tcookie, _ga, _uclicks, popFires, zone-cap-4616, _ga_58TQGC608V
+pattern: get_stream|\.mp4|\.m3u8|\.mpd|\.webm
+actions:
+  autoplay 1: "[\"click .fp-play\",\"click .fp-ui\"]"
+  autoplay 2: "[\"video.play\",\"video.play\",\"click .fp-play\",\"click .fp-ui\"]"
+  fetch test started: "started"
+videos (3):
+  cur=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=778bb10facf7fbbfa91b165d1ea4a5f2&timestamp=1795562142_1512425098&rnd=1795562112376 src=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=778bb10facf7fbbfa91b165d1ea4a5f2&timestamp=1795562142_1512425098&rnd=1795562112376 networkState=2 readyState=0 error=None paused=False duration=None
+  cur=https://media.scrtsai.com/v/e447626c-5ff4-4ea1-8085-1769251f17e7.mp4 src=https://media.scrtsai.com/v/e447626c-5ff4-4ea1-8085-1769251f17e7.mp4 networkState=2 readyState=4 error=None paused=False duration=19.480998
+  cur=https://cdn.amplifo.com/data/creatives/22972/1099121.mp4 src=https://cdn.amplifo.com/data/creatives/22972/1099121.mp4 networkState=2 readyState=4 error=None paused=False duration=30
+resource entries matching (1): status | initiator | transfer | body | name
+  0 | fetch | 0 | 0 | https://cdn.amplifo.com/data/creatives/22972/440800.mp4
+fetch/xhr calls matching (1):
+  fetch https://cdn.amplifo.com/data/creatives/22972/440800.mp4
+in-page fetch test (first chunk, same cookies as the page):
+  {"error": "TypeError: Failed to fetch", "u": "https://cdn.amplifo.com/data/creatives/22972/440800.mp4"}
