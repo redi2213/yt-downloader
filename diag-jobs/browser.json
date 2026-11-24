@@ -1,8 +1,8 @@
 {
-  "id": "tpb-browser-1",
-  "title": "thepornbang: what does a real WebView get from get_stream?",
+  "id": "tpb-browser-2",
+  "title": "thepornbang: browser fetch test on the site's own video url",
   "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/",
-  "wait_s": 40,
+  "wait_s": 30,
   "pattern": "get_stream|\\.mp4|\\.m3u8|\\.mpd|\\.webm",
   "desktop": false,
   "auto_play": true
