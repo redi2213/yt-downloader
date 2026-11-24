@@ -1,25 +1,25 @@
-# Diagnostics (job) 2026-11-24 23:19:46 UTC, diag.py v2026-11-24c
+# Diagnostics (job) 2026-11-24 23:44:36 UTC, diag.py v2026-11-24c
 
-job: 2026-11-25-tpb-4
-title: thepornbang: does the real player's &rnd=<ms> parameter fix 'error 1'?
+job: 2026-11-25-tpb-5
+title: thepornbang: do all three qualities (480/720/1080) really answer with video?
 
 ## Page probe (probe)
 url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
-HTTP 200, 310310 chars, content-type: text/html; charset=UTF-8
+HTTP 200, 310311 chars, content-type: text/html; charset=UTF-8
 title: Summer Of Jolee Love (Jolee Love) #Evil Angel
-cookies from page: PHPSESSID
-set-cookie names: PHPSESSID
+cookies from page: none
+set-cookie names: none
 meta og:video / twitter:player (2):
   video/mp4
   Cowgirl
 video/source src (0):
 iframe src (0):
 media urls in page (3):
-  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1644258172
-  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1776340525
-  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1423109781
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1946830173
+  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1734374648
+  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1398355142
 JSON/JS video keys (1):
-  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1644258172
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1946830173
 external scripts (8):
   https://www.googletagmanager.com/gtag/js?id=G-58TQGC608V
   /ktplayer/kt_player_v2.js
@@ -33,8 +33,10 @@ inline scripts: 6
 
 ## Media link test (media_test)
 referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
-cookie sent: yes
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1644258172&rnd=1795562388470 [rnd+ref+range] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1644258172&rnd=1795562390902 [rnd+ref+kt_tcookie] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1644258172 [no rnd, ref+range] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
-https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795562389_1644258172 [bare, no ref/cookie] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
+cookie sent: no
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1946830173&rnd=1795563878336 [rnd+ref+range] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1946830173&rnd=1795563880528 [rnd+ref+kt_tcookie] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1946830173 [no rnd, ref+range] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
+https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1946830173 [bare, no ref/cookie] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/343677670 content-disposition=inline; filename="18504321010318" first_bytes=1024 ftyp=True
+https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1734374648&rnd=1795563883699 [rnd+ref+range] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/670087650 content-disposition=inline; filename="18504317274766" first_bytes=1024 ftyp=True
+https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795563879_1398355142&rnd=1795563886908 [rnd+ref+range] -> HTTP 206 content-type=video/mp4 content-length=1024 content-range=bytes 0-1023/670087650 content-disposition=inline; filename="18504317274766" first_bytes=1024 ftyp=True
