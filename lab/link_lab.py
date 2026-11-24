@@ -390,6 +390,14 @@ def _phone_read(host, urls, on_status):
             out.append({"url": url, "title": url, "error": "yt-dlp is not inside this build"})
             continue
         res = _phone_one(yt_dlp, opts, url)
+        if not res.get("rows"):
+            try:
+                alt = _phone_kvs(url)
+                if alt:
+                    res = alt
+            except Exception as e:
+                key = "error" if res.get("error") else "note"
+                res[key] = ((res.get(key) or "") + " | player-settings fallback: %s" % str(e)[:100]).strip()
         if found is not None and not res.get("rows"):
             res["note"] = ("Site adapter: %s. " % (found.get("error") or "no quality")) + (res.get("note") or "")
         out.append(res)
@@ -403,6 +411,49 @@ def _phone_read(host, urls, on_status):
     if on_status:
         on_status("Done")
     return out
+
+
+# ---------------------------------------------------------------- KVS / KT-player fallback
+# Many sites (KVS engine) put the video links in the player settings of the page, e.g.
+#   video_url: 'https://site/get_stream/123-480.mp4?md5=..&timestamp=..', video_url_text: '480',
+#   video_alt_url: '...-720.mp4...', video_alt_url_text: '720', video_alt_url2: '...-1080.mp4...'
+# yt-dlp's generic extractor does not read them ("no media urls"). Used only when yt-dlp found nothing.
+_KVS_URL = re.compile(r"""(video(?:_alt)?_url\d*)\s*:\s*['"]([^'"]+)['"]""")
+_KVS_TXT = re.compile(r"""(video(?:_alt)?_url\d*)_text\s*:\s*['"]([^'"]*)['"]""")
+
+
+def _phone_kvs(url):
+    """Rows (like _phone_formats) read from the page's player settings, or None when the page has none."""
+    from urllib.parse import urljoin
+    text = _phone_text(url, {"User-Agent": _PEEK_UA})
+    if not text:
+        raise RuntimeError("page not read (%s)" % (_NET["err"] or "empty"))
+    text = text.replace("\\/", "/")
+    labels = dict(_KVS_TXT.findall(text))
+    rows, seen, hidden = [], set(), 0
+    for key, link in _KVS_URL.findall(text):
+        link = link.replace("&amp;", "&").strip()
+        if link.startswith("function/"):
+            hidden += 1          # encrypted with the site's license code: not supported
+            continue
+        link = urljoin(url, link)
+        if not link.startswith("http") or link in seen:
+            continue
+        seen.add(link)
+        m = re.search(r"(\d{3,4})", labels.get(key, "")) or re.search(r"[-_/](\d{3,4})p?\.mp4", link)
+        rows.append({"h": int(m.group(1)) if m else None, "ext": "mp4", "hls": False, "size": "",
+                     "url": link, "_tbr": None, "_hdr": {"Referer": url, "User-Agent": _PEEK_UA}})
+    if not rows:
+        if hidden:
+            raise RuntimeError("the page's player links are encrypted (function/0/), decoding is not supported yet")
+        return None
+    rows.sort(key=lambda r: -(r["h"] or 0))
+    m = re.search(r"video_title\s*:\s*['\"]([^'\"]+)", text) or re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
+    title = re.sub(r"\s+", " ", m.group(1)).strip() if m else url
+    return {"url": url, "title": title, "extractor": "page player settings (fallback)",
+            "note": "yt-dlp found nothing; these links come from the page's player settings. "
+                    "They are time-limited: download right away, do not keep them for later.",
+            "rows": rows, "video_heights": [], "duration": None}
 
 
 _PEEK_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
