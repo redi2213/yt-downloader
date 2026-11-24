@@ -1,6 +1,6 @@
 {
-  "id": "2026-11-24-tpb-3",
-  "title": "thepornbang: why get_stream answers 'error 1' (page and player JS context)",
+  "id": "2026-11-25-tpb-4",
+  "title": "thepornbang: does the real player's &rnd=<ms> parameter fix 'error 1'?",
   "steps": [
     {
       "step": "probe",
@@ -9,29 +9,6 @@
     {
       "step": "media_test",
       "count": 1
-    },
-    {
-      "step": "context",
-      "label": "page around get_stream",
-      "pattern": "get_stream",
-      "width": 300,
-      "limit": 3
-    },
-    {
-      "step": "context",
-      "label": "custom.js",
-      "url": "/theme/bang/js/custom.js?v=71795473637",
-      "pattern": "get_stream|timestamp|md5|error 1",
-      "width": 200,
-      "limit": 4
-    },
-    {
-      "step": "context",
-      "label": "kt_player_v2.js",
-      "url": "/ktplayer/kt_player_v2.js",
-      "pattern": "get_stream|timestamp|error 1|md5",
-      "width": 200,
-      "limit": 3
     }
   ]
 }
