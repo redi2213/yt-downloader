@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Message;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -815,6 +816,61 @@ public class BrowserHelper {
         return a != null && b != null && baseDomain(a).equals(baseDomain(b));
     }
 
+    // Link shorteners (shrinkearn ...) keep the real address in their own address, often as Base64 in url=.
+    // The browser opens that address directly and skips the ad page.
+    private static final String[] SHORT_HOSTS = {
+        "shrinkearn.com", "shrinkme.io", "shrinkme.click", "shrtfly.com", "ouo.io", "ouo.press", "exe.io", "exey.io",
+        "gplinks.co", "gplinks.in", "adrinolinks.in", "clk.sh", "droplink.co", "earnlink.io", "linkshrink.net",
+        "shorte.st", "bc.vc", "adf.ly", "za.gl", "cuty.io", "fc.lc", "link1s.com", "urlshortx.com", "tii.la",
+        "shrinke.me", "uii.io", "ez4short.com"
+    };
+
+    private static String decodeTarget(String v) {
+        try {
+            v = v.trim().replace(' ', '+');
+            if (v.startsWith("http://") || v.startsWith("https://")) return v;
+            String b = v.replace('-', '+').replace('_', '/');
+            while (b.length() % 4 != 0) b += "=";
+            String s = new String(Base64.decode(b, Base64.DEFAULT), "UTF-8").trim();
+            if ((s.startsWith("http://") || s.startsWith("https://")) && Uri.parse(s).getHost() != null) return s;
+        } catch (Exception e) { }
+        return null;
+    }
+
+    private static String unwrapOnce(String url) {
+        try {
+            Uri u = Uri.parse(url);
+            String host = u.getHost();
+            if (host == null) return null;
+            host = host.toLowerCase();
+            boolean known = false;
+            for (String d : SHORT_HOSTS) {
+                if (host.equals(d) || host.endsWith("." + d)) { known = true; break; }
+            }
+            if (!known) return null;
+            String[] keys = {"url", "u", "link", "r", "to", "dest"};
+            for (String k : keys) {
+                String v = u.getQueryParameter(k);
+                if (v == null || v.length() < 8) continue;
+                String t = decodeTarget(v);
+                if (t != null && !t.equals(url)) return t;
+            }
+        } catch (Exception e) { }
+        return null;
+    }
+
+    /** The real address behind a (chain of) shortener link(s), or null when the address is not one. */
+    private static String unwrapAll(String url) {
+        String cur = url, last = null;
+        for (int i = 0; i < 4; i++) {
+            String t = unwrapOnce(cur);
+            if (t == null) break;
+            last = t;
+            cur = t;
+        }
+        return last;
+    }
+
     /** Turns the ad / pop-up blocking on or off (on by default). The page should be loaded again. */
     public static void setAdBlock(final boolean on) {
         adBlock = on;
@@ -839,11 +895,13 @@ public class BrowserHelper {
                     private void decide(String url) {
                         if (done || url == null || url.equals("about:blank")) return;
                         done = true;
+                        String via = unwrapAll(url);   // a shortener: go to the real address
+                        if (via != null) url = via;
                         Uri u = Uri.parse(url);
                         String sch = u.getScheme();
                         String host = u.getHost();
                         boolean ok = ("http".equals(sch) || "https".equals(sch)) && !isAdHost(host)
-                            && sameSite(host, Uri.parse(pageUrl).getHost());
+                            && (via != null || sameSite(host, Uri.parse(pageUrl).getHost()));
                         if (ok) {
                             final String go = url;
                             ui(new Runnable() { public void run() { if (web != null) web.loadUrl(go); } });
@@ -922,6 +980,13 @@ public class BrowserHelper {
         @Override
         public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
             String s = r.getUrl().getScheme();
+            if (adBlock) {
+                String real = unwrapAll(r.getUrl().toString());   // shortener link: open the real address
+                if (real != null && !isAdHost(Uri.parse(real).getHost())) {
+                    v.loadUrl(real);
+                    return true;
+                }
+            }
             if (adBlock && isAdHost(r.getUrl().getHost())) return true;   // a jump to an ad site is stopped
             return !("http".equals(s) || "https".equals(s));   // intent:, market: ... are not opened
         }
