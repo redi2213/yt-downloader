@@ -33,6 +33,11 @@ def build(nav, url, actions):
     upload_btn.bind(on_press=lambda i: nav.show_upload_screen(url))
     nav.add(upload_btn)
 
+    if str(url).lower().startswith(("http://", "https://")):
+        browser_btn = Button(text="Open in the Browser", size_hint_y=None, height=52)
+        browser_btn.bind(on_press=lambda i: _open_in_browser(nav, url))
+        nav.add(browser_btn)
+
     for action in actions or []:
         btn = Button(text=action.get("title", action.get("id", "?")),
                      size_hint_y=None, height=52)
@@ -44,6 +49,20 @@ def build(nav, url, actions):
     nav.add(common.back_button(nav))
     if lab_box is not None:
         _load_lab_tools(nav, url, lab_box)
+
+
+def _open_in_browser(nav, url):
+    """The shared link opens in a new browser tab (the tab that was open stays as it is)."""
+    try:
+        from services import browser_service
+        st = browser_service.state()
+        if st.tabs.new(url) is not None:
+            st.flush()
+            nav.show_browser()
+            return
+    except Exception:
+        pass
+    nav.show_browser(url)
 
 
 def _lab_section(nav, url):

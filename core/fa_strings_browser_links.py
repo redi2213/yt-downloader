@@ -7,6 +7,7 @@ BL_EXACT = {
     "Copy link text": "کپی متن لینک",
     "Copy link": "کپی لینک",
     "Share link": "اشتراک\u200cگذاری لینک",
+    "Open in the Browser": "باز کردن در مرورگر",
     "Back to the page": "بازگشت به صفحه",
     "Opened in a background tab": "در تب پس\u200cزمینه باز شد",
     "Link text copied": "متن لینک کپی شد",
