@@ -9,6 +9,7 @@ from kivy.uix.textinput import TextInput
 from core import browser_tabs as bt
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, card_box, content_width, fa_font_kwargs, fa_text,
                             paint_card, wrapped_label, wrapped_label_height)
+from api import browser_prefs
 from services import browser_service
 
 PAGE = 30               # rows drawn at a time; "Show more" adds the next ones
@@ -132,6 +133,7 @@ def build_menu(nav):
     draw_mark()
     nav.add(Label(text="Tabs and bookmarks", size_hint_y=None, height=BTN_H))
     nav.add(_button("New tab", new_tab))
+    nav.add(_button("Speed dial", lambda: open_speed_dial(nav)))
     nav.add(_button(f"Tabs ({st.tabs.count()})", lambda: open_tabs(nav)))
     nav.add(mark)
     nav.add(_button("Bookmarks", lambda: open_bookmarks(nav)))
@@ -226,7 +228,48 @@ def _new_tab(nav, status, url=""):
         status.text = f"Tab limit reached ({bt.MAX_TABS})"
         return
     st.flush()
+    if not url and browser_prefs.get_flag("newtab_speed"):
+        open_speed_dial(nav)            # the setting asks for the Speed dial in a blank new tab
+        return
     nav.show_browser()
+
+
+# -- speed dial: the bookmarks as big buttons ------------------------------------------------------------------
+SPEED_DIAL_MAX = 12
+
+
+def open_speed_dial(nav):
+    nav.remember(lambda: open_speed_dial(nav))
+    build_speed_dial(nav)
+
+
+def build_speed_dial(nav):
+    from kivy.uix.gridlayout import GridLayout
+    nav.clear()
+    try:
+        nav.app.show_topbar(False)
+    except Exception:
+        pass
+    st = browser_service.state()
+    nav.add(Label(text="Speed dial", size_hint_y=None, height=BTN_H))
+    items = st.bookmarks.items[:SPEED_DIAL_MAX]
+    if not items:
+        nav.add(wrapped_label("No bookmarks yet. Add some from the Browser menu (Add bookmark)."))
+    else:
+        gap = dp(6)
+        width = (content_width() - gap) / 2
+        grid = GridLayout(cols=2, size_hint_y=None, spacing=gap)
+        grid.bind(minimum_height=grid.setter("height"))
+        for item in items:
+            title = _title_of(item)
+            tile = Button(text=fa_text(title, width - dp(12)), size_hint_y=None, height=BTN_H * 2,
+                          halign="center", valign="middle", **fa_font_kwargs(title))
+            tile.text_size = (width - dp(12), None)
+            tile.bind(on_press=lambda i, u=item["url"]: nav.show_browser(u))
+            grid.add_widget(tile)
+        nav.add(grid)
+    nav.add(_button("Bookmarks", lambda: open_bookmarks(nav)))
+    nav.add(_button("Back to browser", nav.show_browser))
 
 
 # -- tabs ----------------------------------------------------------------------------------------------------------

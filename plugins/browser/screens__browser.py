@@ -563,6 +563,7 @@ RUN_MODES = ("ask", "background", "now")
 _RUN_TEXT = {"ask": "Run mode: Ask every time", "background": "Run mode: Always in the background",
              "now": "Run mode: Always now"}
 _QUEUED = "Added to the queue - it runs in the background"
+_NEWTAB_TEXT = {True: "New tab: open the Speed dial", False: "New tab: open the start page (default)"}
 _CLICK_TEXT = {True: "Direct file link click: open the download editor",
                False: "Direct file link click: add to the list (default)"}
 
@@ -1043,6 +1044,15 @@ def build_settings(nav, back, back_text, note=""):
 
     click_btn.bind(on_press=flip_click)
     nav.add(click_btn)
+    newtab_btn = Button(text=_NEWTAB_TEXT[browser_prefs.get_flag("newtab_speed")], size_hint_y=None, height=BTN_H)
+
+    def flip_newtab(_i):
+        on = not browser_prefs.get_flag("newtab_speed")
+        browser_prefs.set_flag("newtab_speed", on)
+        newtab_btn.text = _NEWTAB_TEXT[on]
+
+    newtab_btn.bind(on_press=flip_newtab)
+    nav.add(newtab_btn)
     nav.add(wrapped_label("Pressing and holding a link in a page opens its menu: background tab, download "
                           "editor, copy, share."))
     nav.add(wrapped_label("File types the browser looks for. Turn a type off to hide it from the results."))
