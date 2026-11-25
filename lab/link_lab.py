@@ -35,6 +35,7 @@ def build(host):
         q, _, ts = raw.partition("|")
         if q.isdigit() and ts.isdigit() and time.time() - int(ts) < 900:
             S["quality"] = q                        # the quality picked in the in-app browser
+            S["auto"] = q
             host.log("quality from the browser:", q)
     except Exception:
         pass
@@ -67,6 +68,9 @@ def build(host):
             return False
         return True
 
+    if S.get("auto"):
+        host.button("Browser quality %sp: find on this phone and upload" % S["auto"],
+                    lambda: need() and (S.__setitem__("auto_run", True), host.show(phone_screen)))
     host.button("Get links only", lambda: need() and host.show(links_screen))
     host.button("Get links only (this phone)", lambda: need() and host.show(phone_screen))
     host.button("Download to a GitHub release", lambda: need() and start_download(host))
@@ -212,10 +216,41 @@ def phone_screen(host):
             host.set_status("Failed: %s" % err)
             host.log("phone read failed:", err)
             return
+        if S.get("auto_run"):
+            S["auto_run"] = False
+            pick = _auto_pick(res, S.get("auto"))
+            if pick:
+                r, row, link = pick
+                host.log("auto upload: %sp, link %s" % (row.get("h"), (link or "page")[:120]))
+                host.replace(download_screen, r.get("url") or "", str(row.get("h") or S["auto"]), link, r.get("title") or "")
+                return
         host.replace(phone_result, res)
 
     host.background(work, done=done)
     host.back_button()
+
+
+_IP_BOUND = re.compile(r"[?&]ip=[0-9a-f.:]{7,}|data=\\d+\\.\\d+\\.\\d+\\.\\d+", re.I)
+
+
+def _auto_pick(results, quality):
+    """The row of the quality picked in the browser (or the best one below it): (result, row, link for GitHub).
+    An HLS row comes first; a link tied to an IP is not sent (GitHub reads the page itself then)."""
+    try:
+        target = int(quality)
+    except (TypeError, ValueError):
+        return None
+    for r in results or []:
+        rows = [x for x in (r.get("rows") or []) if x.get("h")]
+        exact = [x for x in rows if x["h"] == target]
+        pool = exact or [x for x in rows if x["h"] <= target]
+        if not pool:
+            continue
+        pool.sort(key=lambda x: (-x["h"], 0 if x.get("hls") else 1, 1 if _IP_BOUND.search(x.get("url") or "") else 0))
+        row = pool[0]
+        link = row.get("url") or ""
+        return r, row, ("" if _IP_BOUND.search(link) else link)
+    return None
 
 
 def phone_result(host, results):
@@ -854,7 +889,7 @@ def download_screen(host, url, quality, link="", title=""):
     inputs = {"url": url, "quality": str(quality), "proxy": S["proxy"], "v2ray_config": S["v2ray"]}
     # The link this phone already found goes to GitHub, so the run skips its own (slow) extract step.
     # Links tied to an IP (data=1.2.3.4) would not work from GitHub, so those are not sent.
-    if link and link.startswith("http") and len(link) < 60000 and not re.search(r"data=\d+\.\d+\.\d+\.\d+", link):
+    if link and link.startswith("http") and len(link) < 60000 and not _IP_BOUND.search(link):
         inputs["direct_link"] = link
         inputs["direct_title"] = (title or "")[:200]
         host.text("Using the link found on this phone: GitHub skips the extract step.")
