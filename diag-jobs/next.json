@@ -1,14 +1,17 @@
 {
-  "id": "2026-11-25-tpb-5",
-  "title": "thepornbang: do all three qualities (480/720/1080) really answer with video?",
-  "steps": [
-    {
-      "step": "probe",
-      "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/"
-    },
-    {
-      "step": "media_test",
-      "count": 3
-    }
-  ]
+ "id": "2026-11-25-tpb-6",
+ "title": "thepornbang: follow get_stream-480 redirect by hand; why unknown height / no CDN link",
+ "steps": [
+  {
+   "step": "probe",
+   "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/"
+  },
+  {
+   "step": "redirects",
+   "count": 3
+  },
+  {
+   "step": "phone_rows"
+  }
+ ]
 }
