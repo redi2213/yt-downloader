@@ -29,6 +29,15 @@ def _load(host):
 # ---------------------------------------------------------------- first screen
 def build(host):
     _load(host)
+    try:
+        raw = host.store.get("browser_quality") or ""
+        host.store.delete("browser_quality")        # read once
+        q, _, ts = raw.partition("|")
+        if q.isdigit() and ts.isdigit() and time.time() - int(ts) < 900:
+            S["quality"] = q                        # the quality picked in the in-app browser
+            host.log("quality from the browser:", q)
+    except Exception:
+        pass
     if host.prefill:
         keep = []
         for ln in str(host.prefill).splitlines():
