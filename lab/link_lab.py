@@ -464,7 +464,13 @@ def _phone_read(host, urls, on_status):
         if not res.get("rows") or (res.get("extractor") or "").lower() in ("generic", "html5"):
             try:
                 alt = _phone_kvs(url)
-                if alt and res.get("rows"):
+                if alt and res.get("rows") and all("/get_stream/" in (r.get("url") or "") for r in res["rows"]):
+                    # yt-dlp's generic reader only saw the page's first get_stream link (no height, not resolved):
+                    # the player-settings rows are the same files with heights and resolved addresses, use them instead
+                    res["rows"] = alt["rows"]
+                    res["note"] = alt.get("note") or ""
+                    res["extractor"] = alt.get("extractor") or res.get("extractor")
+                elif alt and res.get("rows"):
                     # yt-dlp found only some qualities: add the ones from the page's player settings
                     have = set(r.get("h") for r in res["rows"])
                     extra = [r for r in alt["rows"] if r.get("h") not in have]
