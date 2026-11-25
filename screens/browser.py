@@ -815,9 +815,9 @@ def build_details(nav, key):
 
 
 # -- Browser settings: which file types the browser looks for ---------------------------------------------------
-def open_settings(nav, back, back_text):
+def open_settings(nav, back, back_text, note=""):
     nav.remember(lambda: open_settings(nav, back, back_text))
-    build_settings(nav, back, back_text)
+    build_settings(nav, back, back_text, note)
 
 
 def _use_rules(nav, rules):
@@ -826,10 +826,115 @@ def _use_rules(nav, rules):
     browser_service.save_rules(rules)
 
 
-def build_settings(nav, back, back_text):
+# -- About the browser: running version, version available online, one-tap update ---------------------------------
+def _peek_remote():
+    """(kind, version, text) of the published browser pack, without downloading it. Background thread."""
+    import json
+    from core import browser_pack
+    try:
+        manifest = json.loads(browser_pack._fetch("manifest.json"))
+    except Exception as e:
+        if browser_pack._is_missing(e):
+            return "none", "", ""
+        return "error", "", (str(e).strip().splitlines() or [e.__class__.__name__])[0][:80]
+    version = manifest.get("version") if isinstance(manifest, dict) else ""
+    err = browser_pack.check_manifest(manifest)
+    if err:
+        return "refused", version if isinstance(version, str) else "", err
+    return "ok", version, ""
+
+
+def _avail_text(peek):
+    from core import browser_pack
+    kind, version, text = peek
+    if kind == "none":
+        return "Available version: none published yet"
+    if kind == "error":
+        return f"Available version: could not check ({text})"
+    if kind == "refused":
+        return f"Available version: {version or '?'} (needs a newer app build)" if "newer app" in text \
+            else f"Available version: {version or '?'} (refused)"
+    st = browser_pack.status()
+    if version == st["current"]:
+        if st["waiting"]:
+            return f"Available version: {version} - downloaded, tap Update to use it"
+        return f"Available version: {version} - you are up to date"
+    if version in st["blocked"]:
+        return f"Available version: {version} (blocked earlier; Update tries it again)"
+    return f"NEW version available: {version} - tap Update"
+
+
+def _about_block(nav, back, back_text, note=""):
+    import threading
+    from core import browser_pack
+    st = browser_pack.status()
+    nav.add(wrapped_label("About the browser"))
+    nav.add(wrapped_label("Running version: " + (f"online {st['version']}" if st["source"] == "pack" else "built-in")))
+    avail = Label(text="Available version: checking...", size_hint_y=None, height=BTN_H, halign="center",
+                  color=(1, 0.75, 0.4, 1))
+    avail.text_size = (content_width(), None)
+    nav.add(avail)
+    if note:
+        nav.add(wrapped_label(note))
+    btn = Button(text="Update browser now", size_hint_y=None, height=BTN_H)
+    nav.add(btn)
+    nav.add(wrapped_label("Downloads the newest browser code and uses it right away. No checks or apply steps "
+                          "needed. Automatic check, Go back and Use built-in: Settings > App tools > "
+                          "Browser online update."))
+    busy = {"on": False}
+
+    def peeked(peek):
+        avail.text = _avail_text(peek)
+
+    threading.Thread(target=lambda: _schedule_peek(nav, peeked), daemon=True).start()
+
+    def finish(res):
+        busy["on"] = False
+        kind, version, text = res["result"], res["version"], res["message"]
+        if kind not in ("new", "same"):
+            btn.text = "Update browser now"
+            word = {"none": "No online browser version is published yet",
+                    "refused": f"This version was refused: {text}",
+                    "blocked": f"This version was blocked earlier: {version}"}.get(kind, f"Could not update: {text}")
+            avail.text = word
+            return
+        done = f"Up to date: {version}" if kind == "same" else f"Updated to {version}"
+        if browser_pack.status()["waiting"]:
+            browser_pack.activate(force=True)       # the new code takes the place of the old one now
+        try:
+            from screens import browser as fresh
+            fresh.open_settings(nav, back, back_text, done)
+        except Exception as e:
+            browser_pack.fall_back(f"{e.__class__.__name__}: {e}")
+            from screens import browser as fresh
+            fresh.open_settings(nav, back, back_text, "The new version failed; the previous one is used")
+        browser_pack.confirm()
+
+    def update(_i):
+        if busy["on"]:
+            return
+        busy["on"] = True
+        btn.text = "Updating..."
+
+        def work():
+            res = browser_pack.check_update(force=True)
+            nav.schedule(lambda: finish(res))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    btn.bind(on_press=update)
+
+
+def _schedule_peek(nav, callback):
+    peek = _peek_remote()
+    nav.schedule(lambda: callback(peek))
+
+
+def build_settings(nav, back, back_text, note=""):
     sess = nav.browser_session
     nav.clear()
     nav.add(Label(text="Browser settings", size_hint_y=None, height=BTN_H))
+    _about_block(nav, back, back_text, note)
     nav.add(wrapped_label("Start mode (download / upload)"))
     mode_btn = Button(text=_RUN_TEXT[run_mode()], size_hint_y=None, height=BTN_H)
 
@@ -924,3 +1029,4 @@ def button_row(nav, text, action):
     btn = Button(text=text, size_hint_y=None, height=BTN_H)
     btn.bind(on_press=lambda i: action())
     return btn
+
