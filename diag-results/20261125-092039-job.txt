@@ -1,0 +1,61 @@
+# Diagnostics (job) 2026-11-25 09:17:01 UTC, diag.py v2026-11-25c
+
+job: 2026-11-25-tpb-8
+title: thepornbang: hop-by-hop get_stream 480/720 (requests) vs yt-dlp urlopen
+
+## Page probe (probe)
+url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+HTTP 200, 310325 chars, content-type: text/html; charset=UTF-8
+title: Summer Of Jolee Love (Jolee Love) #Evil Angel
+cookies from page: none
+set-cookie names: none
+meta og:video / twitter:player (2):
+  video/mp4
+  Cowgirl
+video/source src (0):
+iframe src (0):
+media urls in page (3):
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193
+  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286
+  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_1750634321
+JSON/JS video keys (1):
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193
+external scripts (8):
+  https://www.googletagmanager.com/gtag/js?id=G-58TQGC608V
+  /ktplayer/kt_player_v2.js
+  https://static.addtoany.com/menu/page.js
+  https://js.onclckmn.com/static/onclicka.js
+  https://live.lzrtrz.com/ctrl/18870.js
+  /theme/bang/js/main.deps.js?v=7.3
+  /theme/bang/js/custom.js?v=71795562112
+  https://cdn.jsdelivr.net/npm/disable-devtool
+inline scripts: 6
+
+## Redirect trace (hop by hop) (redirects)
+referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/ | page cookie: <hidden>
+== https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193
+  [short UA + Range + Referer (as _phone_final_url)]
+   hop 0 https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93 -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first=b'error 1'
+   requests+redirects -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193 via=[] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+   yt-dlp urlopen -> status=200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193 same_as_input=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+  [Chrome UA + Range + Referer]
+   hop 0 https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93 -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first=b'error 1'
+   requests+redirects -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193 via=[] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+   yt-dlp urlopen -> status=200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193 same_as_input=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+  [Chrome UA + Referer, no Range]
+   hop 0 https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93 -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first=b'error 1'
+   requests+redirects -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193 via=[] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+   yt-dlp urlopen -> status=200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_300825193 same_as_input=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+== https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_208320028
+  [short UA + Range + Referer (as _phone_final_url)]
+   hop 0 https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93 -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first=b'error 1'
+   requests+redirects -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286 via=[] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+   yt-dlp urlopen -> status=200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286 same_as_input=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+  [Chrome UA + Range + Referer]
+   hop 0 https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93 -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first=b'error 1'
+   requests+redirects -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286 via=[] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+   yt-dlp urlopen -> status=200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286 same_as_input=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+  [Chrome UA + Referer, no Range]
+   hop 0 https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93 -> HTTP 200 content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare first=b'error 1'
+   requests+redirects -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286 via=[] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+   yt-dlp urlopen -> status=200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598224_2083200286 same_as_input=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
