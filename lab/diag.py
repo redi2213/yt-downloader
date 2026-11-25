@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-25c"
+VERSION = "2026-11-25d"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -372,6 +372,83 @@ def step_redirects(host, url="", referer="", count=2, hops=8):
     return "\n".join(out)
 
 
+def _cnames(c):
+    return sorted(set(x.split("=")[0].strip() for x in (c or "").split(";") if "=" in x))
+
+
+def _resp_line(tag, r):
+    try:
+        hist = [h.status_code for h in r.history]
+        return "   %s -> HTTP %s final=%s via=%s cookies_sent=%s %s" % (
+            tag, r.status_code, r.url[:110], hist, _cnames(r.request.headers.get("Cookie")), _show_hdrs(r.headers))
+    except Exception as e:
+        return "   %s -> %s: %s" % (tag, type(e).__name__, str(e)[:100])
+
+
+def step_session_test(host, url="", count=2):
+    """Does get_stream need the cookies the page itself sets? Three ways to read the page and then the fresh
+    get_stream links: host.get (the app's long-lived session), a brand-new requests.Session, one yt-dlp
+    YoutubeDL (like Link Lab). Each prints status, final address after redirects, cookie names sent."""
+    page = url or _PROBE["page"]
+    if not page:
+        return "no url (give url of the video page)"
+    n = int(count)
+    out = ["page: " + page]
+
+    def links(text):
+        return _uniq(_MEDIA.findall((text or "").replace("\\/", "/")))[:n]
+
+    # A) host.get: the app's session (keeps cookies between calls)
+    out.append("[A host.get session]")
+    try:
+        r = host.get(page, headers=_UA)
+        ls = links(getattr(r, "text", ""))
+        out.append("   page HTTP %s, links=%d, cookies_sent=%s, set-cookie names=%s" % (
+            getattr(r, "status_code", "?"), len(ls), _cnames(r.request.headers.get("Cookie")),
+            re.findall(r"(?:^|,\s*)([\w.-]+)=", r.headers.get("set-cookie", "")) or "none"))
+        for u in ls:
+            h = dict(_UA, Range="bytes=0-0", Referer=page)
+            rr = host.get(u, headers=h, stream=True)
+            out.append(_resp_line(u.split("/get_stream/")[-1][:14], rr))
+            rr.close()
+    except Exception as e:
+        out.append("   FAILED %s: %s" % (type(e).__name__, str(e)[:120]))
+
+    # B) a brand-new requests session
+    out.append("[B new requests.Session: page, then links]")
+    try:
+        import requests
+        s = requests.Session()
+        r = s.get(page, headers=_UA, timeout=20)
+        ls = links(r.text)
+        out.append("   page HTTP %s, links=%d, session cookies=%s" % (r.status_code, len(ls), sorted(s.cookies.keys())))
+        for u in ls:
+            rr = s.get(u, headers=dict(_UA, Range="bytes=0-0", Referer=page), stream=True, timeout=20)
+            out.append(_resp_line(u.split("/get_stream/")[-1][:14], rr))
+            rr.close()
+    except Exception as e:
+        out.append("   FAILED %s: %s" % (type(e).__name__, str(e)[:120]))
+
+    # C) one yt-dlp YoutubeDL object: page, then links (what Link Lab does)
+    out.append("[C one yt-dlp YoutubeDL: page, then links]")
+    try:
+        import yt_dlp
+        from yt_dlp.networking import Request
+        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 20})
+        with ydl.urlopen(Request(page, headers={"User-Agent": _CHROME})) as r:
+            text = r.read(2000000).decode("utf-8", "replace")
+        ls = links(text)
+        out.append("   page links=%d, jar cookies=%s" % (len(ls), sorted(set(c.name for c in ydl.cookiejar))))
+        for u in ls:
+            with ydl.urlopen(Request(u, headers={"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": page})) as r:
+                fin = getattr(r, "url", "") or ""
+                out.append("   %s -> status=%s final=%s same=%s %s" % (u.split("/get_stream/")[-1][:14], getattr(r, "status", "?"),
+                                                                    str(fin)[:110], str(fin) == u, _show_hdrs(r.headers)))
+    except Exception as e:
+        out.append("   FAILED %s: %s" % (type(e).__name__, str(e)[:120]))
+    return "\n".join(out)
+
+
 def step_phone_rows(host, url=""):
     """Shows what yt-dlp returns for the page and what Link Lab's _phone_kvs builds (height, size, link), to see
     where an 'unknown height' row with a get_stream link comes from."""
@@ -420,6 +497,7 @@ ARG_STEPS = [
     ("media_test", "Media link test", step_media_test),
     ("context", "Context grep", step_context),
     ("redirects", "Redirect trace (hop by hop)", step_redirects),
+    ("session_test", "Session test (page, then get_stream)", step_session_test),
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
 ]
 
