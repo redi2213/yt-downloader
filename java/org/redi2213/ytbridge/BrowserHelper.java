@@ -24,6 +24,16 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.pm.PackageManager;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
+import androidx.webkit.Profile;
+import androidx.webkit.ProfileStore;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
@@ -110,14 +120,203 @@ public class BrowserHelper {
         if (activity != null) activity.runOnUiThread(r);
     }
 
-    // ---- view set-up ----------------------------------------------------------------
-    public static void create(final Activity act, final int top) {
-        activity = act;
-        topPx = top;
+    // ---- profiles: one WebView profile (androidx.webkit) per browser profile; each keeps its own cookies, local
+    //      storage, cache and permissions. "" = the default profile (the data the browser had before profiles).
+    private static String profileName = "";
+    private static boolean secureProfile = false;
+    private static volatile boolean profileOkFlag = true;
+    private static volatile CookieManager curCm = null;
+    private static volatile WebStorage curWs = null;
+
+    /** The cookies of the profile shown now (also used by the cookie export). */
+    private static CookieManager cm() {
+        CookieManager c = curCm;
+        return c != null ? c : CookieManager.getInstance();
+    }
+
+    private static WebStorage ws() {
+        WebStorage w = curWs;
+        return w != null ? w : WebStorage.getInstance();
+    }
+
+    /** True when this phone's WebView can keep profiles apart. */
+    public static boolean profilesSupported() {
+        try { return WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE); } catch (Throwable t) { return false; }
+    }
+
+    /** False when the WebView could not be put in the profile asked for: no page is loaded then. */
+    public static boolean profileApplied() { return profileOkFlag; }
+
+    /** Called right after the WebView is made, before anything is loaded. */
+    private static void applyProfile() {
+        curCm = null;
+        curWs = null;
+        profileOkFlag = true;
+        if (profileName.length() == 0) return;
+        try {
+            if (!profilesSupported()) throw new IllegalStateException("profiles are not supported");
+            ProfileStore.getInstance().getOrCreateProfile(profileName);
+            WebViewCompat.setProfile(web, profileName);
+            Profile p = WebViewCompat.getProfile(web);
+            curCm = p.getCookieManager();
+            curWs = p.getWebStorage();
+        } catch (Throwable t) {
+            profileOkFlag = false;
+            curCm = null;
+            curWs = null;
+            navNote("profile failed: " + t);
+        }
+    }
+
+    /** Throws the WebView away and makes a new one in another profile (name "" = default). Python loads the tabs again. */
+    public static void switchProfile(final String name, final boolean secure) {
+        synchronized (LOCK) {
+            seen.clear();
+            pending.clear();
+            pageUrl = "";
+            pageTitle = "";
+            epoch++;
+            netLog.clear();
+            linkMenu = "";
+            newTab = "";
+        }
         ui(new Runnable() {
             public void run() {
+                try { cm().flush(); } catch (Throwable t) { }
+                if (web != null) {
+                    try { web.stopLoading(); } catch (Throwable t) { }
+                    ViewGroup p = (ViewGroup) web.getParent();
+                    if (p != null) p.removeView(web);
+                    try { web.destroy(); } catch (Throwable t) { }
+                    web = null;
+                }
+                if (badge != null) {
+                    ViewGroup p2 = (ViewGroup) badge.getParent();
+                    if (p2 != null) p2.removeView(badge);
+                    badge = null;
+                }
+                tabStates.clear();
+                clearPending = false;
+                canBack = false;
+                profileName = name == null ? "" : name;
+                secureProfile = secure;
+                if (activity != null) buildNow(activity);   // at once: the tab that is loaded next finds the new WebView
+            }
+        });
+    }
+
+    /** Empties a profile that is not shown. It is deleted at the next app start (a used profile cannot be deleted now). */
+    public static void wipeProfile(final String name) {
+        ui(new Runnable() {
+            public void run() {
+                if (name == null || name.length() == 0 || name.equals(profileName) || !profilesSupported()) return;
+                try {
+                    Profile p = ProfileStore.getInstance().getOrCreateProfile(name);
+                    p.getCookieManager().removeAllCookies(null);
+                    p.getCookieManager().flush();
+                    p.getWebStorage().deleteAllData();
+                } catch (Throwable t) { }
+            }
+        });
+    }
+
+    /** Deletes profiles (names separated by commas). Called before the first WebView of a run, so none is loaded yet. */
+    public static void deleteProfiles(final String csv) {
+        ui(new Runnable() {
+            public void run() {
+                if (csv == null || !profilesSupported()) return;
+                for (String n : csv.split(",")) {
+                    n = n.trim();
+                    if (n.length() == 0) continue;
+                    try { ProfileStore.getInstance().deleteProfile(n); } catch (Throwable t) { }
+                }
+            }
+        });
+    }
+
+    // ---- secure profile: no WebRTC (it can show the real IP), no third-party trackers, permissions ask every time
+    private static final String RTC_OFF_JS =
+        "(function(){['RTCPeerConnection','webkitRTCPeerConnection','mozRTCPeerConnection','RTCDataChannel'].forEach(function(k){"
+      + "try{Object.defineProperty(window,k,{value:undefined,configurable:false,writable:false})}catch(e){try{window[k]=undefined}catch(x){}}})})();";
+
+    private static final String[] TRACKER_HOSTS = {
+        "google-analytics.com", "googletagmanager.com", "googletagservices.com", "doubleclick.net", "googlesyndication.com",
+        "connect.facebook.net", "facebook.net", "pixel.facebook.com", "analytics.twitter.com", "ads-twitter.com",
+        "analytics.tiktok.com", "hotjar.com", "clarity.ms", "mixpanel.com", "segment.io", "segment.com", "amplitude.com",
+        "fullstory.com", "mouseflow.com", "crazyegg.com", "scorecardresearch.com", "quantserve.com", "chartbeat.net",
+        "bat.bing.com", "mc.yandex.ru", "adnxs.com", "criteo.com", "criteo.net", "taboola.com", "outbrain.com",
+        "rubiconproject.com", "pubmatic.com", "openx.net", "amazon-adsystem.com", "appsflyer.com", "adjust.com",
+        "snap.licdn.com", "px.ads.linkedin.com", "hs-analytics.net", "optimizely.com"
+    };
+
+    private static boolean isTrackerHost(String host) {
+        if (host == null) return false;
+        host = host.toLowerCase();
+        for (String d : TRACKER_HOSTS) {
+            if (host.equals(d) || host.endsWith("." + d)) return true;
+        }
+        return false;
+    }
+
+    private static void installSecure(WebView v) {
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                Set<String> rules = new HashSet<String>();
+                rules.add("*");
+                WebViewCompat.addDocumentStartJavaScript(v, RTC_OFF_JS, rules);
+            }
+        } catch (Throwable t) { }
+    }
+
+    private static void osPermissions(String[] perms) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 23 || activity == null) return;
+            List<String> need = new ArrayList<String>();
+            for (String p : perms) {
+                if (activity.checkSelfPermission(p) != PackageManager.PERMISSION_GRANTED) need.add(p);
+            }
+            if (!need.isEmpty()) activity.requestPermissions(need.toArray(new String[0]), 7701);
+        } catch (Throwable t) { }
+    }
+
+    private static void ask(String title, String msg, final String[] osPerms, final Runnable yes, final Runnable no) {
+        try {
+            AlertDialog.Builder b = new AlertDialog.Builder(activity);
+            b.setTitle(title);
+            b.setMessage(msg);
+            b.setCancelable(false);
+            b.setPositiveButton("Allow once", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) { osPermissions(osPerms); yes.run(); }
+            });
+            b.setNegativeButton("Deny", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) { no.run(); }
+            });
+            b.show();
+        } catch (Throwable t) {
+            no.run();
+        }
+    }
+
+    // ---- view set-up ----------------------------------------------------------------
+    public static void create(final Activity act, final int top) {
+        createWithProfile(act, top, profileName, secureProfile);
+    }
+
+    /** Makes the WebView in a profile ("" = the default one); `secure` switches the secure-profile protections on. */
+    public static void createWithProfile(final Activity act, final int top, final String profile, final boolean secure) {
+        activity = act;
+        topPx = top;
+        if (web == null) {
+            profileName = profile == null ? "" : profile;
+            secureProfile = secure;
+        }
+        ui(new Runnable() { public void run() { buildNow(act); } });
+    }
+
+    private static void buildNow(final Activity act) {
                 if (web != null) return;
                 web = new WebView(act);
+                applyProfile();
                 WebSettings s = web.getSettings();
                 s.setJavaScriptEnabled(true);
                 s.setDomStorageEnabled(true);
@@ -131,14 +330,15 @@ public class BrowserHelper {
                 s.setUserAgentString(ua);
                 baseUa = ua;
                 desktopUa = makeDesktopUa(ua);
-                CookieManager cm = CookieManager.getInstance();
+                CookieManager cm = cm();
                 cm.setAcceptCookie(true);
-                cm.setAcceptThirdPartyCookies(web, true);
+                cm.setAcceptThirdPartyCookies(web, !secureProfile);
                 web.setWebViewClient(new Client());
                 web.setWebChromeClient(new PopupGuard());
                 s.setSupportMultipleWindows(adBlock);
                 web.addJavascriptInterface(new NetBridge(), "YtbNet");
                 web.addJavascriptInterface(new TapBridge(), "YtbTap");
+                if (secureProfile) installSecure(web);
                 // a long press on a link: the app opens its link menu (open in a background tab, copy, share ...).
                 // requestFocusNodeHref gives the address and the text of the link under the finger.
                 web.setOnLongClickListener(new View.OnLongClickListener() {
@@ -207,8 +407,6 @@ public class BrowserHelper {
                 bl.topMargin = topPx + (int) (12 * d);
                 bl.rightMargin = (int) (12 * d);
                 act.addContentView(badge, bl);
-            }
-        });
     }
 
     public static void setTop(final int top) {
@@ -257,7 +455,7 @@ public class BrowserHelper {
 
     // ---- navigation -----------------------------------------------------------------
     public static void load(final String url) {
-        ui(new Runnable() { public void run() { if (web != null) web.loadUrl(url); } });
+        ui(new Runnable() { public void run() { if (web != null && profileOkFlag) web.loadUrl(url); } });
     }
 
     public static void goBack() {
@@ -318,7 +516,7 @@ public class BrowserHelper {
                 o.put("src", src);
                 o.put("referer", pageUrl);
                 o.put("ua", ua);
-                String c = CookieManager.getInstance().getCookie(u);
+                String c = cm().getCookie(u);
                 o.put("cookie", c == null ? "" : c);
                 o.put("mime", mime == null ? "" : mime);
                 o.put("disp", disp == null ? "" : disp);
@@ -523,7 +721,7 @@ public class BrowserHelper {
                 }
                 String u = o.optString("url");
                 if (!(u.startsWith("http://") || u.startsWith("https://"))) return;
-                String c = CookieManager.getInstance().getCookie(u);
+                String c = cm().getCookie(u);
                 o.put("cookie", c == null ? "" : c);
                 o.put("ua", ua);
                 synchronized (LOCK) {
@@ -692,10 +890,10 @@ public class BrowserHelper {
     public static void clearAllSiteData() {
         ui(new Runnable() {
             public void run() {
-                CookieManager cm = CookieManager.getInstance();
+                CookieManager cm = cm();
                 cm.removeAllCookies(null);
                 cm.flush();
-                WebStorage.getInstance().deleteAllData();
+                ws().deleteAllData();
                 if (web != null) {
                     web.clearFormData();
                     web.reload();
@@ -712,7 +910,7 @@ public class BrowserHelper {
                 Uri u = Uri.parse(url == null ? "" : url);
                 String host = u.getHost();
                 if (host == null || host.length() == 0) return;
-                CookieManager cm = CookieManager.getInstance();
+                CookieManager cm = cm();
                 List<String> domains = new ArrayList<String>();
                 String d = host;
                 domains.add(d);
@@ -782,7 +980,7 @@ public class BrowserHelper {
         JSONObject out = new JSONObject();
         try {
             JSONArray arr = new JSONArray();
-            CookieManager cm = CookieManager.getInstance();
+            CookieManager cm = cm();
             String[] list = urls == null ? new String[0] : urls.split("\n");
             for (int i = 0; i < list.length && i < 40; i++) {
                 String u = list[i].trim();
@@ -817,7 +1015,7 @@ public class BrowserHelper {
         }
         ui(new Runnable() {
             public void run() {
-                if (web == null) return;
+                if (web == null || !profileOkFlag) return;
                 web.stopLoading();
                 if (from != null && from.length() > 0) {
                     android.os.Bundle b = new android.os.Bundle();
@@ -1120,6 +1318,38 @@ public class BrowserHelper {
      *  site and not a known ad host; anything else is a pop-up ad and is dropped. */
     static class PopupGuard extends WebChromeClient {
         @Override
+        public void onGeolocationPermissionsShowPrompt(final String origin, final GeolocationPermissions.Callback cb) {
+            if (!secureProfile) { cb.invoke(origin, false, false); return; }
+            ask("Location", origin + " wants to know your location.",
+                new String[] { "android.permission.ACCESS_FINE_LOCATION" },
+                new Runnable() { public void run() { cb.invoke(origin, true, false); } },
+                new Runnable() { public void run() { cb.invoke(origin, false, false); } });
+        }
+
+        @Override
+        public void onPermissionRequest(final PermissionRequest req) {
+            if (!secureProfile) { req.deny(); return; }
+            final List<String> grant = new ArrayList<String>();
+            List<String> os = new ArrayList<String>();
+            StringBuilder what = new StringBuilder();
+            for (String res : req.getResources()) {
+                if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res)) {
+                    grant.add(res);
+                    os.add("android.permission.CAMERA");
+                    what.append(what.length() > 0 ? " and the " : "").append("camera");
+                } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) {
+                    grant.add(res);
+                    os.add("android.permission.RECORD_AUDIO");
+                    what.append(what.length() > 0 ? " and the " : "").append("microphone");
+                }
+            }
+            if (grant.isEmpty()) { req.deny(); return; }
+            ask("Permission", req.getOrigin() + " wants to use the " + what + ".", os.toArray(new String[0]),
+                new Runnable() { public void run() { req.grant(grant.toArray(new String[0])); } },
+                new Runnable() { public void run() { req.deny(); } });
+        }
+
+        @Override
         public boolean onCreateWindow(WebView v, boolean isDialog, boolean isUserGesture, Message resultMsg) {
             if (adBlock && !isUserGesture) navNote("pop-up window without a tap  => BLOCKED");
             if (!adBlock || resultMsg == null || !isUserGesture) return false;
@@ -1171,6 +1401,7 @@ public class BrowserHelper {
             newPage(url);
             canBack = v.canGoBack();
             v.evaluateJavascript(NET_JS, null);
+            if (secureProfile) v.evaluateJavascript(RTC_OFF_JS, null);
             if (adBlock) v.evaluateJavascript(AD_JS, null);
             if (darkOn) v.evaluateJavascript(DARK_ON, null);
         }
@@ -1204,6 +1435,13 @@ public class BrowserHelper {
         public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
             try {
                 String u = r.getUrl().toString();
+                if (secureProfile && !r.isForMainFrame()) {      // secure profile: third-party trackers and ad hosts
+                    String th = r.getUrl().getHost();
+                    if (th != null && !sameSite(th, Uri.parse(pageUrl).getHost()) && (isAdHost(th) || isTrackerHost(th))) {
+                        noteAd(th);
+                        return blockedResponse();
+                    }
+                }
                 if (adBlock && !r.isForMainFrame() && isAdHost(r.getUrl().getHost())) {
                     noteAd(r.getUrl().getHost());
                     return blockedResponse();

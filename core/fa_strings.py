@@ -455,3 +455,6 @@ PATTERNS.extend(TB_PATTERNS)
 from core.fa_strings_actions import AC_EXACT, AC_PATTERNS   # noqa: E402
 EXACT.update(AC_EXACT)
 PATTERNS.extend(AC_PATTERNS)
+from core.fa_strings_browser_profiles import BPF_EXACT, BPF_PATTERNS   # noqa: E402
+EXACT.update(BPF_EXACT)
+PATTERNS.extend(BPF_PATTERNS)

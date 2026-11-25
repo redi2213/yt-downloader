@@ -23,6 +23,15 @@ def supported():
     return _supported
 
 
+def profiles_supported():
+    """The WebView of this phone can keep profiles apart (androidx.webkit 1.9+ in the APK and a recent System WebView)."""
+    try:
+        from jnius import autoclass
+        return bool(autoclass(_CLASS).profilesSupported())
+    except Exception:
+        return False
+
+
 class Browser:
     def __init__(self):
         self._h = None
@@ -33,6 +42,7 @@ class Browser:
         self._guard = None          # (epoch, url, until): after a tab switch on an APK without switchTab()
         self._sent = {}             # page-tool values the helper already has (sent again only when they change)
         self._native = None
+        self.profile = ("", False, [])      # (native profile name, secure, deleted profiles to remove): used when the WebView is made
 
     def _helper(self):
         if self._h is None:
@@ -40,12 +50,55 @@ class Browser:
             self._h = autoclass(_CLASS)
         return self._h
 
+    def created(self):
+        return self._created
+
     def ensure(self, top_px):
         if self._created:
             return
         from jnius import autoclass
-        self._helper().create(autoclass("org.kivy.android.PythonActivity").mActivity, int(top_px))
+        act = autoclass("org.kivy.android.PythonActivity").mActivity
+        h = self._helper()
+        pid, secure, purge = self.profile
+        if purge:
+            try:
+                h.deleteProfiles(",".join(str(p) for p in purge))       # before any profile is used in this run
+            except Exception:
+                pass
+        try:
+            h.createWithProfile(act, int(top_px), str(pid or ""), bool(secure))
+        except Exception:
+            h.create(act, int(top_px))            # an APK built before profiles existed: the one browser profile
+        self.profile = (pid, secure, [])
         self._created = True
+
+    # -- profiles (screens/browser_profiles.py): the WebView is made again with another native profile
+    def switch_profile(self, pid, secure):
+        """Replaces the WebView with one made in profile ``pid`` ("" = the main profile). The tabs are loaded again by the
+        browser screen. Returns False on an APK without profile support."""
+        pid, secure = str(pid or ""), bool(secure)
+        self.profile = (pid, secure, [])
+        self._sent = {}                 # the new WebView knows none of the page-tool values
+        self._exts = None
+        self.started = False
+        self.tab_id = ""
+        self._guard = None
+        if not self._created:
+            return True
+        return self._call("switchProfile", pid, secure)
+
+    def wipe_profile(self, pid):
+        """Empties the cookies and saved data of a profile that is not shown (it is deleted at the next app start)."""
+        return self._call("wipeProfile", str(pid or ""))
+
+    def profile_ok(self):
+        """False when the WebView could not be put in the profile asked for (its pages are then not loaded)."""
+        if not self._created:
+            return True
+        try:
+            return bool(self._helper().profileApplied())
+        except Exception:
+            return True
 
     def set_extensions(self, csv):
         """The file extensions the helper reports (core/browser_media.Rules.csv()). An APK built before this
