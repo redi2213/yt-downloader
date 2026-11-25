@@ -154,6 +154,22 @@ jobs:
         # BuildDependencyInstallError". A fresh venv is created each time.
         run: rm -rf .buildozer/android/platform/build-*/build/venv
 
+      - name: Allow androidx.webkit (browser profiles) with compileSdk 33
+        # androidx.webkit 1.9 asks for compileSdk 34, but raising the app's api to 34 would also raise targetSdk
+        # (new foreground-service rules...). Only the AAR metadata check is skipped; the Profile API classes
+        # are used from the library as they are.
+        run: |
+          mkdir -p "$HOME/.gradle/init.d"
+          cat > "$HOME/.gradle/init.d/skip-aar-metadata.gradle" <<'EOF'
+          allprojects {
+              tasks.configureEach { t ->
+                  if (t.name.endsWith('AarMetadata')) { t.enabled = false }
+              }
+          }
+          EOF
+          sed -i 's/^          //' "$HOME/.gradle/init.d/skip-aar-metadata.gradle"
+          cat "$HOME/.gradle/init.d/skip-aar-metadata.gradle"
+
       - name: Build signed APK with buildozer
         env:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
