@@ -307,6 +307,16 @@ class Host:
         self.source = source          # "lab" | "config" | "bundled"
         self.origin = origin          # "remote" | "cache" | "bundled"
         self.prefill = prefill        # text shared into the app for this plugin, if any
+        self._press = ""              # a first-screen button to press at once (share list favorites)
+        if prefill and "#press=" in str(prefill):
+            keep = []
+            for ln in str(prefill).splitlines():
+                if ln.strip().startswith("#press="):
+                    self._press = ln.strip()[7:]
+                else:
+                    keep.append(ln)
+            self.prefill = "\n".join(keep)
+        self._btns = []               # (text, callback) of the buttons on the current screen
         self.app_version = APP_VERSION
         self.data_dir = _DATA_DIR
         self.store = Store(self.id)
@@ -324,6 +334,27 @@ class Host:
         self.log(f"opened (source={self.source}, from {self.origin})")
         self._stack = []
         self.replace(module.build)
+        self._after_start()
+
+    def _after_start(self):
+        """Remember the first-screen buttons (for Share favorites) and press the asked one once."""
+        if self.source == "lab" and self._btns:
+            try:
+                from api import tool_buttons_prefs
+                skip = ("Back", "Home", "Copy log", "Clear log", "Copy error", "Reload plugin")
+                tool_buttons_prefs.remember(self.id, [t for t, _ in self._btns if not t.startswith(skip)])
+            except Exception:
+                pass
+        press, self._press = self._press, ""
+        if press:
+            self.after(0.4, lambda: self._press_button(press))
+
+    def _press_button(self, text):
+        for t, fn in self._btns:
+            if t == text:
+                fn()
+                return
+        self.log("press: no first-screen button", text)
 
     def show(self, fn, *args):
         if self._current is not None:
@@ -358,6 +389,7 @@ class Host:
         self.nav.clear()
         self.nav.remember(self._render_current)
         fn, args = self._current
+        self._btns = []
         try:
             fn(self, *args)
         except Exception as e:
@@ -408,6 +440,7 @@ class Host:
         btn = Button(text=str(text), size_hint_y=None, height=height)
         if on_press is not None:
             btn.bind(on_press=lambda inst: self._safe(on_press))
+            self._btns.append((str(text), on_press))
         self.nav.add(btn)
         return btn
 
@@ -418,6 +451,7 @@ class Host:
         for label, fn in items:
             btn = Button(text=str(label))
             btn.bind(on_press=lambda inst, f=fn: self._safe(f))
+            self._btns.append((str(label), fn))
             box.add_widget(btn)
             buttons.append(btn)
         self.nav.add(box)
