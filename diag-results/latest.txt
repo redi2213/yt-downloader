@@ -1,13 +1,65 @@
-# Diagnostics (job) 2026-11-25 08:49:00 UTC, diag.py v2026-11-25a
+# Diagnostics (job) 2026-11-25 08:50:20 UTC, diag.py v2026-11-25a
 
 job: 2026-11-25-tpb-6
 title: thepornbang: follow get_stream-480 redirect by hand; why unknown height / no CDN link
 
 ## Page probe (probe)
-ERROR ConnectionError: HTTPSConnectionPool(host='www.thepornbang.com', port=443): Max retries exceeded with url: /video/summer-of-jolee-love_v1/ (Caused by NewConnectionError("HTTPSConnection(host='www.thepornbang.com', por
+url: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+HTTP 200, 310314 chars, content-type: text/html; charset=UTF-8
+title: Summer Of Jolee Love (Jolee Love) #Evil Angel
+cookies from page: PHPSESSID
+set-cookie names: PHPSESSID
+meta og:video / twitter:player (2):
+  video/mp4
+  Cowgirl
+video/source src (0):
+iframe src (0):
+media urls in page (3):
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722
+  https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_320190413
+  https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_1615813536
+JSON/JS video keys (1):
+  https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722
+external scripts (8):
+  https://www.googletagmanager.com/gtag/js?id=G-58TQGC608V
+  /ktplayer/kt_player_v2.js
+  https://static.addtoany.com/menu/page.js
+  https://js.onclckmn.com/static/onclicka.js
+  https://live.lzrtrz.com/ctrl/18870.js
+  /theme/bang/js/main.deps.js?v=7.3
+  /theme/bang/js/custom.js?v=71795562112
+  https://cdn.jsdelivr.net/npm/disable-devtool
+inline scripts: 6
 
 ## Redirect trace (hop by hop) (redirects)
-no media URL (run probe first in the same job, or give url)
+referer: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+== https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722
+ [manual Range+Referer]
+  hop 0 https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722 -> FAILED URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.
+ [manual Range, no Referer]
+  hop 0 https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722 -> FAILED URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.
+ [yt-dlp urlopen, Referer kept (as _phone_final_url)] -> status=200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722 same_as_input=True
+ [yt-dlp urlopen, no Referer] -> status=200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_680380722 same_as_input=True
+== https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_320190413
+ [manual Range+Referer]
+  hop 0 https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_320190413 -> FAILED URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.
+ [manual Range, no Referer]
+  hop 0 https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_320190413 -> FAILED URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.
+ [yt-dlp urlopen, Referer kept (as _phone_final_url)] -> status=200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_320190413 same_as_input=True
+ [yt-dlp urlopen, no Referer] -> status=200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_320190413 same_as_input=True
+== https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_1615813536
+ [manual Range+Referer]
+  hop 0 https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_1615813536 -> FAILED URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.
+ [manual Range, no Referer]
+  hop 0 https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_1615813536 -> FAILED URLError: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.
+ [yt-dlp urlopen, Referer kept (as _phone_final_url)] -> status=200 final=https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_1615813536 same_as_input=True
+ [yt-dlp urlopen, no Referer] -> status=200 final=https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795596622_1615813536 same_as_input=True
 
 ## Link Lab rows (yt-dlp vs player settings) (phone_rows)
-no url (run probe first in the same job, or give url)
+page: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
+yt-dlp: extractor=generic entries=0
+  fmt id=0 height=None ext=mp4 proto=https url=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1ad3cc57530af0172bc54c47fc2f96d1&timestamp=1795596689_1512280961
+_phone_kvs: note=yt-dlp found nothing; these links come from the page's player settings. Not resolved: these links are time-limited, download right away.
+  row h=1080 size='' kvs=True hdr=['Referer', 'User-Agent'] url=https://www.thepornbang.com/get_stream/10261-1080.mp4?md5=a6c5131534c6b0ef60a75a0a4a1ade3f&timestamp=1795596697_1726891057
+  row h=720 size='' kvs=True hdr=['Referer', 'User-Agent'] url=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=a6c5131534c6b0ef60a75a0a4a1ade3f&timestamp=1795596697_1610553868
+  row h=480 size='' kvs=True hdr=['Referer', 'User-Agent'] url=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=a6c5131534c6b0ef60a75a0a4a1ade3f&timestamp=1795596697_81808187
