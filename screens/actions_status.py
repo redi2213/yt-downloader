@@ -11,6 +11,7 @@ from kivy.metrics import dp
 from core import cron_text, i18n, run_labels
 from core.config import LOCAL_UTC_OFFSET_MINUTES, run_url
 from services import runs_service
+from services import actions_service
 from screens import dialogs
 from screens.common import (BTN_H, GAP, STATUS_COLORS, content_width, fa_font_kwargs, fa_text,
                             wrapped_label_height)
@@ -407,6 +408,58 @@ def _add_failure_panel(nav, run_id, jobs, origin="status"):
     nav.add(info)
 
 
+def _live_signature(jobs):
+    return tuple((j.get("status"), tuple((s.get("status"), s.get("conclusion")) for s in j.get("steps", [])))
+                 for j in jobs)
+
+
+def _add_live_panel(nav, run_id, jobs, origin):
+    """A run that is still going: 'Step 4 of 9 running: name', a button that opens
+    its GitHub page (live log) in this app's browser, and a timer that reloads
+    the jobs every few seconds and redraws the screen when a step changes (the
+    redraw of a finished run shows the full log buttons)."""
+    info = run_labels.progress_summary(jobs) or {}
+    if info.get("waiting"):
+        text = "Waiting for a runner..."
+    elif info.get("name"):
+        text = f"Step {info['step']} of {info['total']} running: {info['name']}"
+    else:
+        text = f"Step {info.get('step', 1)} of {info.get('total', 1)} running"
+    shaped = fa_text(text, content_width() - dp(16))
+    label = Label(text=shaped, size_hint_y=None, color=(1, 0.93, 0.6, 1), halign="left", valign="middle",
+                  height=max(BTN_H, wrapped_label_height(shaped, extra_padding=dp(14), width=content_width() - dp(16))),
+                  **fa_font_kwargs(text))
+    label.text_size = (content_width() - dp(16), None)
+    nav.add(label)
+    live_btn = Button(text="Live log in browser", size_hint_y=None, height=BTN_H)
+    live_btn.bind(on_press=lambda i: nav.show_browser(run_url(run_id)))
+    nav.add(live_btn)
+
+    state = {"sig": _live_signature(jobs), "busy": False, "first": True, "event": None}
+
+    def tick():
+        if state["first"]:          # start_progress_timer calls once at once: the jobs are fresh
+            state["first"] = False
+            return
+        if state["busy"]:
+            return
+        state["busy"] = True
+
+        def got(new_jobs):
+            def apply():
+                state["busy"] = False
+                if state["event"] is not getattr(nav, "_progress_event", None):
+                    return          # the screen changed meanwhile
+                if new_jobs and _live_signature(new_jobs) != state["sig"]:
+                    nav.render_run_detail(run_id, new_jobs, origin)
+            nav.schedule(apply)
+
+        actions_service.start_load_run_jobs(run_id, on_complete=got)
+
+    nav.start_progress_timer(tick, interval=5)
+    state["event"] = getattr(nav, "_progress_event", None)
+
+
 def _add_help_label(nav, run_id, jobs):
     """Persian explanation of the failure (what it means, what to try), filled
     in a moment later from the failed job's log. The patterns come from
@@ -449,6 +502,8 @@ def build_run_detail(nav, run_id, jobs, origin="status"):
     its log."""
     nav.clear()
     nav.add(Label(text=f"Run #{run_id}", size_hint_y=None, height=40))
+    if jobs and any(j.get("status") != "completed" for j in jobs):
+        _add_live_panel(nav, run_id, jobs, origin)
     if jobs:
         _add_failure_panel(nav, run_id, jobs, origin)
         failed = runs_service.has_failure(jobs)

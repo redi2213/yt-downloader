@@ -92,6 +92,25 @@ def status_word(status, conclusion=None):
     return (status or "unknown"), "other"
 
 
+def progress_summary(jobs):
+    """Where a running run is, from its jobs (see api/github/workflows.get_run_jobs):
+    ``None`` when nothing is running, ``{"waiting": True}`` before a runner picked
+    the job up, else ``{"step": n, "total": m, "name": step name}`` for the step in
+    progress (the next one when none is, with an empty name)."""
+    active = [j for j in (jobs or []) if j.get("status") != "completed"]
+    if not active:
+        return None
+    job = active[0]
+    steps = job.get("steps") or []
+    if job.get("status") != "in_progress" or not steps:
+        return {"waiting": True}
+    for i, step in enumerate(steps):
+        if step.get("status") == "in_progress":
+            return {"step": i + 1, "total": len(steps), "name": step.get("name") or ""}
+    done = sum(1 for s in steps if s.get("status") == "completed")
+    return {"step": min(done + 1, len(steps)), "total": len(steps), "name": ""}
+
+
 _MARKUP_COLORS = {
     "ok": "66dd77", "fail": "ff6666", "running": "ffcc44",
     "waiting": "aaaaaa", "other": "aaaaaa",
