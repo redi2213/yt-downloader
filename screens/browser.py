@@ -718,6 +718,7 @@ def build_actions(nav, keys):
     nav.add(status)
 
     urls = list(dict.fromkeys(e["url"] for e in entries))
+    wf_urls = list(dict.fromkeys(bm.workflow_url(e) for e in entries))      # an IP-bound CDN link -> its page
     plural = len(urls) > 1
     page_only = all(e["kind"] == "ytdlp" for e in entries)      # a YouTube quality has the page link only
 
@@ -740,7 +741,7 @@ def build_actions(nav, keys):
         (copy_text, copy_links),
         ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
          lambda: start_action(nav, "upload", entries, status=lambda t: _set(status, t))),
-        ("Send to workflows", lambda: nav.show_share_chooser("\n".join(urls))),
+        ("Send to workflows", lambda: nav.show_share_chooser("\n".join(wf_urls))),
         ("Share with other apps", share_apps),
     ]
     if not many:
