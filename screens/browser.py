@@ -696,6 +696,20 @@ def _add_waiting(entries, status, scheduled):
         _set(status, f"{added} file(s) added to the scheduler" if scheduled else f"{added} file(s) added to the list")
 
 
+def _remember_quality(quality):
+    """Hands the picked quality to Link Lab through its saved values (Link Lab reads it once, within 15 minutes)."""
+    try:
+        import time
+        from screens.plugin_host import Store
+        store = Store("link_lab")
+        if quality:
+            store.set("browser_quality", "%s|%d" % (quality, int(time.time())))
+        else:
+            store.delete("browser_quality")
+    except Exception:
+        pass
+
+
 def build_actions(nav, keys):
     sess = nav.browser_session
     wanted = set(keys)
@@ -725,8 +739,11 @@ def build_actions(nav, keys):
         for tok in (e.get("quality") or "").split():
             if tok.lower().endswith("p") and tok[:-1].isdigit():
                 _qs.add(tok[:-1])
-    if len(_qs) == 1:
-        wf_text += "\n#quality=" + next(iter(_qs))      # the quality picked here: Link Lab starts with it
+    wf_quality = next(iter(_qs)) if len(_qs) == 1 else ""
+
+    def send_to_workflows():
+        _remember_quality(wf_quality)       # the quality picked here: Link Lab starts with it
+        nav.show_share_chooser(wf_text)
     plural = len(urls) > 1
     page_only = all(e["kind"] == "ytdlp" for e in entries)      # a YouTube quality has the page link only
 
@@ -749,7 +766,7 @@ def build_actions(nav, keys):
         (copy_text, copy_links),
         ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
          lambda: start_action(nav, "upload", entries, status=lambda t: _set(status, t))),
-        ("Send to workflows", lambda: nav.show_share_chooser(wf_text)),
+        ("Send to workflows", send_to_workflows),
         ("Share with other apps", share_apps),
     ]
     if not many:
