@@ -431,6 +431,22 @@ _KVS_URL = re.compile(r"""(video(?:_alt)?_url\d*)\s*:\s*['"]([^'"]+)['"]""")
 _KVS_TXT = re.compile(r"""(video(?:_alt)?_url\d*)_text\s*:\s*['"]([^'"]*)['"]""")
 
 
+def _phone_final_url(link, referer):
+    """Follows the redirects of a page-player link (a 1-byte Range request, nothing is downloaded) and returns
+    where it ends. KVS sites answer get_stream/... with a redirect to the real file on a CDN; that address
+    lasts hours and also works from GitHub, while the get_stream address itself expires in minutes and is
+    refused to GitHub's IP."""
+    try:
+        with _phone_http(link, {"Range": "bytes=0-0", "Referer": referer}) as r:
+            final = getattr(r, "url", None)
+            if not final and hasattr(r, "geturl"):
+                final = r.geturl()
+            return str(final or "")
+    except Exception as e:
+        _phone_err(e)
+        return ""
+
+
 def _phone_kvs(url):
     """Rows (like _phone_formats) read from the page's player settings, or None when the page has none."""
     from urllib.parse import urljoin
@@ -456,12 +472,21 @@ def _phone_kvs(url):
         if hidden:
             raise RuntimeError("the page's player links are encrypted (function/0/), decoding is not supported yet")
         return None
+    resolved = 0
+    for row in rows:
+        final = _phone_final_url(row["url"], url)
+        if final.startswith("http") and final != row["url"]:
+            row["url"] = final
+            row["_hdr"] = {"User-Agent": _PEEK_UA}
+            resolved += 1
+    note = "yt-dlp found nothing; these links come from the page's player settings."
+    note += (" Followed the site's redirect to the real file address (valid for hours)." if resolved
+             else " Not resolved: these links are time-limited, download right away.")
     rows.sort(key=lambda r: -(r["h"] or 0))
     m = re.search(r"video_title\s*:\s*['\"]([^'\"]+)", text) or re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
     title = re.sub(r"\s+", " ", m.group(1)).strip() if m else url
     return {"url": url, "title": title, "extractor": "page player settings (fallback)",
-            "note": "yt-dlp found nothing; these links come from the page's player settings. "
-                    "They are time-limited: download right away, do not keep them for later.",
+            "note": note,
             "rows": rows, "video_heights": [], "duration": None}
 
 
