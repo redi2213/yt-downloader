@@ -53,6 +53,9 @@ class Navigator(ArvanController):
         # must happen for the user while they are away is started from a worker thread (see
         # _auto_after_finish), never from a scheduled callback.
         self.app_active = True
+        # False while another tab is on screen (screens/tabs.py): this tab then neither hides the shared native
+        # browser view when its screen changes, nor stays silent when one of its jobs finishes.
+        self.tab_visible = True
         # In-app browser (screens/browser.py): the native WebView wrapper, what it found on the page,
         # and the Back-key hook of the browser screen.
         from core.browser_media import Session
@@ -71,7 +74,7 @@ class Navigator(ArvanController):
         self.stop_progress_timer()
         self.on_home = False
         self.back_hook = None
-        if getattr(self, "browser", None) is not None:
+        if getattr(self, "browser", None) is not None and getattr(self, "tab_visible", True):
             self.browser.hide()      # the native WebView must never stay on top of another screen
         self.app.clear_content()
         try:
@@ -176,7 +179,7 @@ class Navigator(ArvanController):
         home.build(self)
         self.on_home = True
         try:
-            self.app.show_topbar(False)
+            self.app.show_topbar("tabs")      # Home screen: only the Tabs button (no Home button)
         except Exception:
             pass
 
@@ -689,7 +692,7 @@ class Navigator(ArvanController):
         ok = getattr(job, "ok", None)
         if ok is None or getattr(job, "cancel_requested", False):
             return
-        if self.app_active and self.job_manager.current_job is job:
+        if self.app_active and getattr(self, "tab_visible", True) and self.job_manager.current_job is job:
             return
         from core.i18n import tr
         from services.notify_service import notify
