@@ -44,9 +44,12 @@ def build(nav):
 def build_section(nav, section):
     nav.clear()
     titles = dict((s, t) for t, s in MENU)
+    titles["favorites"] = "Share favorites"
     nav.add(Label(text=titles.get(section, "Settings"), size_hint_y=None, height=44))
-    {"downloads": _downloads, "notify": _notify, "account": _account, "tools": _tools}.get(section, _downloads)(nav)
-    nav.add(back_button(nav, to=nav.show_settings))
+    {"downloads": _downloads, "notify": _notify, "account": _account, "tools": _tools,
+     "favorites": _favorites}.get(section, _downloads)(nav)
+    nav.add(back_button(nav, to=(lambda: nav.show_settings_section("tools")) if section == "favorites"
+                        else nav.show_settings))
 
 
 # -- Downloads and storage ----------------------------------------------------------------------------------------
@@ -214,6 +217,10 @@ def _tools(nav):
     browser_btn.bind(on_press=lambda i: nav.show_browser_pack())
     nav.add(browser_btn)
 
+    fav_btn = Button(text="Share favorites (tools at the top of the share list)", size_hint_y=None, height=48)
+    fav_btn.bind(on_press=lambda i: nav.show_settings_section("favorites"))
+    nav.add(fav_btn)
+
     open_btn = Button(text=f"Open GitHub links with: {open_link_prefs.label()}", size_hint_y=None, height=48)
 
     def cycle_open(btn):
@@ -232,6 +239,11 @@ def _tools(nav):
     nav.add(vis_info)
     nav.set_status_label(vis_info)
     nav.setup_repo_visibility_button(vis_btn)
+
+
+def _favorites(nav):
+    from screens import share_favorites
+    share_favorites.build(nav)
 
 
 def _reveal_token_field(nav):
