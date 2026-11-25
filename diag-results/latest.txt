@@ -1,26 +1,31 @@
-# Diagnostics (job) 2026-11-25 09:28:28 UTC, diag.py v2026-11-25e
+# Diagnostics (probe) 2026-11-25 16:50:16 UTC, diag.py v2026-11-25e
 
-job: 2026-11-25-tpb-10
-title: thepornbang: error 1 now (worked at 00:34 UTC): network identity + session test
-
-## Network identity (country, provider, proxy) (net_identity)
-ipinfo: country=LU org=AS202422 G-Core Labs S.A. family=IPv4
-cloudflare trace: loc=LU colo=FRA warp=off http=http/1.1
-proxy env vars set: none
-requests proxies for site: none
-www.thepornbang.com resolves to: {'IPv4': ['188.114.96.3', '188.114.97.3'], 'IPv6': ['2a06:98c1:3120::3', '2a06:98c1:3121::3']}
-
-## Session test (page, then get_stream) (session_test)
-page: https://www.thepornbang.com/video/summer-of-jolee-love_v1/
-[A host.get session]
-   page HTTP 200, links=2, cookies_sent=['PHPSESSID'], set-cookie names=none
-   10261-480.mp4? -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598914 via=[] cookies_sent=['PHPSESSID'] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
-   10261-720.mp4? -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598914 via=[] cookies_sent=['PHPSESSID'] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
-[B new requests.Session: page, then links]
-   page HTTP 200, links=2, session cookies=['PHPSESSID']
-   10261-480.mp4? -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598938 via=[] cookies_sent=['PHPSESSID'] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
-   10261-720.mp4? -> HTTP 200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=1511b0fccfc74d0e2108f93c159e9008&timestamp=1795598938 via=[] cookies_sent=['PHPSESSID'] content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
-[C one yt-dlp YoutubeDL: page, then links]
-   page links=2, jar cookies=['PHPSESSID']
-   10261-480.mp4? -> status=200 final=https://www.thepornbang.com/get_stream/10261-480.mp4?md5=a6c5131534c6b0ef60a75a0a4a1ade3f&timestamp=1795598963 same=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
-   10261-720.mp4? -> status=200 final=https://www.thepornbang.com/get_stream/10261-720.mp4?md5=a6c5131534c6b0ef60a75a0a4a1ade3f&timestamp=1795598963 same=True content-type=text/html; charset=UTF-8 content-length=7 server=cloudflare
+## Page probe (probe)
+url: https://vod.rubika.ir/media/296525
+HTTP 200, 103182 chars, content-type: text/html; charset=utf-8
+title: سریال شاه‌گُل، فصل اول، قسمت دوازدهم | تماشای آنلاین فیلم و سریال | روبیکا
+cookies from page: none
+set-cookie names: none
+meta og:video / twitter:player (0):
+video/source src (0):
+iframe src (0):
+media urls in page (0):
+JSON/JS video keys (1):
+  https://vod.rubika.ir/trailer/296525
+external scripts (15):
+  /_next/static/chunks/805b037f7cdbfac8.js
+  /_next/static/chunks/6c5ff7d65c157359.js
+  /_next/static/chunks/b7bff94a847063d7.js
+  /_next/static/chunks/dabc12444da4c083.js
+  /_next/static/chunks/turbopack-2f2b7313cc934d4f.js
+  /_next/static/chunks/6b7f957a0cc01fb6.js
+  /_next/static/chunks/7e6f50b01f8e2ff5.js
+  /_next/static/chunks/ebc9d4d8e0f0e835.js
+  /_next/static/chunks/46c75295dc6393dd.js
+  /_next/static/chunks/4ce05b3aab32ef1b.js
+  /_next/static/chunks/973b397fb04a5279.js
+  /_next/static/chunks/e0f850b179d81a66.js
+  /_next/static/chunks/0d4602e7594a0617.js
+  /_next/static/chunks/2bd3085ecdb40638.js
+  /_next/static/chunks/6f2534148e94cd98.js
+inline scripts: 34
