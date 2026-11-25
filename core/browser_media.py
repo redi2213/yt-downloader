@@ -256,6 +256,25 @@ def dedupe_key(url):
     return host + unquote(parts.path).rstrip("/")
 
 
+_IP_BOUND = re.compile(r"[?&]ip=[0-9a-f.:]{7,}", re.I)
+
+
+def is_ip_bound(url):
+    """A CDN link signed for one IP (``...&ip=1.2.3.4``): it works from the phone only, GitHub gets 404 / timeout."""
+    return bool(_IP_BOUND.search(url or ""))
+
+
+def workflow_url(entry):
+    """The link to send to the GitHub workflows for a row: its own link, except an IP-bound direct file link,
+    where the page it was found on is sent instead (the workflow reads the page itself)."""
+    url = (entry or {}).get("url") or ""
+    if (entry or {}).get("kind") in DIRECT_KINDS and is_ip_bound(url):
+        page = (entry.get("found_on") or "").strip()
+        if page.startswith(("http://", "https://")) and urlsplit(page).netloc != urlsplit(url).netloc:
+            return page
+    return url
+
+
 def quality_hint(url):
     path = unquote(urlsplit(url or "").path)
     m = re.search(r"(?<![0-9])(\d{3,4})p(?![a-z0-9])", path, re.I)
