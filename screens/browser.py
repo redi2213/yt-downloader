@@ -719,6 +719,14 @@ def build_actions(nav, keys):
 
     urls = list(dict.fromkeys(e["url"] for e in entries))
     wf_urls = list(dict.fromkeys(bm.workflow_url(e) for e in entries))      # an IP-bound CDN link -> its page
+    wf_text = "\n".join(wf_urls)
+    _qs = set()
+    for e in entries:
+        for tok in (e.get("quality") or "").split():
+            if tok.lower().endswith("p") and tok[:-1].isdigit():
+                _qs.add(tok[:-1])
+    if len(_qs) == 1:
+        wf_text += "\n#quality=" + next(iter(_qs))      # the quality picked here: Link Lab starts with it
     plural = len(urls) > 1
     page_only = all(e["kind"] == "ytdlp" for e in entries)      # a YouTube quality has the page link only
 
@@ -741,7 +749,7 @@ def build_actions(nav, keys):
         (copy_text, copy_links),
         ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
          lambda: start_action(nav, "upload", entries, status=lambda t: _set(status, t))),
-        ("Send to workflows", lambda: nav.show_share_chooser("\n".join(wf_urls))),
+        ("Send to workflows", lambda: nav.show_share_chooser(wf_text)),
         ("Share with other apps", share_apps),
     ]
     if not many:
