@@ -19,6 +19,11 @@ BL_EXACT = {
     "the screenshot only what is on the screen.":
         "فایل\u200cها در Download/Yt-bridge/Pages (یا پوشه\u200cی انتخاب\u200cشده در تنظیمات) ذخیره می\u200cشوند. "
         "PDF کل صفحه را دارد؛ اسکرین\u200cشات فقط آنچه روی صفحه دیده می\u200cشود.",
+    "Speed dial": "دسترسی سریع",
+    "No bookmarks yet. Add some from the Browser menu (Add bookmark).":
+        "هنوز نشانکی نیست. از منوی مرورگر (Add bookmark) اضافه کنید.",
+    "New tab: open the Speed dial": "تب جدید: صفحه\u200cی دسترسی سریع باز شود",
+    "New tab: open the start page (default)": "تب جدید: صفحه\u200cی شروع باز شود (پیش\u200cفرض)",
     "Back to the page": "بازگشت به صفحه",
     "Opened in a background tab": "در تب پس\u200cزمینه باز شد",
     "Link text copied": "متن لینک کپی شد",
