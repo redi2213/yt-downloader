@@ -1,6 +1,6 @@
 {
- "id": "2026-11-25-tpb-7",
- "title": "thepornbang: hop-by-hop get_stream 480/720 with header variants (why no CDN redirect)",
+ "id": "2026-11-25-tpb-8",
+ "title": "thepornbang: hop-by-hop get_stream 480/720 (requests) vs yt-dlp urlopen",
  "steps": [
   {
    "step": "probe",
