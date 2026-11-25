@@ -14,6 +14,18 @@ from kivy.uix.label import Label
 from screens import common
 
 
+def _split_hint(text):
+    """(links without the ``#quality=N`` line, N or \"\"): the quality picked in the browser."""
+    keep, q = [], ""
+    for ln in str(text).splitlines():
+        s = ln.strip()
+        if s.startswith("#quality=") and s[9:].isdigit():
+            q = s[9:]
+        else:
+            keep.append(ln)
+    return "\n".join(keep), q
+
+
 def build_loading(nav):
     nav.clear()
     nav.add(Label(text="Link received - loading tools...", size_hint_y=None, height=60))
@@ -21,6 +33,7 @@ def build_loading(nav):
 
 
 def build(nav, url, actions):
+    url, quality = _split_hint(url)
     nav.clear()
     nav.add(Label(text="Link received - choose a tool", size_hint_y=None, height=44))
     nav.add(common.wrapped_label(url))
@@ -48,7 +61,7 @@ def build(nav, url, actions):
 
     nav.add(common.back_button(nav))
     if lab_box is not None:
-        _load_lab_tools(nav, url, lab_box)
+        _load_lab_tools(nav, url, lab_box, quality)
 
 
 def _open_in_browser(nav, url):
@@ -78,7 +91,8 @@ def _lab_section(nav, url):
     return box
 
 
-def _load_lab_tools(nav, url, box):
+def _load_lab_tools(nav, url, box, quality=""):
+    back_text = url + ("\n#quality=" + quality if quality else "")
     from core import plugin_loader
     from core.async_utils import run_in_background
     from screens import lab, plugin_runner
@@ -102,7 +116,8 @@ def _load_lab_tools(nav, url, box):
         for entry in plugins:
             btn = Button(text=entry.get("title") or entry["id"], size_hint_y=None, height=52)
             btn.bind(on_press=lambda i, e=entry: plugin_runner.open_plugin(
-                nav, lab.SOURCE, e, exit_to=lambda: nav.show_share_chooser(url), prefill=url))
+                nav, lab.SOURCE, e, exit_to=lambda: nav.show_share_chooser(back_text),
+                prefill=back_text if (quality and e.get("id") == "link_lab") else url))
             box.add_widget(btn)
 
     run_in_background(work)
