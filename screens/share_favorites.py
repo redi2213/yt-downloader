@@ -33,6 +33,26 @@ def lab_entries(plugins, skip_id=None):
     return out
 
 
+def button_entries(plugins, skip_id=None):
+    """Buttons seen on the first screen of a Lab tool (remembered each time the tool is opened), so a
+    button added to any tool shows up here by itself. Ids: labbtn:<plugin>:<button text>."""
+    try:
+        from api import tool_buttons_prefs
+        cache = tool_buttons_prefs.get_all()
+    except Exception:
+        return []
+    out = []
+    for e in plugins or []:
+        pid = e.get("id")
+        if not pid or pid == skip_id:
+            continue
+        quick = set(q.get("title") for q in e.get("quick") or [])
+        for t in cache.get(pid, []):
+            if t not in quick:
+                out.append(("labbtn:%s:%s" % (pid, t), "%s > %s" % (e.get("title") or pid, t)))
+    return out
+
+
 def action_entries(actions):
     return [("action:" + str(a.get("id")), a.get("title") or str(a.get("id")))
             for a in actions or [] if a.get("id")]
@@ -42,7 +62,8 @@ def build(nav):
     cat = list(BUILTIN)
     state = {"query": "", "pending": 2}
     nav.add(wrapped_label("Tools you pick here appear at the top of the list when you share a link "
-                          "to the app. A Lab quick button opens the tool and runs it at once."))
+                          "to the app. A button inside a Lab tool opens the tool and presses it at once. "
+                          "Buttons of a Lab tool appear here after you open that tool once."))
     info = Label(text="Loading actions and Lab tools...", size_hint_y=None, height=32)
     nav.add(info)
     search = TextInput(hint_text="Search tools", multiline=False, size_hint_y=None, height=48)
@@ -131,7 +152,8 @@ def build(nav):
 
         def work():
             try:
-                items = lab_entries(plugin_loader.load_index(lab.SOURCE)["plugins"], lab.ADD_WORKFLOW_ID)
+                plugins = plugin_loader.load_index(lab.SOURCE)["plugins"]
+                items = lab_entries(plugins, lab.ADD_WORKFLOW_ID) + button_entries(plugins, lab.ADD_WORKFLOW_ID)
             except Exception:
                 items = []
             nav.schedule(lambda: (add(items), finish()))
