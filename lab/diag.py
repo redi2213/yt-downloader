@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-25a"
+VERSION = "2026-11-25b"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -285,85 +285,75 @@ def step_context(host, pattern="get_stream", url="", width=250, limit=3):
     return "\n".join(out)
 
 
-class _NoRedirect(__import__("urllib.request").request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):
-        return None
-
-
 def _show_hdrs(hd):
     try:
-        return " ".join("%s=%s" % (k, str(hd.get(k))[:110]) for k in
+        return " ".join("%s=%s" % (k, str(hd.get(k))[:100]) for k in
                         ("content-type", "content-length", "content-range", "server", "location", "content-disposition") if hd.get(k))
     except Exception:
         return "headers n/a"
 
 
-def _hops(url, headers, limit):
-    """Follows redirects by hand (nothing automatic) and lists every hop: status, Location, key headers."""
-    import urllib.request as ur
-    import urllib.error as ue
-    opener = ur.build_opener(_NoRedirect)
+def _hops(ydl, url, headers, limit):
+    """Follows redirects by hand with yt-dlp's own network code (same certificates as Link Lab) and lists every hop."""
+    from yt_dlp.networking import Request
     out, cur = [], url
     for i in range(int(limit)):
         try:
-            r = opener.open(ur.Request(cur, headers=headers), timeout=20)
-            head = b""
+            r = ydl.urlopen(Request(cur, headers=headers, extensions={"follow_redirects": False}))
+            status, hd = getattr(r, "status", "?"), r.headers
             try:
                 head = r.read(16)
             except Exception:
-                pass
-            out.append("  hop %d %s -> HTTP %s %s first=%r" % (i, cur[:170], r.status, _show_hdrs(r.headers), head[:12]))
-            break
-        except ue.HTTPError as e:
-            loc = e.headers.get("Location") if e.headers else None
-            body = b""
+                head = b""
             try:
-                body = e.read(120)
+                r.close()
             except Exception:
                 pass
-            out.append("  hop %d %s -> HTTP %s %s%s" % (i, cur[:170], e.code, _show_hdrs(e.headers),
-                                                     "" if loc else " body=%r" % body))
-            if e.code in (301, 302, 303, 307, 308) and loc:
-                cur = _up.urljoin(cur, loc)
-                continue
-            break
         except Exception as e:
-            out.append("  hop %d %s -> FAILED %s: %s" % (i, cur[:170], type(e).__name__, str(e)[:120]))
-            break
+            resp = getattr(e, "response", None)
+            if resp is None:
+                out.append("   hop %d -> FAILED %s: %s" % (i, type(e).__name__, str(e)[:140]))
+                break
+            status, hd, head = getattr(resp, "status", "?"), resp.headers, b""
+        loc = hd.get("Location") if hd else None
+        out.append("   hop %d %s -> HTTP %s %s%s" % (i, cur[:100], status, _show_hdrs(hd) if hd else "",
+                                                  "" if loc else " first=%r" % head[:8]))
+        if status in (301, 302, 303, 307, 308) and loc:
+            cur = _up.urljoin(cur, loc)
+            continue
+        break
     else:
-        out.append("  (stopped after %d hops)" % int(limit))
+        out.append("   (stopped after %d hops)" % int(limit))
     return out
 
 
-def step_redirects(host, url="", referer="", count=3, hops=8):
-    """Follows the redirects of get_stream links by hand, in two ways: urllib without auto-redirect (every
-    hop with Location) and the same call as Link Lab's _phone_final_url (yt-dlp urlopen). Put it after probe."""
+_CHROME = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
+def step_redirects(host, url="", referer="", count=2, hops=8):
+    """Follows the redirects of get_stream links hop by hop (yt-dlp network code, redirects off) with several
+    header variants: short UA / Chrome UA, with / without Range, with / without the page's cookie. Put it after probe."""
     urls = [url] if url and url != "auto" else list(_PROBE["media"])
     if not urls:
         return "no media URL (run probe first in the same job, or give url)"
     ref = referer or _PROBE["page"]
-    out = ["referer: %s" % (ref or "-")]
+    ck = _PROBE.get("cookies", "")
+    try:
+        import yt_dlp
+        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 20})
+    except Exception as e:
+        return "yt-dlp not usable: %s" % str(e)[:100]
+    variants = [("short UA + Range + Referer (as _phone_final_url)", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": ref}),
+                ("Chrome UA + Range + Referer", {"User-Agent": _CHROME, "Range": "bytes=0-0", "Referer": ref}),
+                ("Chrome UA + Referer, no Range", {"User-Agent": _CHROME, "Referer": ref})]
+    if ck:
+        variants.append(("Chrome UA + Range + Referer + page cookie", {"User-Agent": _CHROME, "Range": "bytes=0-0", "Referer": ref, "Cookie": ck}))
+    out = ["referer: %s | page cookie: %s" % (ref or "-", "yes" if ck else "no")]
     for u in urls[:int(count)]:
-        out.append("== %s" % u[:170])
-        for name, h in (("Range+Referer", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": ref}),
-                        ("Range, no Referer", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0"})):
-            out.append(" [manual %s]" % name)
-            out.extend(_hops(u, h, hops))
-        try:
-            import yt_dlp
-            from yt_dlp.networking import Request
-            ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 15})
-            for name, h in (("Referer kept (as _phone_final_url)", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": ref}),
-                            ("no Referer", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0"})):
-                try:
-                    with ydl.urlopen(Request(u, headers=h)) as r:
-                        fin = getattr(r, "url", None) or (r.geturl() if hasattr(r, "geturl") else "")
-                        out.append(" [yt-dlp urlopen, %s] -> status=%s final=%s same_as_input=%s" % (
-                            name, getattr(r, "status", "?"), str(fin)[:200], str(fin) == u))
-                except Exception as e:
-                    out.append(" [yt-dlp urlopen, %s] -> FAILED %s: %s" % (name, type(e).__name__, str(e)[:160]))
-        except Exception as e:
-            out.append(" yt-dlp not usable: %s" % str(e)[:100])
+        out.append("== %s" % u[:140])
+        for name, h in variants:
+            out.append("  [%s]" % name)
+            out.extend(_hops(ydl, u, h, hops))
     return "\n".join(out)
 
 
