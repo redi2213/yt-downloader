@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-25d"
+VERSION = "2026-11-25e"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -449,6 +449,41 @@ def step_session_test(host, url="", count=2):
     return "\n".join(out)
 
 
+def step_net_identity(host, site="www.thepornbang.com"):
+    """Which network the phone is on right now: country and provider (no IP address is printed, the repo is
+    public), IPv4/IPv6, proxy settings in the environment, and the address family the site resolves to."""
+    out = []
+    try:
+        j = host.get("https://ipinfo.io/json", headers=_UA).json()
+        ip = str(j.get("ip", ""))
+        out.append("ipinfo: country=%s org=%s family=%s" % (j.get("country"), j.get("org"), "IPv6" if ":" in ip else "IPv4"))
+    except Exception as e:
+        out.append("ipinfo FAILED %s: %s" % (type(e).__name__, str(e)[:100]))
+    try:
+        t = host.get("https://www.cloudflare.com/cdn-cgi/trace", headers=_UA).text
+        kv = dict(l.split("=", 1) for l in t.splitlines() if "=" in l)
+        out.append("cloudflare trace: loc=%s colo=%s warp=%s http=%s" % (kv.get("loc"), kv.get("colo"), kv.get("warp"), kv.get("http")))
+    except Exception as e:
+        out.append("cloudflare trace FAILED %s: %s" % (type(e).__name__, str(e)[:100]))
+    env = [k for k in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "no_proxy", "NO_PROXY") if os.environ.get(k)]
+    out.append("proxy env vars set: %s" % (", ".join(env) or "none"))
+    try:
+        import requests
+        px = requests.utils.get_environ_proxies("https://" + site)
+        out.append("requests proxies for site: %s" % ({k: _up.urlsplit(v).scheme + "://<host>" for k, v in px.items()} or "none"))
+    except Exception as e:
+        out.append("requests proxies check FAILED: %s" % str(e)[:80])
+    try:
+        import socket
+        fam = {}
+        for a in socket.getaddrinfo(site, 443, proto=socket.IPPROTO_TCP):
+            fam.setdefault("IPv6" if a[0] == socket.AF_INET6 else "IPv4", []).append(a[4][0])
+        out.append("%s resolves to: %s" % (site, {k: v[:2] for k, v in fam.items()}))
+    except Exception as e:
+        out.append("resolve FAILED: %s" % str(e)[:80])
+    return "\n".join(out)
+
+
 def step_phone_rows(host, url=""):
     """Shows what yt-dlp returns for the page and what Link Lab's _phone_kvs builds (height, size, link), to see
     where an 'unknown height' row with a get_stream link comes from."""
@@ -498,6 +533,7 @@ ARG_STEPS = [
     ("context", "Context grep", step_context),
     ("redirects", "Redirect trace (hop by hop)", step_redirects),
     ("session_test", "Session test (page, then get_stream)", step_session_test),
+    ("net_identity", "Network identity (country, provider, proxy)", step_net_identity),
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
 ]
 
