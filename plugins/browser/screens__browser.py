@@ -18,7 +18,7 @@ from kivy.uix.widget import Widget
 from core import android_actions, android_browser, browser_media as bm
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, PAD, back_button, card_box, content_width,
                             fa_font_kwargs, fa_text, paint_card, wrapped_label, wrapped_label_height)
-from screens import browser_pages, browser_tools
+from screens import browser_pages, browser_profiles, browser_tools
 from api import browser_prefs
 from services import browser_service
 
@@ -62,6 +62,7 @@ def build(nav, url=None):
     if nav.browser is None:
         nav.browser = android_browser.Browser()
     br = nav.browser
+    browser_profiles.prepare(nav, br)       # which profile the WebView is made with; its data are read next
     state = browser_service.state()         # tabs, history and bookmarks (they stay after the app is closed)
     tab = state.tabs.current()
     tab_id = tab["id"]
@@ -118,6 +119,12 @@ def build(nav, url=None):
     place()
     Clock.schedule_once(place, 0.2)
     Clock.schedule_once(place, 0.8)
+
+    def check_profile(_dt=None):
+        if bar.parent is not None and not br.profile_ok():
+            browser_profiles.fall_back(nav)     # the WebView could not use the profile: never mix its data with another
+
+    Clock.schedule_once(check_profile, 1.0)
     browser_tools.apply_saved(br, state, tab_id)    # dark mode, blocking and this tab's desktop view reach the helper first
 
     def relayout(on):
@@ -1022,6 +1029,10 @@ def build_settings(nav, back, back_text, note=""):
     sess = nav.browser_session
     nav.clear()
     nav.add(Label(text="Browser settings", size_hint_y=None, height=BTN_H))
+    try:
+        nav.add(browser_profiles.entry_button(nav, back, back_text))        # the only place profiles are switched
+    except Exception:
+        pass
     _about_block(nav, back, back_text, note)
     nav.add(wrapped_label("Start mode (download / upload)"))
     mode_btn = Button(text=_RUN_TEXT[run_mode()], size_hint_y=None, height=BTN_H)

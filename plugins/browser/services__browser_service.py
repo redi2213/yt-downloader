@@ -204,3 +204,15 @@ def state():
     if _state is None:
         _state = BrowserState()
     return _state
+
+
+def reset_state():
+    """Writes what is waiting and forgets the loaded state: the next state() reads the data of the active profile
+    (screens/browser_profiles.py calls this before the active profile changes)."""
+    global _state
+    if _state is not None:
+        try:
+            _state.flush()
+        except Exception:
+            pass
+    _state = None
