@@ -39,15 +39,26 @@ def build(host):
             host.log("quality from the browser:", q)
     except Exception:
         pass
+    quick = ""
     if host.prefill:
         keep = []
         for ln in str(host.prefill).splitlines():
             if ln.strip().startswith("#quality=") and ln.strip()[9:].isdigit():
                 S["quality"] = ln.strip()[9:]       # the quality picked in the in-app browser
+            elif ln.strip().startswith("#quick="):
+                quick = ln.strip()[7:]              # a button to run at once (share list favorites)
             else:
                 keep.append(ln)
         if "\n".join(keep).strip():
             S["urls"] = "\n".join(keep).strip()
+    if quick:
+        try:
+            host.prefill = ""                       # one-shot: Back must not run it again
+        except Exception:
+            if S.get("quick_seen") == host.prefill:
+                quick = ""
+            else:
+                S["quick_seen"] = host.prefill
     host.title("Link Lab (any site)")
     host.text("Paste one or more video page links, one per line. yt-dlp reads the page, "
               "so most sites work (xHamster and Beeg use their own API first).")
@@ -78,6 +89,15 @@ def build(host):
     host.button("Free proxies", lambda: (grab(), host.show(proxies_screen)))
     host.row([("Copy log", lambda: _copy_log(host)), ("Clear log", lambda: _clear_log(host))])
     host.back_button("Back")
+    runs = {"phone": lambda: need() and host.show(phone_screen),
+            "links": lambda: need() and host.show(links_screen),
+            "download": lambda: need() and start_download(host)}
+    if quick in runs:                               # the quick buttons listed in lab/index.json
+        try:
+            from kivy.clock import Clock
+            Clock.schedule_once(lambda dt: runs[quick](), 0.3)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------- options
