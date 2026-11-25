@@ -2071,27 +2071,65 @@ class Navigator(ArvanController):
                         lambda: self._status_run_delete(ids))
 
     def _status_run_delete(self, ids):
-        from screens import actions_status as actions_screen
+        """Deletes in the background like Release History: the list stays, the
+        cards turn dark red, each one disappears when its run is gone, and a
+        'Deleting n/m...' line shows the progress."""
         view = self._status_view
-        info = actions_screen.build_deleting(self, len(ids))
+        busy = view.setdefault("busy", set())
+        ids = [i for i in ids if i not in busy]
+        if not ids:
+            return
+        busy.update(ids)
+        view["selected"] = set()
+        view["select"] = False
+        deleting = view.setdefault("deleting", {"total": 0, "done": 0, "failed": 0, "text": ""})
+        deleting["total"] += len(ids)
+        self._status_delete_text()
+        self._status_rerender()
+        runs_service.start_delete_runs(
+            ids, lambda rid, ok: self.schedule(lambda: self._status_item_done(rid, ok)), lambda res: None)
 
-        def progress(done, total):
-            self.schedule(lambda: setattr(info, "text", f"{done} / {total}"))
+    def _status_delete_text(self):
+        from kivy.clock import Clock
+        view = self._status_view
+        deleting = view["deleting"]
+        finished = deleting["done"] + deleting["failed"]
+        if finished < deleting["total"]:
+            deleting["text"] = f"Deleting {finished}/{deleting['total']}..."
+        else:
+            deleting["text"] = f"Deleted {deleting['done']}/{deleting['total']} runs"
+            Clock.schedule_once(lambda dt: self._status_end_delete(), 4)
+        info = view.get("_info")
+        if info is not None:
+            info.text = deleting["text"]
 
-        def finished(res):
-            def apply():
-                view["select"] = False
-                view["selected"] = set()
-                if not res.get("ok"):
-                    view["notice"] = res["error"]
-                elif res["failed"]:
-                    view["notice"] = f"Deleted {res['deleted']} runs, {res['failed']} could not be deleted"
-                else:
-                    view["notice"] = f"Deleted {res['deleted']} runs"
-                self._status_reload()
-            self.schedule(apply)
+    def _status_end_delete(self):
+        view = self._status_view
+        deleting = view.get("deleting")
+        if deleting and deleting["done"] + deleting["failed"] >= deleting["total"]:
+            deleting.update(total=0, done=0, failed=0, text="")
+            info = view.get("_info")
+            if info is not None:
+                info.text = ""
 
-        runs_service.start_delete_runs(ids, progress, finished)
+    def _status_item_done(self, run_id, ok):
+        from screens.common import STATUS_COLORS
+        view = self._status_view
+        view["busy"].discard(run_id)
+        deleting = view["deleting"]
+        card = (view.get("_cards") or {}).get(run_id)
+        if ok:
+            view["removed"].add(run_id)
+            deleting["done"] += 1
+            if card is not None:
+                (view["_cards"]).pop(run_id, None)
+                if card[0].parent is not None:
+                    card[0].parent.remove_widget(card[0])
+        else:
+            deleting["failed"] += 1
+            if card is not None:
+                card[0].background_color = STATUS_COLORS[card[1]]
+        self._status_delete_text()
 
     def _status_cleanup(self, kind, days):
         """Finds the runs of a clean-up (inside the current workflow filter),

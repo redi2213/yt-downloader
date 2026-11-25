@@ -93,6 +93,8 @@ STATUS_CHOICES = (
 _DANGER = (1.0, 0.55, 0.55, 1)
 _ACTIVE_TAB = (0.55, 0.80, 1.0, 1)
 _SELECTED_TINT = (0.55, 0.75, 1.0, 1)
+_BUSY = (0.45, 0.12, 0.12, 1)       # card of a run that is being deleted
+_SCHEDULE_KEY = "@schedule"        # the workflow picker's entry for the scheduled workflows
 
 
 def _row(*buttons):
@@ -108,19 +110,19 @@ def _btn(text, fn, **kwargs):
     return button
 
 
-def _add_section_tabs(nav, view, cb):
-    runs_btn = _btn("Runs", lambda: cb["set"](section="runs"))
-    sched_btn = _btn("Scheduled runs", lambda: cb["set"](section="schedule"))
-    (sched_btn if view["section"] == "schedule" else runs_btn).background_color = _ACTIVE_TAB
-    nav.add(_row(runs_btn, sched_btn))
-
-
 def _pick_workflow(view, cb):
-    options = [(None, "All workflows")]
+    options = [(None, "All workflows"), (_SCHEDULE_KEY, "Scheduled workflows")]
     for wf in view.get("workflows") or []:
         label = wf["tool"] if wf["tool"] == wf["file"] else f"{wf['tool']}  ({wf['file']})"
         options.append((wf["file"], label))
-    dialogs.pick("Choose workflow", options, lambda value: cb["set"](wf=value))
+
+    def chosen(value):
+        if value == _SCHEDULE_KEY:
+            cb["set"](section="schedule")
+        else:
+            cb["set"](section="runs", wf=value)
+
+    dialogs.pick("Choose workflow", options, chosen)
 
 
 def _pick_status(cb):
@@ -165,18 +167,25 @@ def _cleanup_menu(cb):
 
 def _run_cards(nav, runs, view, cb, on_selection_change):
     """One simple card per run: tap = its details (or select it in selection
-    mode), hold = start selecting."""
+    mode), hold = start selecting. A run being deleted is dark red and inert."""
     from screens.history import _PressCard      # a card that tells a tap from a hold
     selected = view["selected"]
-    cards = {}
+    busy = view.setdefault("busy", set())
+    cards = view["_cards"] = {}                 # run id -> (card, kind): the deleter updates them in place
     row_width = content_width() - dp(16)
 
     def paint(run):
-        btn, kind = cards[run["run_id"]]
-        btn.background_color = _SELECTED_TINT if run["run_id"] in selected else STATUS_COLORS[kind]
+        rid = run["run_id"]
+        btn, kind = cards[rid]
+        if rid in busy:
+            btn.background_color = _BUSY
+        else:
+            btn.background_color = _SELECTED_TINT if rid in selected else STATUS_COLORS[kind]
 
     def toggle(run):
         rid = run["run_id"]
+        if rid in busy:
+            return
         if rid in selected:
             selected.discard(rid)
         else:
@@ -187,10 +196,12 @@ def _run_cards(nav, runs, view, cb, on_selection_change):
     def tap(run):
         if view["select"]:
             toggle(run)
-        else:
+        elif run["run_id"] not in busy:
             nav.show_run_detail({**run, "origin": "status"})
 
     def hold(run):
+        if run["run_id"] in busy:
+            return
         if view["select"]:
             toggle(run)
         else:
@@ -218,6 +229,7 @@ def _run_cards(nav, runs, view, cb, on_selection_change):
 def _selection_bar(nav, runs, view, cb):
     """The bar shown in selection mode; returns the function that refreshes its count."""
     selected = view["selected"]
+    busy = view.setdefault("busy", set())
     count = Label(text="", size_hint_y=None, height=dp(30))
     delete_btn = _btn("Delete selected", lambda: cb["delete_ids"](list(selected)), background_color=_DANGER)
 
@@ -226,7 +238,7 @@ def _selection_bar(nav, runs, view, cb):
         delete_btn.disabled = not selected
 
     def select_all():
-        selected.update(r["run_id"] for r in runs)
+        selected.update(r["run_id"] for r in runs if r["run_id"] not in busy)
         cb["rerender"]()
 
     def clear():
@@ -245,22 +257,39 @@ def _selection_bar(nav, runs, view, cb):
     return refresh
 
 
-def _build_runs(nav, view, res, cb):
-    runs = res.get("runs") or []
-    wf_name = run_labels.tool_label(view["wf"]) if view["wf"] else "All workflows"
-    status_text = next(text for key, text, _label in STATUS_CHOICES if key == view["status"])
-    half = content_width() / 2 - dp(16)
+def _filter_row(nav, view, cb):
+    """The workflow drop-down (All / Scheduled workflows / one workflow) and,
+    for runs, the status drop-down."""
+    schedule = view["section"] == "schedule"
+    wf_name = ("Scheduled workflows" if schedule else
+               run_labels.tool_label(view["wf"]) if view["wf"] else "All workflows")
     wf_btn = _btn(f"Workflow: {wf_name}", lambda: _pick_workflow(view, cb),
                   shorten=True, shorten_from="right", halign="center", valign="middle")
-    wf_btn.text_size = (half, None)
+    wf_btn.text_size = (content_width() / 2 - dp(16) if not schedule else content_width() - dp(16), None)
+    if schedule:
+        nav.add(_row(wf_btn))
+        return
+    status_text = next(text for key, text, _label in STATUS_CHOICES if key == view["status"])
     nav.add(_row(wf_btn, _btn(status_text, lambda: _pick_status(cb))))
 
+
+def _build_runs(nav, view, res, cb):
+    removed = view.setdefault("removed", set())
+    runs = [r for r in (res.get("runs") or []) if r["run_id"] not in removed]
     refresh = lambda: None
     if view["select"]:
         refresh = _selection_bar(nav, runs, view, cb)
     else:
         nav.add(_row(_btn("Select", lambda: (view.update(select=True), cb["rerender"]())),
                      _btn("Clean up", lambda: _cleanup_menu(cb))))
+
+    text = (view.get("deleting") or {}).get("text", "")
+    view["_info"] = None
+    if text:
+        info = Label(text=text, size_hint_y=None, height=dp(30), halign="center", valign="middle")
+        info.text_size = (content_width(), None)
+        view["_info"] = info
+        nav.add(info)
 
     if not runs:
         nav.add(Label(text="No runs found", size_hint_y=None, height=40))
@@ -307,10 +336,10 @@ def build(nav, view, res, cb):
     ``cb``: set / reload / rerender / delete_ids / cleanup / toggle_wf."""
     nav.clear()
     _add_job_status_section(nav)
-    _add_section_tabs(nav, view, cb)
     note = view.pop("notice", None)
     if note:
         nav.add(Label(text=note, size_hint_y=None, height=36, color=(1, 0.93, 0.6, 1)))
+    _filter_row(nav, view, cb)
     if view["section"] == "schedule":
         _build_schedule(nav, view, res, cb)
     else:
@@ -322,15 +351,6 @@ def build(nav, view, res, cb):
     back_btn = Button(text="Back", size_hint_y=None, height=48)
     back_btn.bind(on_press=lambda i: nav.show_home())
     nav.add(back_btn)
-
-
-def build_deleting(nav, total):
-    """Progress screen of a delete; returns the label to update with 'done / total'."""
-    nav.clear()
-    nav.add(Label(text="Deleting runs...", size_hint_y=None, height=44))
-    info = Label(text=f"0 / {total}", size_hint_y=None, height=40)
-    nav.add(info)
-    return info
 
 
 def build_run_detail_loading(nav, run):

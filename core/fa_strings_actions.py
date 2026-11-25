@@ -37,12 +37,16 @@ AC_EXACT = {
     "Workflow turned off": "ورک‌فلو خاموش شد",
     "Active": "فعال",
     "Disabled": "غیرفعال",
+    "Scheduled workflows": "ورک‌فلوهای زمان‌بندی‌شده",
+    "Workflow: Scheduled workflows": "ورک‌فلو: زمان‌بندی‌شده‌ها",
     "Live log in browser": "لاگ زنده در مرورگر",
     "Waiting for a runner...": "در انتظار شروع اجرا روی سرور...",
 }
 
 AC_PATTERNS = [
     (r"Workflow: (.+)", "ورک‌فلو: {0}"),
+    (r"Deleting (\d+)/(\d+)\.\.\.", "در حال حذف {0}/{1}..."),
+    (r"Deleted (\d+)/(\d+) runs", "{0} از {1} اجرا حذف شد"),
     (r"Step (\d+) of (\d+) running: (.+)", "مرحله‌ی {0} از {1} در حال اجرا: {2}"),
     (r"Step (\d+) of (\d+) running", "مرحله‌ی {0} از {1} در حال اجرا"),
     (r"Delete (\d+) runs? from GitHub\?", "{0} اجرا از گیت‌هاب حذف شود؟"),

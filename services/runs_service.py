@@ -6,7 +6,7 @@ Every ``start_*`` function works in the background and calls
 ``on_done(result_dict)`` from that thread (the caller hops onto the Kivy thread).
 """
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 from api.github import logs, releases, workflows
@@ -302,18 +302,19 @@ def _delete_one(run_id):
         return False
 
 
-def start_delete_runs(run_ids, on_progress, on_done):
-    """Deletes the runs (4 at a time); ``on_progress(done, total)`` after each."""
+def start_delete_runs(run_ids, on_item, on_done):
+    """Deletes the runs (4 at a time); ``on_item(run_id, ok)`` as each one finishes."""
     def work():
         deleted = failed = 0
-        total = len(run_ids)
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for ok in pool.map(_delete_one, run_ids):
+            futures = {pool.submit(_delete_one, rid): rid for rid in run_ids}
+            for future in as_completed(futures):
+                ok = future.result()
                 if ok:
                     deleted += 1
                 else:
                     failed += 1
-                on_progress(deleted + failed, total)
+                on_item(futures[future], ok)
         return {"deleted": deleted, "failed": failed}
     run_in_background(_safe, on_done, work)
 
