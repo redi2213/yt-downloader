@@ -1,13 +1,10 @@
 {
- "id": "2026-11-25-tpb-8",
- "title": "thepornbang: hop-by-hop get_stream 480/720 (requests) vs yt-dlp urlopen",
+ "id": "2026-11-25-tpb-9",
+ "title": "thepornbang: does get_stream need page cookies? host.get vs new session vs yt-dlp",
  "steps": [
   {
-   "step": "probe",
-   "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/"
-  },
-  {
-   "step": "redirects",
+   "step": "session_test",
+   "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/",
    "count": 2
   }
  ]
