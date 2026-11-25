@@ -37,7 +37,7 @@
 - خودکار: graph-report.yml (روزانه؛ اگر چیزی بیرون docs/ عوض نشده باشد اجرا نمی‌شود؛ docs/GRAPH_REPORT.md و docs/GRAPH_SOURCE_SHA.txt را به‌روز می‌کند؛ دستی هم قابل اجراست)، Auto-Follow.yml، backup-project.yml (zip از main + config در Release)، build-apk.yml
 - پاک‌سازی: cleanup-artifacts.yml، cleanup-releases.yml، standalone-cleanup-all-artifacts.yml
 - پروکسی: find-proxies.yml
-- Lab: lab-*.yml (download، find-proxies، free-iran-proxy-list، links، pornhub-search-scraper، refresh-configs، run، schedule، site-suj-mobi، workflow)
+- Lab: lab-*.yml (browser-send (ارسال از مرورگر داخلی: stub روی main، نسخه‌ی واقعی روی lab؛ ورودی: url=لینک صفحه، quality، direct_link غیر IP‌دار؛ دکمه‌ی «Send page + quality to GitHub» در screens/browser.py: _send_from_browser، با ref=lab)، download، find-proxies، free-iran-proxy-list، links، pornhub-search-scraper، refresh-configs، run، schedule، site-suj-mobi، workflow)
 
 ## کجا دنبال چه چیزی بگردیم
 - متن/برچسب فارسی: core/fa_strings*.py
