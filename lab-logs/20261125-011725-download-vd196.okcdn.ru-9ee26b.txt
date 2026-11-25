@@ -1,0 +1,43 @@
+Lab link failure log
+mode: download
+time (UTC): 2026-11-25 01:17:25
+workflow: Lab Download Release
+run: https://github.com/redi2213/yt-downloader/actions/runs/45524468862
+commit: 8afa881
+url: https://vd196.okcdn.ru/
+title: 
+error: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0)"))
+method: yt-dlp
+proxy: socks5://127.0.0.1:10813
+
+---- console output for this link (the end) ----
+
+>>> Trying (direct, GitHub IP)
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: no media urls
+
+>>> Racing 4 proxies (the first that works wins)
+  [race] socks5://103.119.237.60:1080: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: 2 bytes missing (caused by TransportError('2 bytes missing'))
+  [race] socks5://102.0.14.42:1080: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: (<SocksHTTPSConnection(host='vd196.okcdn.ru', port=443) at 0x773022f3fec0>, 'Connection to vd196.okcdn.ru timed out. (connect timeout=15.0)') (caused by TransportError("(<SocksHTTPSConnection(host='vd196.okcdn.ru', port=443) at 0x773022f3fec0>, 'Connection to vd196.okcdn.ru timed out. (connect timeout=15.0)')"))
+  [race] socks5://103.136.107.70:1080: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: (<SocksHTTPSConnection(host='vd196.okcdn.ru', port=443) at 0x7c3c95c03e30>, 'Connection to vd196.okcdn.ru timed out. (connect timeout=15.0)') (caused by TransportError("(<SocksHTTPSConnection(host='vd196.okcdn.ru', port=443) at 0x7c3c95c03e30>, 'Connection to vd196.okcdn.ru timed out. (connect timeout=15.0)')"))
+  [race] socks5://103.13.19.219:10808: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0)"))
+
+>>> Trying config socks5://127.0.0.1:10811
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0)"))
+
+>>> Trying config socks5://127.0.0.1:10812
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: no media urls
+
+>>> Trying config socks5://127.0.0.1:10813
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0)"))
+=======================================================
+unknown
+=======================================================
+URL    : https://vd196.okcdn.ru/?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203.46&clientType=2&appId=25662464&zs=65&id=18224168241806&rjr=8&scl=5
+Method : yt-dlp
+Proxy  : socks5://127.0.0.1:10813
+ERROR  : yt-dlp: ERROR: [generic] ?expires=1795655703179&srcIp=185.236.231.106&pr=10&srcAg=CHROME_ANDROID&rjz=65&ms=95.163.35.41&type=2&version=0.0.0&sig=ezsxs-Mpyjs&ct=0&urls=185.180.203: Unable to download webpage: SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vd196.okcdn.ru', port=443): Read timed out. (read timeout=15.0)"))
+
