@@ -80,13 +80,15 @@ def _fav_ids():
         return []
 
 
-def _open_lab(nav, entry, qid, url, quality):
+def _open_lab(nav, entry, qid, url, quality, press=""):
     """Open a Lab tool with the link filled in; qid = a quick button of that tool to run at once."""
     from screens import lab, plugin_runner
     back_text = url + ("\n#quality=" + quality if quality else "")
     prefill = back_text if (quality and entry.get("id") == "link_lab") else url
     if qid:
         prefill += "\n#quick=" + qid
+    if press:
+        prefill += "\n#press=" + press               # a first-screen button of the tool (plugin_host.py)
     plugin_runner.open_plugin(nav, lab.SOURCE, entry, exit_to=lambda: nav.show_share_chooser(back_text),
                               prefill=prefill)
 
@@ -107,6 +109,12 @@ def _fill_favs(nav, url, actions, quality, box, fav_ids, plugins):
         elif fid in by_action:
             a = by_action[fid]
             title, fn = a.get("title", a.get("id", "?")), (lambda a=a: nav.show_action_input(a, prefill=url))
+        elif fid.startswith("labbtn:") and fid.count(":") >= 2:
+            _, pid, label = fid.split(":", 2)
+            e = by_plugin.get(pid)
+            if not e:
+                continue
+            title, fn = label, (lambda e=e, p=label: _open_lab(nav, e, "", url, quality, p))
         elif fid.startswith("lab:"):
             parts = fid.split(":")
             e = by_plugin.get(parts[1])
