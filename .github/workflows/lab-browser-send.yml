@@ -1,0 +1,53 @@
+name: Lab Browser Send
+
+# Dedicated workflow for "send from the in-app browser" (screens/browser.py, actions menu).
+run-name: ${{ inputs.run_title || 'Browser send' }} [${{ inputs.job_id }}]
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Unique id the app puts in the run name to find this run (set by the app)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      url:
+        description: "Video page URL (several links: one per line)"
+        required: true
+        type: string
+      quality:
+        description: "best / 1080 / 720 / 480"
+        required: false
+        default: "720"
+        type: string
+      proxy:
+        description: "Proxy only for extracting the page (not for the CDN download)"
+        required: false
+        type: string
+      direct_link:
+        description: "Link already found on the phone (set by the app): skips the extract steps"
+        required: false
+        default: ''
+        type: string
+      direct_title:
+        description: "Video title for the file name when direct_link is used"
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+# REGISTRATION STUB. GitHub only starts a workflow by file name when the file exists on main.
+# The real definition lives on the `lab` branch (same path) and is what runs when the app
+# dispatches this file with ref=lab. Do not put steps here.
+jobs:
+  stub:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Stub on main. The real workflow runs from the lab branch."
