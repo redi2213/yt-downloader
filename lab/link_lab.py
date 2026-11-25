@@ -11,7 +11,7 @@ import re
 import time
 
 S = {"urls": "", "quality": "720", "proxy": "", "v2ray": "", "loaded": False}
-QUALITIES = [("Best", "best"), ("1080", "1080"), ("720", "720"), ("480", "480")]
+QUALITIES = [("Best", "best"), ("1080", "1080"), ("720", "720"), ("480", "480"), ("360", "360"), ("240", "240")]
 PROXY_FILE = "lab/working_proxies.txt"
 CONFIG_FILE = "lab/working_configs.txt"
 
@@ -29,8 +29,15 @@ def _load(host):
 # ---------------------------------------------------------------- first screen
 def build(host):
     _load(host)
-    if host.prefill and not S["urls"]:
-        S["urls"] = host.prefill
+    if host.prefill:
+        keep = []
+        for ln in str(host.prefill).splitlines():
+            if ln.strip().startswith("#quality=") and ln.strip()[9:].isdigit():
+                S["quality"] = ln.strip()[9:]       # the quality picked in the in-app browser
+            else:
+                keep.append(ln)
+        if "\n".join(keep).strip():
+            S["urls"] = "\n".join(keep).strip()
     host.title("Link Lab (any site)")
     host.text("Paste one or more video page links, one per line. yt-dlp reads the page, "
               "so most sites work (xHamster and Beeg use their own API first).")
