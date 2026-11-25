@@ -1,7 +1,10 @@
 {
- "id": "2026-11-25-tpb-9",
- "title": "thepornbang: does get_stream need page cookies? host.get vs new session vs yt-dlp",
+ "id": "2026-11-25-tpb-10",
+ "title": "thepornbang: error 1 now (worked at 00:34 UTC): network identity + session test",
  "steps": [
+  {
+   "step": "net_identity"
+  },
   {
    "step": "session_test",
    "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/",
