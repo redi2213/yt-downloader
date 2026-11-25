@@ -1,6 +1,6 @@
 {
- "id": "2026-11-25-tpb-6",
- "title": "thepornbang: follow get_stream-480 redirect by hand; why unknown height / no CDN link",
+ "id": "2026-11-25-tpb-7",
+ "title": "thepornbang: hop-by-hop get_stream 480/720 with header variants (why no CDN redirect)",
  "steps": [
   {
    "step": "probe",
@@ -8,10 +8,7 @@
   },
   {
    "step": "redirects",
-   "count": 3
-  },
-  {
-   "step": "phone_rows"
+   "count": 2
   }
  ]
 }
