@@ -710,6 +710,60 @@ def _remember_quality(quality):
         pass
 
 
+_SEND_WF = "lab-browser-send.yml"      # the real file is on the lab branch (main only holds a registration stub)
+_SEND_REF = "lab"
+
+
+def _send_from_browser(nav, entries, page, quality, status):
+    """Dedicated workflow for the in-app browser: the page link + the quality picked here (+ the direct link when it
+    is not tied to an IP) go to lab-browser-send.yml; GitHub saves that quality in a release. Self-contained (no
+    Build): it starts the lab-branch workflow itself and shows the run in the jobs page."""
+    from core.async_utils import run_in_background
+    from services import generic_action_service as gas
+    if len({bm.workflow_url(e) for e in entries}) != 1:
+        _set(status, "Pick the files of one page only")
+        return
+    direct, title = "", ""
+    if len(entries) == 1:
+        e = entries[0]
+        title = (e.get("name") or "")[:200]
+        link = e.get("url") or ""
+        if e["kind"] in bm.DIRECT_KINDS and link != page and not bm.is_ip_bound(link) and len(link) < 60000:
+            direct = link
+    inputs = {"url": page, "quality": quality or "best"}
+    if direct:
+        inputs["direct_link"] = direct
+        inputs["direct_title"] = title
+    action = {"id": "browser_send", "title": "Browser", "workflow": _SEND_WF, "ref": _SEND_REF,
+              "fields": [{"key": "url", "type": "text"}], "workflow_inputs": inputs}
+    job = gas.create_action_job(nav.job_manager, action, {"url": page})
+
+    def work():
+        from api.github import workflows
+        from core.exceptions import AuthenticationError
+        jm = nav.job_manager
+        try:
+            run_id = workflows.dispatch_and_find_run(_SEND_WF, inputs, ref=_SEND_REF)
+            job.run_id = run_id
+            if run_id is None:
+                jm.complete(job, ok=False, error="Could not detect the workflow run. It may still be running on GitHub Actions.")
+                return
+            concl = workflows.wait_for_run(run_id, on_status=lambda s: setattr(job, "status", s))
+            if job.is_done:
+                return
+            if concl != "success":
+                jm.complete(job, ok=False, error="Action failed (%s)" % concl)
+                return
+            gas._finish_action(jm, run_id, job, None)
+        except AuthenticationError:
+            jm.complete(job, ok=False, error="GitHub token invalid or expired. Update it and retry.")
+        except Exception as ex:
+            jm.complete(job, ok=False, error="Error: %s" % str(ex)[:60])
+
+    run_in_background(work)
+    nav.show_running_jobs()
+
+
 def build_actions(nav, keys):
     sess = nav.browser_session
     wanted = set(keys)
@@ -766,6 +820,8 @@ def build_actions(nav, keys):
         (copy_text, copy_links),
         ("Upload to GitHub with these links" if plural else "Upload to GitHub with this link",
          lambda: start_action(nav, "upload", entries, status=lambda t: _set(status, t))),
+        ("Send page + quality to GitHub (download there)",
+         lambda: _send_from_browser(nav, entries, wf_urls[0], wf_quality, status)),
         ("Send to workflows", send_to_workflows),
         ("Share with other apps", share_apps),
     ]
