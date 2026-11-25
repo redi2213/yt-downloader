@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-24c"
+VERSION = "2026-11-25a"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -285,11 +285,137 @@ def step_context(host, pattern="get_stream", url="", width=250, limit=3):
     return "\n".join(out)
 
 
+class _NoRedirect(__import__("urllib.request").request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+def _show_hdrs(hd):
+    try:
+        return " ".join("%s=%s" % (k, str(hd.get(k))[:110]) for k in
+                        ("content-type", "content-length", "content-range", "server", "location", "content-disposition") if hd.get(k))
+    except Exception:
+        return "headers n/a"
+
+
+def _hops(url, headers, limit):
+    """Follows redirects by hand (nothing automatic) and lists every hop: status, Location, key headers."""
+    import urllib.request as ur
+    import urllib.error as ue
+    opener = ur.build_opener(_NoRedirect)
+    out, cur = [], url
+    for i in range(int(limit)):
+        try:
+            r = opener.open(ur.Request(cur, headers=headers), timeout=20)
+            head = b""
+            try:
+                head = r.read(16)
+            except Exception:
+                pass
+            out.append("  hop %d %s -> HTTP %s %s first=%r" % (i, cur[:170], r.status, _show_hdrs(r.headers), head[:12]))
+            break
+        except ue.HTTPError as e:
+            loc = e.headers.get("Location") if e.headers else None
+            body = b""
+            try:
+                body = e.read(120)
+            except Exception:
+                pass
+            out.append("  hop %d %s -> HTTP %s %s%s" % (i, cur[:170], e.code, _show_hdrs(e.headers),
+                                                     "" if loc else " body=%r" % body))
+            if e.code in (301, 302, 303, 307, 308) and loc:
+                cur = _up.urljoin(cur, loc)
+                continue
+            break
+        except Exception as e:
+            out.append("  hop %d %s -> FAILED %s: %s" % (i, cur[:170], type(e).__name__, str(e)[:120]))
+            break
+    else:
+        out.append("  (stopped after %d hops)" % int(limit))
+    return out
+
+
+def step_redirects(host, url="", referer="", count=3, hops=8):
+    """Follows the redirects of get_stream links by hand, in two ways: urllib without auto-redirect (every
+    hop with Location) and the same call as Link Lab's _phone_final_url (yt-dlp urlopen). Put it after probe."""
+    urls = [url] if url and url != "auto" else list(_PROBE["media"])
+    if not urls:
+        return "no media URL (run probe first in the same job, or give url)"
+    ref = referer or _PROBE["page"]
+    out = ["referer: %s" % (ref or "-")]
+    for u in urls[:int(count)]:
+        out.append("== %s" % u[:170])
+        for name, h in (("Range+Referer", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": ref}),
+                        ("Range, no Referer", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0"})):
+            out.append(" [manual %s]" % name)
+            out.extend(_hops(u, h, hops))
+        try:
+            import yt_dlp
+            from yt_dlp.networking import Request
+            ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 15})
+            for name, h in (("Referer kept (as _phone_final_url)", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": ref}),
+                            ("no Referer", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0"})):
+                try:
+                    with ydl.urlopen(Request(u, headers=h)) as r:
+                        fin = getattr(r, "url", None) or (r.geturl() if hasattr(r, "geturl") else "")
+                        out.append(" [yt-dlp urlopen, %s] -> status=%s final=%s same_as_input=%s" % (
+                            name, getattr(r, "status", "?"), str(fin)[:200], str(fin) == u))
+                except Exception as e:
+                    out.append(" [yt-dlp urlopen, %s] -> FAILED %s: %s" % (name, type(e).__name__, str(e)[:160]))
+        except Exception as e:
+            out.append(" yt-dlp not usable: %s" % str(e)[:100])
+    return "\n".join(out)
+
+
+def step_phone_rows(host, url=""):
+    """Shows what yt-dlp returns for the page and what Link Lab's _phone_kvs builds (height, size, link), to see
+    where an 'unknown height' row with a get_stream link comes from."""
+    url = url or _PROBE["page"]
+    if not url:
+        return "no url (run probe first in the same job, or give url)"
+    out = ["page: " + url]
+    try:
+        import yt_dlp
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+        out.append("yt-dlp: extractor=%s entries=%s" % (info.get("extractor"), len(info.get("entries") or [])))
+        fm = list(info.get("formats") or ([info] if info.get("url") else []))
+        for f in fm:
+            out.append("  fmt id=%s height=%s ext=%s proto=%s url=%s" % (
+                f.get("format_id"), f.get("height"), f.get("ext"), f.get("protocol"), str(f.get("url"))[:150]))
+        if not fm:
+            out.append("  (no formats)")
+    except Exception as e:
+        out.append("yt-dlp FAILED: %s: %s" % (type(e).__name__, str(e).strip().splitlines()[-1][:160]))
+    mod = None
+    try:
+        for m in list(sys.modules.values()):
+            if getattr(m, "_phone_kvs", None) and getattr(m, "_phone_final_url", None):
+                mod = m
+                break
+    except Exception:
+        mod = None
+    if mod is None:
+        out.append("Link Lab module not found in memory (open Lab > Link Lab once, then run this job again)")
+        return "\n".join(out)
+    try:
+        res = mod._phone_kvs(url)
+        out.append("_phone_kvs: %s" % ("None" if not res else "note=" + str(res.get("note"))[:200]))
+        for r in (res or {}).get("rows", []):
+            out.append("  row h=%s size=%r kvs=%s hdr=%s url=%s" % (
+                r.get("h"), r.get("size"), r.get("_kvs"), sorted((r.get("_hdr") or {}).keys()), str(r.get("url"))[:170]))
+    except Exception as e:
+        out.append("_phone_kvs FAILED: %s: %s" % (type(e).__name__, str(e)[:160]))
+    return "\n".join(out)
+
+
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
     ("media_test", "Media link test", step_media_test),
     ("context", "Context grep", step_context),
+    ("redirects", "Redirect trace (hop by hop)", step_redirects),
+    ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
 ]
 
 
