@@ -5,6 +5,7 @@ from kivy.uix.button import Button
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
+from kivy.uix.scrollview import ScrollView
 
 from screens.common import BTN_H, GAP, content_width
 
@@ -69,5 +70,27 @@ def choose_open(title, options, on_pick, remember_text="Remember my choice"):
     close.bind(on_press=lambda i: dialog.dismiss())
     box.add_widget(close)
     dialog.height = 2 * dp(12) + dp(44) + (len(options) + 1) * (BTN_H + GAP) + dp(48) + GAP
+    dialog.add_widget(box)
+    dialog.open()
+
+
+def pick(title, options, on_pick):
+    """A scrollable popup list to choose one value (``options``: [(value, label)]);
+    ``on_pick(value)`` runs on the choice."""
+    box = BoxLayout(orientation="vertical", padding=dp(12), spacing=GAP)
+    box.add_widget(Label(text=title, size_hint_y=None, height=dp(44)))
+    scroll = ScrollView()
+    inner = BoxLayout(orientation="vertical", size_hint_y=None, spacing=GAP / 2)
+    inner.bind(minimum_height=inner.setter("height"))
+    dialog = ModalView(size_hint=(0.92, 0.8), background="", background_color=(0.13, 0.10, 0.09, 1))
+    for value, label in options:
+        btn = Button(text=label, size_hint_y=None, height=BTN_H)
+        btn.bind(on_press=lambda i, v=value: (dialog.dismiss(), on_pick(v)))
+        inner.add_widget(btn)
+    scroll.add_widget(inner)
+    box.add_widget(scroll)
+    close = Button(text="Close", size_hint_y=None, height=BTN_H)
+    close.bind(on_press=lambda i: dialog.dismiss())
+    box.add_widget(close)
     dialog.add_widget(box)
     dialog.open()

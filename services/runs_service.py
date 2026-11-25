@@ -6,13 +6,17 @@ Every ``start_*`` function works in the background and calls
 ``on_done(result_dict)`` from that thread (the caller hops onto the Kivy thread).
 """
 import re
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 from api.github import logs, releases, workflows
-from core import android_downloads, rerun
+from core import android_downloads, cron_text, rerun
 from core.async_utils import run_in_background
 from core.exceptions import AuthenticationError
 
 PAGE_SIZE = 15
+STATUS_PAGE_SIZE = 20      # runs per page on the Actions status screen
+_CRON_CACHE = {}           # workflow file -> its cron lines (read once per session)
 _TOKEN_ERROR = "GitHub token invalid or expired. Update it and retry."
 
 # Groups of the "by app menu" view: (title, [workflow files]). Anything not
@@ -265,3 +269,81 @@ def start_cancel_run(run_id, on_done):
         workflows.cancel_run(run_id)
         return {}
     run_in_background(_guarded, on_done, work)
+
+
+# -- the Actions status screen: filters, clean-up, scheduled workflows ---------
+def start_load_status(workflow_file, status, page, need_workflows, on_done):
+    """One page of runs for the status screen (+ the workflow list when asked)."""
+    def work():
+        runs, has_next = workflows.get_status_runs(workflow_file, status, page, STATUS_PAGE_SIZE)
+        out = {"runs": runs, "has_next": has_next, "page": page}
+        if need_workflows:
+            out["workflows"] = workflows.list_workflows()
+        return out
+    run_in_background(_safe, on_done, work)
+
+
+def start_collect_cleanup(workflow_file, kind, days, on_done):
+    """Ids of the runs a clean-up would delete: ``kind`` "failed" or "older"
+    (finished runs created more than ``days`` days ago)."""
+    def work():
+        if kind == "failed":
+            return {"ids": workflows.collect_run_ids(workflow_file, status="failure")}
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        return {"ids": workflows.collect_run_ids(workflow_file, status="completed", created_before=cutoff)}
+    run_in_background(_safe, on_done, work)
+
+
+def _delete_one(run_id):
+    try:
+        workflows.delete_run(run_id)
+        return True
+    except Exception:
+        return False
+
+
+def start_delete_runs(run_ids, on_progress, on_done):
+    """Deletes the runs (4 at a time); ``on_progress(done, total)`` after each."""
+    def work():
+        deleted = failed = 0
+        total = len(run_ids)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for ok in pool.map(_delete_one, run_ids):
+                if ok:
+                    deleted += 1
+                else:
+                    failed += 1
+                on_progress(deleted + failed, total)
+        return {"deleted": deleted, "failed": failed}
+    run_in_background(_safe, on_done, work)
+
+
+def start_load_schedules(on_done):
+    """Every workflow with a cron schedule: ``{"file", "tool", "state", "crons"}``."""
+    def work():
+        items = workflows.list_workflows()
+
+        def one(wf):
+            crons = _CRON_CACHE.get(wf["file"])
+            if crons is None:
+                try:
+                    crons = cron_text.find_crons(workflows.get_workflow_file_text(wf["file"]))
+                except Exception:
+                    return None
+                _CRON_CACHE[wf["file"]] = crons
+            return {**wf, "crons": crons} if crons else None
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            found = [x for x in pool.map(one, items) if x]
+        return {"schedules": found}
+    run_in_background(_safe, on_done, work)
+
+
+def start_toggle_workflow(workflow_file, enabled, on_done):
+    def work():
+        try:
+            workflows.set_workflow_enabled(workflow_file, enabled)
+            on_done({"ok": True})
+        except Exception as e:
+            on_done({"ok": False, "error": f"Could not change the workflow: {str(e)[:60]}"})
+    run_in_background(work)

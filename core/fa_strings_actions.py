@@ -1,0 +1,48 @@
+"""Persian texts of the GitHub Actions status page: filters, selecting and
+deleting runs, clean-up, scheduled workflows (see core/i18n.py)."""
+
+AC_EXACT = {
+    "Runs": "اجراها",
+    "Scheduled runs": "اجراهای زمان‌بندی‌شده",
+    "Workflow: All workflows": "ورک‌فلو: همه",
+    "Status: All": "وضعیت: همه",
+    "Status: Running": "وضعیت: در حال اجرا",
+    "Status: Success": "وضعیت: موفق",
+    "Status: Failed": "وضعیت: ناموفق",
+    "All workflows": "همه‌ی ورک‌فلوها",
+    "Show all": "نمایش همه",
+    "Only running": "فقط در حال اجرا",
+    "Only successful": "فقط موفق‌ها",
+    "Only failed": "فقط ناموفق‌ها",
+    "Choose workflow": "انتخاب ورک‌فلو",
+    "Choose status": "انتخاب وضعیت",
+    "Select": "انتخاب",
+    "Clean up": "پاکسازی",
+    "Finish selecting": "پایان انتخاب",
+    "Delete selected": "حذف انتخاب‌شده‌ها",
+    "Clean up runs": "پاکسازی اجراها",
+    "Delete failed runs": "حذف اجراهای ناموفق",
+    "Delete runs older than 7 days": "حذف اجراهای قدیمی‌تر از ۷ روز",
+    "Delete runs older than 30 days": "حذف اجراهای قدیمی‌تر از ۳۰ روز",
+    "Delete runs older than N days...": "حذف اجراهای قدیمی‌تر از تعداد روز دلخواه...",
+    "Delete runs older than how many days?": "اجراهای قدیمی‌تر از چند روز حذف شوند؟",
+    "Find runs": "پیدا کردن اجراها",
+    "Looking for runs to delete...": "در حال جست‌وجوی اجراها برای حذف...",
+    "No runs to delete": "اجرایی برای حذف نیست",
+    "Deleting runs...": "در حال حذف اجراها...",
+    "No scheduled workflows": "ورک‌فلوی زمان‌بندی‌شده‌ای نیست",
+    "Turn on": "روشن کردن",
+    "Turn off": "خاموش کردن",
+    "Workflow turned on": "ورک‌فلو روشن شد",
+    "Workflow turned off": "ورک‌فلو خاموش شد",
+    "Active": "فعال",
+    "Disabled": "غیرفعال",
+}
+
+AC_PATTERNS = [
+    (r"Workflow: (.+)", "ورک‌فلو: {0}"),
+    (r"Delete (\d+) runs? from GitHub\?", "{0} اجرا از گیت‌هاب حذف شود؟"),
+    (r"Deleted (\d+) runs?", "{0} اجرا حذف شد"),
+    (r"Deleted (\d+) runs?, (\d+) could not be deleted", "{0} اجرا حذف شد، {1} مورد حذف نشد"),
+    (r"Could not change the workflow: (.+)", "تغییر ورک‌فلو انجام نشد: {0}"),
+]

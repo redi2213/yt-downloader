@@ -3,12 +3,15 @@ from kivy.core.clipboard import Clipboard
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.modalview import ModalView
+from kivy.uix.textinput import TextInput
 
 from kivy.metrics import dp
 
-from core import run_labels
-from core.config import run_url
+from core import cron_text, i18n, run_labels
+from core.config import LOCAL_UTC_OFFSET_MINUTES, run_url
 from services import runs_service
+from screens import dialogs
 from screens.common import (BTN_H, GAP, STATUS_COLORS, content_width, fa_font_kwargs, fa_text,
                             wrapped_label_height)
 
@@ -79,20 +82,254 @@ def build_loading(nav):
     nav.add(back_btn)
 
 
-def build(nav, runs):
-    nav.clear()
-    _add_job_status_section(nav)
-    _add_browse_buttons(nav)
-    nav.add(Label(text="Recent GitHub Actions runs", size_hint_y=None, height=40))
+# (status filter, button text, picker label)
+STATUS_CHOICES = (
+    (None, "Status: All", "Show all"),
+    ("running", "Status: Running", "Only running"),
+    ("success", "Status: Success", "Only successful"),
+    ("failed", "Status: Failed", "Only failed"),
+)
+_DANGER = (1.0, 0.55, 0.55, 1)
+_ACTIVE_TAB = (0.55, 0.80, 1.0, 1)
+_SELECTED_TINT = (0.55, 0.75, 1.0, 1)
+
+
+def _row(*buttons):
+    row = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
+    for button in buttons:
+        row.add_widget(button)
+    return row
+
+
+def _btn(text, fn, **kwargs):
+    button = Button(text=text, **kwargs)
+    button.bind(on_press=lambda i: fn())
+    return button
+
+
+def _add_section_tabs(nav, view, cb):
+    runs_btn = _btn("Runs", lambda: cb["set"](section="runs"))
+    sched_btn = _btn("Scheduled runs", lambda: cb["set"](section="schedule"))
+    (sched_btn if view["section"] == "schedule" else runs_btn).background_color = _ACTIVE_TAB
+    nav.add(_row(runs_btn, sched_btn))
+
+
+def _pick_workflow(view, cb):
+    options = [(None, "All workflows")]
+    for wf in view.get("workflows") or []:
+        label = wf["tool"] if wf["tool"] == wf["file"] else f"{wf['tool']}  ({wf['file']})"
+        options.append((wf["file"], label))
+    dialogs.pick("Choose workflow", options, lambda value: cb["set"](wf=value))
+
+
+def _pick_status(cb):
+    dialogs.pick("Choose status", [(key, label) for key, _text, label in STATUS_CHOICES],
+                 lambda value: cb["set"](status=value))
+
+
+def _ask_days(on_ok):
+    box = BoxLayout(orientation="vertical", padding=dp(12), spacing=GAP)
+    label = Label(text="Delete runs older than how many days?", size_hint_y=None, height=dp(60),
+                  halign="center", valign="middle")
+    label.text_size = (content_width() * 0.84, None)
+    box.add_widget(label)
+    field = TextInput(multiline=False, input_filter="int", size_hint_y=None, height=BTN_H)
+    box.add_widget(field)
+    dialog = ModalView(size_hint=(0.92, None), height=dp(230), background="",
+                       background_color=(0.13, 0.10, 0.09, 1))
+
+    def go():
+        try:
+            days = int(field.text)
+        except ValueError:
+            return
+        if days >= 1:
+            dialog.dismiss()
+            on_ok(days)
+
+    box.add_widget(_row(_btn("Cancel", dialog.dismiss), _btn("Find runs", go)))
+    dialog.add_widget(box)
+    dialog.open()
+
+
+def _cleanup_menu(cb):
+    dialogs.menu("Clean up runs", [
+        ("Delete failed runs", lambda: cb["cleanup"]("failed", 0), True),
+        ("Delete runs older than 7 days", lambda: cb["cleanup"]("older", 7), True),
+        ("Delete runs older than 30 days", lambda: cb["cleanup"]("older", 30), True),
+        ("Delete runs older than N days...",
+         lambda: _ask_days(lambda days: cb["cleanup"]("older", days)), False),
+    ])
+
+
+def _run_cards(nav, runs, view, cb, on_selection_change):
+    """One simple card per run: tap = its details (or select it in selection
+    mode), hold = start selecting."""
+    from screens.history import _PressCard      # a card that tells a tap from a hold
+    selected = view["selected"]
+    cards = {}
+    row_width = content_width() - dp(16)
+
+    def paint(run):
+        btn, kind = cards[run["run_id"]]
+        btn.background_color = _SELECTED_TINT if run["run_id"] in selected else STATUS_COLORS[kind]
+
+    def toggle(run):
+        rid = run["run_id"]
+        if rid in selected:
+            selected.discard(rid)
+        else:
+            selected.add(rid)
+        paint(run)
+        on_selection_change()
+
+    def tap(run):
+        if view["select"]:
+            toggle(run)
+        else:
+            nav.show_run_detail({**run, "origin": "status"})
+
+    def hold(run):
+        if view["select"]:
+            toggle(run)
+        else:
+            view["select"] = True
+            selected.add(run["run_id"])
+            cb["rerender"]()
+
+    for run in runs:
+        word, kind = run_labels.status_word(run["status"], run["conclusion"])
+        title = run.get("tool") or run["workflow"]
+        if run.get("short_title"):
+            title = f"{title} - {run['short_title']}"
+        raw_text = f"{title}\n{word}   {run['created_at']}"
+        text = fa_text(raw_text, row_width)
+        height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(18), width=row_width))
+        btn = _PressCard(on_tap=lambda r=run: tap(r), on_hold=lambda r=run: hold(r), text=text,
+                         size_hint_y=None, height=height, halign="left", valign="middle",
+                         **fa_font_kwargs(raw_text))
+        btn.text_size = (row_width, None)
+        cards[run["run_id"]] = (btn, kind)
+        paint(run)
+        nav.add(btn)
+
+
+def _selection_bar(nav, runs, view, cb):
+    """The bar shown in selection mode; returns the function that refreshes its count."""
+    selected = view["selected"]
+    count = Label(text="", size_hint_y=None, height=dp(30))
+    delete_btn = _btn("Delete selected", lambda: cb["delete_ids"](list(selected)), background_color=_DANGER)
+
+    def refresh():
+        count.text = f"{len(selected)} / {len(runs)}"
+        delete_btn.disabled = not selected
+
+    def select_all():
+        selected.update(r["run_id"] for r in runs)
+        cb["rerender"]()
+
+    def clear():
+        selected.clear()
+        cb["rerender"]()
+
+    def finish():
+        selected.clear()
+        view["select"] = False
+        cb["rerender"]()
+
+    nav.add(_row(_btn("Select all", select_all), _btn("Clear", clear), _btn("Finish selecting", finish)))
+    nav.add(count)
+    nav.add(_row(delete_btn))
+    refresh()
+    return refresh
+
+
+def _build_runs(nav, view, res, cb):
+    runs = res.get("runs") or []
+    wf_name = run_labels.tool_label(view["wf"]) if view["wf"] else "All workflows"
+    status_text = next(text for key, text, _label in STATUS_CHOICES if key == view["status"])
+    half = content_width() / 2 - dp(16)
+    wf_btn = _btn(f"Workflow: {wf_name}", lambda: _pick_workflow(view, cb),
+                  shorten=True, shorten_from="right", halign="center", valign="middle")
+    wf_btn.text_size = (half, None)
+    nav.add(_row(wf_btn, _btn(status_text, lambda: _pick_status(cb))))
+
+    refresh = lambda: None
+    if view["select"]:
+        refresh = _selection_bar(nav, runs, view, cb)
+    else:
+        nav.add(_row(_btn("Select", lambda: (view.update(select=True), cb["rerender"]())),
+                     _btn("Clean up", lambda: _cleanup_menu(cb))))
+
     if not runs:
         nav.add(Label(text="No runs found", size_hint_y=None, height=40))
-    add_run_rows(nav, runs)
+    _run_cards(nav, runs, view, cb, refresh)
+
+    page = view["page"]
+    if page > 1 or res.get("has_next"):
+        prev_btn = _btn("Previous", lambda: cb["set"](page=page - 1), disabled=page <= 1)
+        next_btn = _btn("Next", lambda: cb["set"](page=page + 1), disabled=not res.get("has_next"))
+        nav.add(_row(prev_btn, next_btn))
+        nav.add(Label(text=f"Page {page}", size_hint_y=None, height=32))
+
+
+def _build_schedule(nav, view, res, cb):
+    items = res.get("schedules") or []
+    if not items:
+        nav.add(Label(text="No scheduled workflows", size_hint_y=None, height=40))
+    fa = i18n.is_fa()
+    width = content_width() * 0.62 - dp(16)
+    for wf in items:
+        active = wf.get("state") == "active"
+        head = wf["tool"] if wf["tool"] == wf["file"] else f"{wf['tool']}  ({wf['file']})"
+        lines = [head] + [cron_text.describe(c, LOCAL_UTC_OFFSET_MINUTES, fa) for c in wf["crons"]]
+        lines.append(i18n.tr("Active" if active else "Disabled"))
+        raw_text = "\n".join(lines)
+        text = fa_text(raw_text, width)
+        height = max(BTN_H, wrapped_label_height(text, extra_padding=dp(18), width=width))
+        info = Button(text=text, size_hint_x=0.62, halign="left", valign="middle",
+                      background_color=STATUS_COLORS["ok" if active else "waiting"],
+                      **fa_font_kwargs(raw_text))
+        info.text_size = (width, None)
+        info.bind(on_press=lambda i, f=wf["file"]: cb["set"](section="runs", wf=f, status=None))
+        toggle = Button(text="Turn off" if active else "Turn on", size_hint_x=0.38)
+        toggle.bind(on_press=lambda i, f=wf["file"], on=active: cb["toggle_wf"](f, not on))
+        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=height, spacing=dp(6))
+        row.add_widget(info)
+        row.add_widget(toggle)
+        nav.add(row)
+
+
+def build(nav, view, res, cb):
+    """The status screen. ``view``: {"wf", "status", "page", "section", "select",
+    "selected", "workflows"}; ``res``: runs (+ has_next) or schedules;
+    ``cb``: set / reload / rerender / delete_ids / cleanup / toggle_wf."""
+    nav.clear()
+    _add_job_status_section(nav)
+    _add_section_tabs(nav, view, cb)
+    note = view.pop("notice", None)
+    if note:
+        nav.add(Label(text=note, size_hint_y=None, height=36, color=(1, 0.93, 0.6, 1)))
+    if view["section"] == "schedule":
+        _build_schedule(nav, view, res, cb)
+    else:
+        _build_runs(nav, view, res, cb)
+    _add_browse_buttons(nav)
     refresh_btn = Button(text="Refresh", size_hint_y=None, height=48)
-    refresh_btn.bind(on_press=lambda i: nav.show_actions_status())
+    refresh_btn.bind(on_press=lambda i: cb["reload"]())
     nav.add(refresh_btn)
     back_btn = Button(text="Back", size_hint_y=None, height=48)
     back_btn.bind(on_press=lambda i: nav.show_home())
     nav.add(back_btn)
+
+
+def build_deleting(nav, total):
+    """Progress screen of a delete; returns the label to update with 'done / total'."""
+    nav.clear()
+    nav.add(Label(text="Deleting runs...", size_hint_y=None, height=44))
+    info = Label(text=f"0 / {total}", size_hint_y=None, height=40)
+    nav.add(info)
+    return info
 
 
 def build_run_detail_loading(nav, run):

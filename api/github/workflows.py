@@ -290,6 +290,7 @@ def _run_item(run):
         "conclusion": run.get("conclusion"),
         "created_at": timeutil.utc_iso_to_local(run.get("created_at"), "%m-%d %H:%M"),
         "run_id": run.get("id"),
+        "created_iso": run.get("created_at"),
     }
 
 
@@ -311,7 +312,8 @@ def list_workflows():
         file = (wf.get("path") or "").split("/")[-1]
         if not file:
             continue
-        items.append({"file": file, "name": wf.get("name") or file, "tool": run_labels.tool_label(file)})
+        items.append({"file": file, "name": wf.get("name") or file, "tool": run_labels.tool_label(file),
+                      "state": wf.get("state")})
     items.sort(key=lambda w: w["file"].lower())
     return items
 
@@ -387,3 +389,61 @@ def get_workflow_file_text(workflow_file: str, ref: str = None) -> str:
     r = client.get(f"{API_BASE}/contents/.github/workflows/{workflow_file}",
                    params={"ref": ref or GITHUB_BRANCH}, headers=headers)
     return r.text
+
+
+_STATUS_API = {"success": "success", "failed": "failure"}
+
+
+def get_runs_page(workflow_file=None, status=None, page: int = 1, per_page: int = 20, created_before=None):
+    """One page of runs, newest first: all workflows or one file, optionally only
+    one GitHub status (in_progress, queued, success, failure, completed...) and
+    only runs created before a date (YYYY-MM-DD). Returns ``(items, has_next)``."""
+    if workflow_file:
+        url = f"{API_BASE}/actions/workflows/{workflow_file}/runs"
+    else:
+        url = f"{API_BASE}/actions/runs"
+    params = {"per_page": per_page, "page": page}
+    if status:
+        params["status"] = status
+    if created_before:
+        params["created"] = f"<{created_before}"
+    data = client.get(url, params=params).json()
+    runs = data.get("workflow_runs", [])
+    total = data.get("total_count") or 0
+    return [_run_item(run) for run in runs], page * per_page < total
+
+
+def get_status_runs(workflow_file=None, status=None, page: int = 1, per_page: int = 20):
+    """The runs of the status screen. ``status``: None (all), "running" (in
+    progress + queued), "success" or "failed". Returns ``(items, has_next)``."""
+    if status != "running":
+        return get_runs_page(workflow_file, _STATUS_API.get(status), page, per_page)
+    items, has_next = get_runs_page(workflow_file, "in_progress", page, per_page)
+    if page == 1:
+        have = {r["run_id"] for r in items}
+        queued, _more = get_runs_page(workflow_file, "queued", 1, per_page)
+        items = items + [r for r in queued if r["run_id"] not in have]
+        items.sort(key=lambda r: r.get("created_iso") or "", reverse=True)
+    return items, has_next
+
+
+def collect_run_ids(workflow_file=None, status=None, created_before=None, max_pages: int = 10):
+    """Ids of every matching run (up to ``max_pages`` x 100), for a clean-up."""
+    ids = []
+    for page in range(1, max_pages + 1):
+        items, has_next = get_runs_page(workflow_file, status, page, 100, created_before)
+        ids.extend(r["run_id"] for r in items)
+        if not has_next:
+            break
+    return ids
+
+
+def delete_run(run_id) -> None:
+    """Deletes one finished run (and its logs) from GitHub."""
+    client.delete(f"{API_BASE}/actions/runs/{run_id}")
+
+
+def set_workflow_enabled(workflow_file: str, enabled: bool) -> None:
+    """Turns a workflow on or off (a disabled one no longer runs on its schedule)."""
+    action = "enable" if enabled else "disable"
+    client.request("PUT", f"{API_BASE}/actions/workflows/{workflow_file}/{action}")

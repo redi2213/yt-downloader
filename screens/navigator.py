@@ -1996,26 +1996,138 @@ class Navigator(ArvanController):
     def show_actions_status(self):
         from screens import actions_status as actions_screen
         self.remember(self.show_actions_status)
+        if getattr(self, "_status_view", None) is None:
+            self._status_view = {"wf": None, "status": None, "page": 1, "section": "runs",
+                                 "select": False, "selected": set(), "workflows": None}
+        self._status_view["select"] = False
+        self._status_view["selected"] = set()
         actions_screen.build_loading(self)
+        self._load_status_view()
 
-        actions_service.start_load_recent_runs(
-            on_complete=lambda res: self.schedule(
-                lambda: self._after_load_runs(res)
-            )
-        )
+    def _load_status_view(self):
+        view = self._status_view
+        token = object()
+        self._status_token = token      # an older answer that arrives late is dropped
 
-    def _after_load_runs(self, res):
-        if res.get("ok"):
-            self.render_actions_status(res["runs"])
+        def done(res):
+            self.schedule(lambda: token is getattr(self, "_status_token", None)
+                          and self._after_status_load(res))
+
+        if view["section"] == "schedule":
+            runs_service.start_load_schedules(done)
         else:
-            self.show_result(res["error"])
+            runs_service.start_load_status(view["wf"], view["status"], view["page"],
+                                           view["workflows"] is None, done)
 
-    def render_actions_status(self, runs):
+    def _after_status_load(self, res):
         from screens import actions_status as actions_screen
-        actions_screen.build(
-            self,
-            runs
-        )
+        view = self._status_view
+        if not res.get("ok"):
+            self.show_result(res["error"])
+            return
+        if res.get("workflows") is not None:
+            view["workflows"] = res["workflows"]
+        if view["section"] != "schedule" and not res.get("runs") and view["page"] > 1:
+            view["page"] -= 1           # the last page was emptied (e.g. by a delete)
+            actions_screen.build_loading(self)
+            self._load_status_view()
+            return
+        self.render_actions_status(res)
+
+    def render_actions_status(self, res):
+        from screens import actions_status as actions_screen
+        self._status_res = res
+        actions_screen.build(self, self._status_view, res, {
+            "set": self._status_set, "reload": self._status_reload,
+            "rerender": self._status_rerender, "delete_ids": self._status_delete_ids,
+            "cleanup": self._status_cleanup, "toggle_wf": self._status_toggle})
+
+    def _status_rerender(self):
+        res = getattr(self, "_status_res", None)
+        if res is not None:
+            self.render_actions_status(res)
+
+    def _status_reload(self):
+        from screens import actions_status as actions_screen
+        actions_screen.build_loading(self)
+        self._load_status_view()
+
+    def _status_set(self, **changes):
+        """Changes the filter / page / section and loads again."""
+        view = self._status_view
+        view.update(changes)
+        if "page" not in changes:
+            view["page"] = 1
+        view["select"] = False
+        view["selected"] = set()
+        self._status_reload()
+
+    def _status_delete_ids(self, ids):
+        from screens import dialogs
+        ids = list(ids)
+        if not ids:
+            return
+        dialogs.confirm(f"Delete {len(ids)} runs from GitHub?", "Delete",
+                        lambda: self._status_run_delete(ids))
+
+    def _status_run_delete(self, ids):
+        from screens import actions_status as actions_screen
+        view = self._status_view
+        info = actions_screen.build_deleting(self, len(ids))
+
+        def progress(done, total):
+            self.schedule(lambda: setattr(info, "text", f"{done} / {total}"))
+
+        def finished(res):
+            def apply():
+                view["select"] = False
+                view["selected"] = set()
+                if not res.get("ok"):
+                    view["notice"] = res["error"]
+                elif res["failed"]:
+                    view["notice"] = f"Deleted {res['deleted']} runs, {res['failed']} could not be deleted"
+                else:
+                    view["notice"] = f"Deleted {res['deleted']} runs"
+                self._status_reload()
+            self.schedule(apply)
+
+        runs_service.start_delete_runs(ids, progress, finished)
+
+    def _status_cleanup(self, kind, days):
+        """Finds the runs of a clean-up (inside the current workflow filter),
+        asks once, then deletes them."""
+        view = self._status_view
+        view["notice"] = "Looking for runs to delete..."
+        self._status_rerender()
+
+        def found(res):
+            def apply():
+                if not res.get("ok"):
+                    view["notice"] = res["error"]
+                    self._status_rerender()
+                    return
+                ids = res["ids"]
+                view["notice"] = None if ids else "No runs to delete"
+                self._status_rerender()
+                if ids:
+                    self._status_delete_ids(ids)
+            self.schedule(apply)
+
+        runs_service.start_collect_cleanup(view["wf"], kind, days, found)
+
+    def _status_toggle(self, workflow_file, enable):
+        view = self._status_view
+
+        def done(res):
+            def apply():
+                if res.get("ok"):
+                    view["notice"] = "Workflow turned on" if enable else "Workflow turned off"
+                else:
+                    view["notice"] = res["error"]
+                self._status_reload()
+            self.schedule(apply)
+
+        runs_service.start_toggle_workflow(workflow_file, enable, done)
 
     def back_from_run_detail(self, origin="status"):
         if origin == "wf":
