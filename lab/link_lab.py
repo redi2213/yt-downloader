@@ -230,7 +230,7 @@ def phone_screen(host):
     host.back_button()
 
 
-_IP_BOUND = re.compile(r"[?&]ip=[0-9a-f.:]{7,}|data=\\d+\\.\\d+\\.\\d+\\.\\d+", re.I)
+_IP_BOUND = re.compile(r"[?&]ip=[0-9a-f.:]{7,}|data=[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+", re.I)
 
 
 def _auto_pick(results, quality):
