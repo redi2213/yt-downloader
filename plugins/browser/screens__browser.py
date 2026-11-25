@@ -4,6 +4,8 @@ While the browser screen is shown the WebView covers the area under the bar; eve
 hides it (Navigator.clear), so it never stays on top of a menu. The round badge (top right, drawn
 natively) shows how many files were found, or "YT" on a YouTube video page; tapping it opens the list.
 """
+import time
+
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.metrics import dp
@@ -21,6 +23,23 @@ from api import browser_prefs
 from services import browser_service
 
 START_PAGE = "https://www.google.com"
+
+
+def _is_start(u):
+    """The default start page (google.com home, no query): what a tab must not end up on by mistake."""
+    u = (u or "").split("#")[0].strip().lower()
+    for p in ("https://", "http://"):
+        if u.startswith(p):
+            u = u[len(p):]
+    host, _, rest = u.partition("/")
+    return host in ("google.com", "www.google.com") and rest.strip("/") == ""
+
+
+def _same_page(a, b):
+    def norm(u):
+        return (u or "").split("#")[0].strip().rstrip("/").lower()
+    return norm(a) == norm(b)
+
 _KIND = {"video": "Video file", "audio": "Audio file", "hls": "HLS stream", "dash": "DASH stream",
          "archive": "Archive file", "apk": "APK file", "pkg": "Package file", "doc": "Document",
          "custom": "Custom file", "other": "Unknown file"}
@@ -116,9 +135,13 @@ def build(nav, url=None):
     wanted = getattr(nav, "browser_find", None) or {}
     if wanted.get("on"):
         find.show(wanted.get("q", ""))      # from the menu's "Find in page", or back from another screen
+    expect = {"url": "", "until": 0.0}      # the address this tab must show right after a switch
     if br.tab_id != tab_id or not br.started:
         # another tab (or the first start): the helper keeps the page of the tab we leave and shows this one
-        br.switch_tab(br.tab_id, tab_id, url or tab.get("url") or START_PAGE)
+        want = url or tab.get("url") or ""
+        br.switch_tab(br.tab_id, tab_id, want or START_PAGE)
+        if want and not _is_start(want):
+            expect["url"], expect["until"] = want, time.monotonic() + 6.0
     elif url:
         br.load(url)
     if sess.needs_rescan and br.started and sess.page:
@@ -161,6 +184,14 @@ def build(nav, url=None):
                 browser_pages.open_link_menu(nav, str(info["url"]), str(info.get("text") or ""))
                 return
         find.update(data)
+        if expect["url"]:
+            # right after a tab switch the view fell back to the Google start page instead of the tab's page
+            if time.monotonic() > expect["until"] or (sess.page and _same_page(sess.page, expect["url"])):
+                expect["url"] = ""
+            elif sess.page and _is_start(sess.page):
+                target, expect["url"] = expect["url"], ""
+                br.load(target)
+                return
         state.page_seen(tab_id, sess.page, sess.title)
         if sess.notice and not data.get("tapped"):
             if browser_prefs.get_flag("click_editor"):
