@@ -1,0 +1,43 @@
+Lab link failure log
+mode: links
+time (UTC): 2026-11-25 00:43:12
+workflow: Lab Links
+run: https://github.com/redi2213/yt-downloader/actions/runs/45520130020
+commit: da69c3c
+url: https://ev.phncdn.com/c6541/videos/202611/18/69693515/240P_1000K_69693515.mp4
+title: 
+error: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: SocksHTTPSConnectionPool(host='ev.phncdn.com', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='ev.phncdn.com', port=443): Read timed out. (read timeout=15.0)"))
+method: yt-dlp
+proxy: socks5://127.0.0.1:10813
+
+---- console output for this link (the end) ----
+
+>>> Trying (direct, GitHub IP)
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)
+
+>>> Racing 4 proxies (the first that works wins)
+  [race] socks5://103.13.19.219:10808: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)
+  [race] socks5://103.119.237.60:1080: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)
+  [race] socks5://102.0.14.42:1080: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: (<SocksHTTPSConnection(host='ev.phncdn.com', port=443) at 0x7be2b1b69940>, 'Connection to ev.phncdn.com timed out. (connect timeout=15.0)') (caused by TransportError("(<SocksHTTPSConnection(host='ev.phncdn.com', port=443) at 0x7be2b1b69940>, 'Connection to ev.phncdn.com timed out. (connect timeout=15.0)')"))
+  [race] socks5://103.136.107.70:1080: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: (<SocksHTTPSConnection(host='ev.phncdn.com', port=443) at 0x714c832418b0>, 'Connection to ev.phncdn.com timed out. (connect timeout=15.0)') (caused by TransportError("(<SocksHTTPSConnection(host='ev.phncdn.com', port=443) at 0x714c832418b0>, 'Connection to ev.phncdn.com timed out. (connect timeout=15.0)')"))
+
+>>> Trying config socks5://127.0.0.1:10811
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)
+
+>>> Trying config socks5://127.0.0.1:10812
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)
+
+>>> Trying config socks5://127.0.0.1:10813
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: SocksHTTPSConnectionPool(host='ev.phncdn.com', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='ev.phncdn.com', port=443): Read timed out. (read timeout=15.0)"))
+=======================================================
+unknown
+=======================================================
+URL    : https://ev.phncdn.com/c6541/videos/202611/18/69693515/240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231.106&ipa=1&hash=9EyAkeIcMmeB%2BTBlgo3bgsQM%2BDs%3D
+Method : yt-dlp
+Proxy  : socks5://127.0.0.1:10813
+ERROR  : yt-dlp: ERROR: [generic] 240P_1000K_69693515.mp4?validfrom=1795563442&validto=1795570642&rate=500k&burst=1200k&ip=185.236.231: Unable to download webpage: SocksHTTPSConnectionPool(host='ev.phncdn.com', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='ev.phncdn.com', port=443): Read timed out. (read timeout=15.0)"))
+
