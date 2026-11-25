@@ -2,35 +2,6 @@
   "tz": "Asia/Tehran",
   "follows": [
     {
-      "id": "f1ba2d67b",
-      "slug": "eshghe-abadi",
-      "name": "Eshghe_Abadi",
-      "site": "youtube",
-      "url": "https://m.youtube.com/@Eshghe_Abadi",
-      "enabled": true,
-      "mode": "series",
-      "days": [],
-      "start": "21:10",
-      "end": "23:59",
-      "every_days": 3,
-      "quality": "480p",
-      "min_minutes": 60,
-      "max_minutes": 0,
-      "include": [],
-      "exclude": [],
-      "start_from": {
-        "type": "episode",
-        "value": "90"
-      },
-      "stop": {
-        "episode": 120,
-        "date": null,
-        "count": null
-      },
-      "max_per_run": 5,
-      "zip": false
-    },
-    {
       "id": "fc944a52b",
       "slug": "rest-in-peace",
       "name": "rest_in_peace",
