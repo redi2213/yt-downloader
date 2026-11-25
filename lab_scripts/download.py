@@ -79,6 +79,51 @@ def pick_media(item: dict, quality_pref: str) -> tuple[str | None, str]:
     return None, ""
 
 
+_KVS_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+_KVS_URL = re.compile(r"""(video(?:_alt)?_url\d*)\s*:\s*['"]([^'"]+)['"]""")
+_KVS_TXT = re.compile(r"""(video(?:_alt)?_url\d*)_text\s*:\s*['"]([^'"]*)['"]""")
+
+
+def kvs_pairs(text: str, page_url: str = "") -> list[tuple[int, str]]:
+    """(height, link) read from the player settings of a KVS / KT-player page (video_url, video_alt_url ...)."""
+    from urllib.parse import urljoin
+    text = text.replace("\\/", "/")
+    labels = dict(_KVS_TXT.findall(text))
+    out, seen = [], set()
+    for key, link in _KVS_URL.findall(text):
+        link = link.replace("&amp;", "&").strip()
+        if link.startswith("function/"):      # encrypted with the site's license code: not supported
+            continue
+        link = urljoin(page_url, link)
+        if not link.startswith("http") or link in seen:
+            continue
+        seen.add(link)
+        m = re.search(r"(\d{3,4})", labels.get(key, "")) or re.search(r"[-_/](\d{3,4})p?\.mp4", link)
+        out.append((int(m.group(1)) if m else 0, link))
+    return out
+
+
+def kvs_fresh(page_url: str, want_path: str = "", target_h: int | None = None) -> str | None:
+    """The signed links of these sites (md5 + timestamp) expire within minutes. Re-read the page now and
+    return a fresh link: the one with the same file path as ``want_path``, or the best one up to ``target_h``."""
+    import urllib.request
+    from urllib.parse import urlsplit
+    req = urllib.request.Request(page_url, headers={"User-Agent": _KVS_UA, "Referer": page_url})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        text = r.read(3000000).decode("utf-8", "replace")
+    pairs = kvs_pairs(text, page_url)
+    if not pairs:
+        return None
+    if want_path:
+        for _h, link in pairs:
+            if urlsplit(link).path == urlsplit(want_path).path:
+                return link
+        return None
+    ok = [p for p in pairs if not target_h or (p[0] and p[0] <= target_h)] or pairs
+    return sorted(ok, key=lambda p: p[0], reverse=True)[0][1]
+
+
 def _clean_partial(out_dir: Path, out_base: str) -> None:
     """Remove leftovers of a failed try (with --no-part a half file looks like a finished one)."""
     for f in out_dir.glob(f"{out_base}.*"):
@@ -302,6 +347,21 @@ def main() -> int:
         page = item.get("url") or ""
         title = item.get("title") or f"video_{i}"
         media, kind = pick_media(item, quality)
+        # KVS sites: the signed link from the phone has expired by the time this job reaches the download
+        # (it waited minutes for setup). Re-read the page now and use a fresh link of the same file.
+        try:
+            plow = page.lower().split("?")[0]
+            if page.startswith("http") and "get_stream" not in plow and not plow.endswith((".mp4", ".m3u8")):
+                fresh = None
+                if kind == "direct" and re.search(r"[?&]md5=", media or "") and re.search(r"[?&]timestamp=\d+", media or ""):
+                    fresh = kvs_fresh(page, want_path=media)
+                elif kind == "page":
+                    fresh = kvs_fresh(page, target_h=TARGET_H)
+                if fresh:
+                    print("Fresh link from the page's player settings:", fresh[:160], flush=True)
+                    media, kind = fresh, "direct"
+        except Exception as e:
+            print("player-settings refresh failed:", e, flush=True)
         print(f"\n=== [{i}] {title}")
         print(f"page: {page}")
         print(f"pick ({kind}): {media}")
