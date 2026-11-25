@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-25b"
+VERSION = "2026-11-25c"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -293,32 +293,27 @@ def _show_hdrs(hd):
         return "headers n/a"
 
 
-def _hops(ydl, url, headers, limit):
-    """Follows redirects by hand with yt-dlp's own network code (same certificates as Link Lab) and lists every hop."""
-    from yt_dlp.networking import Request
+def _hops(url, headers, limit):
+    """Follows redirects by hand with `requests` (redirects off): every hop = status, Location, key headers."""
+    import requests
     out, cur = [], url
     for i in range(int(limit)):
         try:
-            r = ydl.urlopen(Request(cur, headers=headers, extensions={"follow_redirects": False}))
-            status, hd = getattr(r, "status", "?"), r.headers
+            r = requests.get(cur, headers=headers, allow_redirects=False, stream=True, timeout=20)
+        except Exception as e:
+            out.append("   hop %d -> FAILED %s: %s" % (i, type(e).__name__, str(e)[:120]))
+            break
+        head = b""
+        if r.status_code < 300:
             try:
-                head = r.read(16)
-            except Exception:
-                head = b""
-            try:
-                r.close()
+                head = next(r.iter_content(16))
             except Exception:
                 pass
-        except Exception as e:
-            resp = getattr(e, "response", None)
-            if resp is None:
-                out.append("   hop %d -> FAILED %s: %s" % (i, type(e).__name__, str(e)[:140]))
-                break
-            status, hd, head = getattr(resp, "status", "?"), resp.headers, b""
-        loc = hd.get("Location") if hd else None
-        out.append("   hop %d %s -> HTTP %s %s%s" % (i, cur[:100], status, _show_hdrs(hd) if hd else "",
+        loc = r.headers.get("Location")
+        out.append("   hop %d %s -> HTTP %s %s%s" % (i, cur[:80], r.status_code, _show_hdrs(r.headers),
                                                   "" if loc else " first=%r" % head[:8]))
-        if status in (301, 302, 303, 307, 308) and loc:
+        r.close()
+        if r.status_code in (301, 302, 303, 307, 308) and loc:
             cur = _up.urljoin(cur, loc)
             continue
         break
@@ -327,22 +322,41 @@ def _hops(ydl, url, headers, limit):
     return out
 
 
+def _followed(url, headers):
+    """Same request with automatic redirects: where it ends (requests) and what yt-dlp's urlopen reports."""
+    out = []
+    try:
+        import requests
+        r = requests.get(url, headers=headers, stream=True, timeout=20)
+        out.append("   requests+redirects -> HTTP %s final=%s via=%s %s" % (
+            r.status_code, r.url[:150], [h.status_code for h in r.history], _show_hdrs(r.headers)))
+        r.close()
+    except Exception as e:
+        out.append("   requests+redirects -> FAILED %s: %s" % (type(e).__name__, str(e)[:120]))
+    try:
+        import yt_dlp
+        from yt_dlp.networking import Request
+        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 20})
+        with ydl.urlopen(Request(url, headers=headers)) as r:
+            fin = getattr(r, "url", None) or (r.geturl() if hasattr(r, "geturl") else "")
+            out.append("   yt-dlp urlopen -> status=%s final=%s same_as_input=%s %s" % (
+                getattr(r, "status", "?"), str(fin)[:150], str(fin) == url, _show_hdrs(r.headers)))
+    except Exception as e:
+        out.append("   yt-dlp urlopen -> FAILED %s: %s" % (type(e).__name__, str(e)[:120]))
+    return out
+
+
 _CHROME = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
 
 def step_redirects(host, url="", referer="", count=2, hops=8):
-    """Follows the redirects of get_stream links hop by hop (yt-dlp network code, redirects off) with several
-    header variants: short UA / Chrome UA, with / without Range, with / without the page's cookie. Put it after probe."""
+    """Follows the redirects of get_stream links hop by hop (requests, redirects off), then with automatic
+    redirects (requests and yt-dlp urlopen = what Link Lab uses), for several header variants. Put it after probe."""
     urls = [url] if url and url != "auto" else list(_PROBE["media"])
     if not urls:
         return "no media URL (run probe first in the same job, or give url)"
     ref = referer or _PROBE["page"]
     ck = _PROBE.get("cookies", "")
-    try:
-        import yt_dlp
-        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "socket_timeout": 20})
-    except Exception as e:
-        return "yt-dlp not usable: %s" % str(e)[:100]
     variants = [("short UA + Range + Referer (as _phone_final_url)", {"User-Agent": "Mozilla/5.0", "Range": "bytes=0-0", "Referer": ref}),
                 ("Chrome UA + Range + Referer", {"User-Agent": _CHROME, "Range": "bytes=0-0", "Referer": ref}),
                 ("Chrome UA + Referer, no Range", {"User-Agent": _CHROME, "Referer": ref})]
@@ -350,10 +364,11 @@ def step_redirects(host, url="", referer="", count=2, hops=8):
         variants.append(("Chrome UA + Range + Referer + page cookie", {"User-Agent": _CHROME, "Range": "bytes=0-0", "Referer": ref, "Cookie": ck}))
     out = ["referer: %s | page cookie: %s" % (ref or "-", "yes" if ck else "no")]
     for u in urls[:int(count)]:
-        out.append("== %s" % u[:140])
+        out.append("== %s" % u[:120])
         for name, h in variants:
             out.append("  [%s]" % name)
-            out.extend(_hops(ydl, u, h, hops))
+            out.extend(_hops(u, h, hops))
+            out.extend(_followed(u, h))
     return "\n".join(out)
 
 
