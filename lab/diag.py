@@ -30,6 +30,8 @@ _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
 VERSION = "2026-11-27c"
+AUTO_ENV = "YTB_DIAG_AUTO"   # process-wide token of the running auto loop (survives plugin reload)
+POLL_S = 15                  # seconds between checks of diag-jobs/next.json
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -672,50 +674,6 @@ def step_rubika_api_test(host, url="", auth=""):
     return "\n".join(out)
 
 
-def step_js_scan(host, url="https://vod.rubika.ir/media/291423", pattern="", width=160, limit=14):
-    """Fetches the page, then every /_next JS chunk from THIS phone, and greps them (regex pattern).
-    Shows file name + text around each match. For finding how a web app registers / signs its API calls."""
-    import requests
-    rx = re.compile(pattern or r"registerDevice|register_device|getAuth|public_key|publicKey|NOT_REGISTERED|tmp_session|importKey|RSA-OAEP|JSEncrypt", re.I)
-    ua = {"User-Agent": "Mozilla/5.0 (Linux; Android 13; M2101K6G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Mobile Safari/537.36"}
-    out = []
-    try:
-        pg = requests.get(url, headers=ua, timeout=30).text
-    except Exception as e:
-        return "page FAILED %s %s" % (type(e).__name__, str(e)[:100])
-    base = _up.urlsplit(url)
-    srcs = []
-    for s in re.findall(r'(?:src|href)="([^"]+\.js[^"]*)"', pg):
-        s = _html.unescape(s)
-        if s.startswith("/"):
-            s = base.scheme + "://" + base.netloc + s
-        if s.startswith("http") and "/_next/" in s and s not in srcs:
-            srcs.append(s)
-    out.append("page bytes=%d, js chunks=%d" % (len(pg), len(srcs)))
-    shown = 0
-    for s in srcs:
-        try:
-            t = requests.get(s, headers=ua, timeout=30).text
-        except Exception as e:
-            out.append("%s FAILED %s" % (s[-30:], type(e).__name__))
-            continue
-        ms = list(rx.finditer(t))
-        if not ms:
-            continue
-        out.append("== %s (%d bytes, %d matches)" % (s.split("/")[-1], len(t), len(ms)))
-        last = -10**9
-        for m in ms:
-            if m.start() - last < int(width):
-                continue
-            last = m.start()
-            a = max(0, m.start() - int(width) // 2)
-            out.append("  ..." + t[a:a + int(width)].replace("\n", " ") + "...")
-            shown += 1
-            if shown >= int(limit):
-                return "\n".join(out)
-    return "\n".join(out)
-
-
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
@@ -727,7 +685,6 @@ ARG_STEPS = [
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
     ("hls_ip_test", "HLS link test from this phone (Iran IP)", step_hls_ip_test),
     ("rubika_api_test", "Rubika VOD API from this phone (guest auth)", step_rubika_api_test),
-    ("js_scan", "Scan a page's JS chunks for a pattern", step_js_scan),
 ]
 
 
@@ -785,8 +742,13 @@ def build(host):
     host.title("Diagnostics")
     host.text("Each button runs a check, saves the result to the repo "
               "(config branch, diag-results/latest.txt) and shows it here with Copy. "
-              "Then just tell Claude it is done.")
+              "Then just tell Claude it is done. While Auto-run is ON and the app is open, "
+              "new jobs written by Claude run by themselves.")
     host.status()
+    if not host.store.get("auto_off", False):
+        _auto_start(host)
+    host.button("Auto-run Claude's jobs: %s (tap to switch)" % ("ON" if _auto_on() else "OFF"),
+                lambda: _toggle_auto(host))
     host.button("Run Claude's job (ready-made task)", lambda: _run_job(host))
     host.button("Run all", lambda: _run(host, STEPS, "all"))
     for s in STEPS:
@@ -876,11 +838,15 @@ def _read_job(host):
     return json.loads(base64.b64decode(r["content"]).decode("utf-8"))
 
 
-def _run_job(host):
-    host.set_status("Reading Claude's job...")
+def _job_fail(host):
+    import traceback
+    report = "# Diagnostics (job) FAILED\n" + _hide(traceback.format_exc())[-3000:]
+    return report, _save(host, report, "job-error")
 
-    def inner():
-        job = _read_job(host)
+
+def _job_report(host, job):
+    """Runs every step of one job, saves the report, returns (report, saved)."""
+    try:
         known = dict((s[0], s) for s in STEPS + ARG_STEPS)
         selected = []
         for item in job.get("steps", []):
@@ -895,13 +861,89 @@ def _run_job(host):
         head = "job: %s\ntitle: %s" % (job.get("id"), job.get("title"))
         report = _report(host, selected, "job", head)
         return report, _save(host, report, "job")
+    except Exception:
+        return _job_fail(host)
+
+
+def _run_job(host):
+    host.set_status("Reading Claude's job...")
 
     def work():
         try:
-            return inner()
+            job = _read_job(host)
         except Exception:
-            import traceback
-            report = "# Diagnostics (job) FAILED\n" + _hide(traceback.format_exc())[-3000:]
-            return report, _save(host, report, "job-error")
+            return _job_fail(host)
+        return _job_report(host, job)
 
     host.background(work, done=_finish(host))
+
+
+# ---------------------------------------------------------------- auto-run
+# While the app is open, a background loop watches diag-jobs/next.json on the
+# config branch and runs every NEW job by itself (no button). The result goes to
+# diag-results/latest.txt like a manual run. Started when Lab > Diagnostics is
+# opened (unless switched off with the button there).
+def _auto_on():
+    return bool(os.environ.get(AUTO_ENV))
+
+
+def _last_done_id(host):
+    try:
+        txt = host.gh.read_file(RESULT_DIR + "/latest.txt", ref=RESULT_BRANCH)
+        m = re.search(r"(?m)^job: (.+)$", txt)
+        return m.group(1).strip() if m else ""
+    except Exception:
+        return ""
+
+
+def _auto_loop(host, token):
+    last = _last_done_id(host)
+    fails = 0
+    while os.environ.get(AUTO_ENV) == token:
+        wait = POLL_S
+        try:
+            job = _read_job(host)
+            fails = 0
+            jid = str(job.get("id") or "")
+            if jid and jid != last:
+                last = jid
+                try:
+                    host.set_status("Auto: running job %s ..." % jid)
+                except Exception:
+                    pass
+                report, saved = _job_report(host, job)
+                _LAST["report"], _LAST["saved"] = report, saved
+                try:
+                    host.set_status("Auto: job %s done. %s" % (jid, saved))
+                    host.nav.schedule(lambda: host.notify("Diagnostics", "Job %s done" % jid))
+                except Exception:
+                    pass
+        except Exception:
+            fails += 1
+            wait = min(120, POLL_S * (1 + fails))
+        end = time.time() + wait
+        while time.time() < end and os.environ.get(AUTO_ENV) == token:
+            time.sleep(1)
+
+
+def _auto_start(host):
+    if _auto_on():
+        return
+    import threading
+    token = str(int(time.time() * 1000))
+    os.environ[AUTO_ENV] = token
+    threading.Thread(target=_auto_loop, args=(host, token), daemon=True).start()
+
+
+def _auto_stop():
+    os.environ.pop(AUTO_ENV, None)
+
+
+def _toggle_auto(host):
+    if _auto_on():
+        _auto_stop()
+        host.store.set("auto_off", True)
+    else:
+        host.store.set("auto_off", False)
+        _auto_start(host)
+    host.replace(build)
