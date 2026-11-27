@@ -12,3 +12,16 @@ episode S01E14 قسمت دوازدهم (id 296525)
   getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,start_play_time,subtitles] has_access=True play_url=https://vodrbstreamer82.iranlms.ir/play/st20/6afdcf047e4ff87b92e62237/playlist.m3u8?token=<hidden>
 episode S01E15 قسمت سیزدهم (id 297033)
   getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer38.iranlms.ir/play/st2/6b070321e87f05a53e874d53/playlist.m3u8?token=<hidden>
+[Fri 14:02] بچه‌ زرنگ: گروه نجات جنگل (scheduled try 1/6): NEW: S01E11 قسمت یازدهم, S01E12 قسمت دوازدهم
+media id 290854 | season=1 episodes=11-12 quality=master | your auth
+  getAccountInfo OK (0.6s) keys=[subscription_info,user_info]
+  subscription_info: {"has_paid_subscription": false, "has_network_subscription": true, "network_subscription_type": "MTN"}
+  getMedia OK (0.6s) keys=[media]
+title=بچه‌‌زرنگ: گروه نجات جنگل type=Series
+series_id=290854 name=بچه‌‌زرنگ: گروه نجات جنگل publish=-
+  getSeasonEpisodes OK (0.4s) keys=[episodes]
+season 1: 12 episodes
+episode S01E11 قسمت یازدهم (id 297099)
+  getPlayInfo OK (0.7s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer71.iranlms.ir/play/st4/6b07aa37c06f1ff642336ba9/playlist.m3u8?token=<hidden>
+episode S01E12 قسمت دوازدهم (id 297100)
+  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer31.iranlms.ir/play/st4/6b07aa639001501321cda51c/playlist.m3u8?token=<hidden>
