@@ -89,7 +89,7 @@ def build_menu(nav):
     from screens import browser, browser_tools
     nav.clear()
     try:
-        nav.app.show_topbar(False)      # this menu has its own Home button (below)
+        nav.app.show_topbar(True)       # Home + Tabs (app tabs) on top, like the other screens; no WebView here
     except Exception:
         pass
     st = browser_service.state()
