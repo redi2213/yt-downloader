@@ -1,19 +1,21 @@
 Rubika VOD log
-2026-11-27 09:04:37 UTC
+2026-11-27 09:14:41 UTC
 python 3.14.2 | Android-13-aarch64-64bit-ELF
 app_version=2.86 id=rubika_vod
-inputs: {"page": "https://vod.rubika.ir/media/291441", "season": "all", "episodes": "all", "quality": "master", "own_auth": false}
+inputs: {"page": "https://vod.rubika.ir/media/291423", "season": "all", "episodes": "3", "quality": "master", "own_auth": false}
 
 --- steps ---
-  auth taken from export 2026-11-27_12-11-23 (32 chars)
-media id 291441 | season=all episodes=all quality=master | your auth
-  getAccountInfo OK (6.7s) keys=[subscription_info,user_info]
+auth: saved from an earlier run
+media id 291423 | season=all episodes=3 quality=master | your auth
+  getAccountInfo OK (2.2s) keys=[subscription_info,user_info]
   subscription_info: {"has_paid_subscription": false, "has_network_subscription": true, "network_subscription_type": "MTN"}
-  getMedia OK (0.6s) keys=[media]
-title=قسمت دوم type=Episode
-episode قسمت دوم (id 291441)
-  getPlayInfo OK (1.3s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer27.iranlms.ir/play/st1/6ad1b9f8017d18cb6d6f3131/playlist.m3u8?token=<hidden>
+  getMedia OK (1.6s) keys=[media]
+title=یَل type=Series
+  getSeasonEpisodes OK (0.6s) keys=[episodes]
+season 1: 6 episodes
+episode S01E03 قسمت سوم (id 292936)
+  getPlayInfo OK (3.0s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer87.iranlms.ir/play/st18/6adaf81c7e3cc4e483cb3854/playlist.m3u8?token=<hidden>
 
 --- result ---
-OK: 1 link(s) for قسمت دوم
-  قسمت دوم | master | https://vodrbstreamer27.iranlms.ir/play/st1/6ad1b9f8017d18cb6d6f3131/playlist.m3u8?token=<hidden>
+OK: 1 link(s) for یَل
+  S01E03 قسمت سوم | master | https://vodrbstreamer87.iranlms.ir/play/st18/6adaf81c7e3cc4e483cb3854/playlist.m3u8?token=<hidden>
