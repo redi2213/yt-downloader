@@ -141,6 +141,7 @@ def build_domains(nav, note=""):
         _button(nav, "Continue", go)
     _title(nav, "Network requests")
     _button(nav, "Network requests (Copy as cURL)", lambda b: open_netlog(nav))
+    _button(nav, "Full page export (upload to yt-exports)", lambda b: open_fullexport(nav))
     nav.add(wrapped_label(_LIMITS))
     _button(nav, "Back to the menu", lambda b: (reset(), browser_pages.open_menu(nav)))
 
@@ -260,6 +261,98 @@ def build_confirm(nav, name, label):
     nav.add(yes)
     _button(nav, "Cancel", lambda b: build_send(nav))
     _button(nav, "Back to browser", lambda b: _leave(nav))
+
+
+# -- Full page export: cookies + network requests + storage + page.html -> the private repository yt-exports ---------
+# Build needed (BrowserHelper.inspect("storage"), NATIVE_API 3). The upload code is outside the pack (core/page_export.py,
+# services/page_export_service.py, api/export_prefs.py) and imported when the screen opens. Always asks first.
+def open_fullexport(nav):
+    nav.remember(lambda: open_export(nav))
+    build_fullexport(nav)
+
+
+def build_fullexport(nav, note=""):
+    from api import export_prefs
+    nav.clear()
+    _title(nav, "Full page export")
+    page = _S.get("page") or ""
+    nav.add(wrapped_label(f"Site: {bc.host_of(page)}" if page else "Open a page first"))
+    nav.add(wrapped_label("Uploads the cookies (all HttpOnly ones too), the network requests, the storage "
+                          f"(localStorage / sessionStorage) and the HTML of this page to your private repository "
+                          f"{export_prefs.REPO}. The cookies are not encrypted: only the privacy of that repository "
+                          "protects them. Nothing is sent without your confirmation."))
+    status = _status()
+    status.text = note
+    nav.add(status)
+    if not export_prefs.get_token():
+        nav.add(wrapped_label("Add the exports token first: Settings > Account and sign-in > Exports token."))
+    elif page:
+        nav.add(wrapped_label(f"Cookies: {len(_chosen())}"))
+        yes = Button(text="Yes, upload to " + export_prefs.REPO, size_hint_y=None, height=BTN_H)
+        yes.bind(on_press=lambda _b: _run_fullexport(nav, yes, status))
+        nav.add(yes)
+    _button(nav, "Back to domains", lambda b: build_domains(nav))
+    _button(nav, "Back to browser", lambda b: _leave(nav))
+
+
+def _run_fullexport(nav, yes, status):
+    from api import export_prefs
+    from core import page_export
+    from services import page_export_service
+    br = nav.browser
+    yes.disabled = True
+    status.text = "Reading the page..."
+    page, ua = _S.get("page") or "", _S.get("ua") or ""
+    cookies_txt = bc.to_netscape(_chosen())
+    net = _netlog_data(nav) or {}
+    st = browser_service.state()
+    media = list(st.tabs.session_for(st.tabs.current()["id"]).items.values())
+    out = {}
+
+    def read(kind, then):
+        start = getattr(br, "inspect", None)
+        if br is None or start is None or not start(kind):
+            then(None)
+            return
+        tries = {"n": 0}
+
+        def poll(_dt):
+            tries["n"] += 1
+            res = br.inspect_result()
+            if res is None:
+                if tries["n"] >= 40:
+                    then(None)
+                    return False
+                return True
+            then(res)
+            return False
+        Clock.schedule_interval(poll, 0.3)
+
+    def show(res):
+        if res.get("ok"):
+            status.text = f"Uploaded to {export_prefs.REPO}/{res.get('path')}"
+        else:
+            yes.disabled = False
+            status.text = res.get("error") or "Could not upload"
+
+    def upload():
+        where, files = page_export.build_files(page, ua, cookies_txt, net.get("items") or [], media,
+                                               out.get("storage"), out.get("html"))
+        status.text = "Uploading..."
+        page_export_service.start_upload(
+            where, files, lambda text: Clock.schedule_once(lambda dt: setattr(status, "text", text)),
+            lambda res: Clock.schedule_once(lambda dt: show(res)))
+
+    def got_html(text):
+        out["html"] = text
+        status.text = "Reading the storage..."
+        read("storage", got_storage)
+
+    def got_storage(text):
+        out["storage"] = text
+        upload()
+
+    read("html", got_html)
 
 
 # -- Network requests (Fetch / XHR of the page): request, answer, Copy as cURL --------------------------------------------
