@@ -753,6 +753,43 @@ def step_js_save(host, url="https://vod.rubika.ir/media/291423", find="", before
     return "text not found in %d chunks" % len(srcs)
 
 
+def _shape(o, d=0):
+    if isinstance(o, dict):
+        if d >= 4:
+            return "{...%d keys}" % len(o)
+        return {k: _shape(v, d + 1) for k, v in list(o.items())[:40]}
+    if isinstance(o, list):
+        return [_shape(o[0], d + 1), "...%d items" % len(o)] if o else []
+    if isinstance(o, str):
+        return o[:60]
+    return o
+
+
+def step_rubika_media_info(host, url="", auth=""):
+    """Rubika getMedia answer for any media id (episode or series) from THIS phone: prints its shape
+    (keys and values cut to 60 chars, first list item only). To see how an episode points to its series."""
+    import random
+    import string
+    import requests
+    m = re.search(r"/media/(\d+)", str(url or ""))
+    mid = m.group(1) if m else (str(url) if str(url).isdigit() else "")
+    if not mid:
+        return "give url=https://vod.rubika.ir/media/<id>"
+    au = auth or "".join(random.choice(string.ascii_lowercase) for _ in range(32))
+    ua = "Mozilla/5.0 (Linux; Android 13; M2101K6G Build/TKQ1.221013.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/158.0.8127.46 Mobile Safari/537.36"
+    hdr = {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*", "User-Agent": ua,
+           "Origin": "https://vod.rubika.ir", "Referer": "https://vod.rubika.ir/"}
+    body = {"auth": au, "api_version": "1", "client": {"app_name": "Main", "app_version": "0.1.0", "package": "vod.rubika.ir",
+            "platform": "VODWeb", "lang_code": "fa"}, "data": {"media_id": mid}, "method": "getMedia"}
+    r = requests.post("https://rbvod30.iranlms.ir/", json=body, headers=hdr, timeout=30)
+    try:
+        j = r.json()
+    except Exception:
+        return "HTTP %s not JSON: %s" % (r.status_code, r.text[:200])
+    out = "media_id %s | HTTP %s status=%s det=%s\n" % (mid, r.status_code, j.get("status"), j.get("status_det"))
+    return out + json.dumps(_shape(j.get("data")), ensure_ascii=False, indent=1)[:5500]
+
+
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
@@ -764,6 +801,7 @@ ARG_STEPS = [
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
     ("hls_ip_test", "HLS link test from this phone (Iran IP)", step_hls_ip_test),
     ("rubika_api_test", "Rubika VOD API from this phone (guest auth)", step_rubika_api_test),
+    ("rubika_media_info", "Rubika getMedia shape for any media id", step_rubika_media_info),
     ("js_scan", "Scan a page's JS chunks for a pattern", step_js_scan),
     ("js_save", "Save a slice of a page JS chunk to the repo", step_js_save),
 ]
