@@ -1,14 +1,13 @@
 {
- "id": "2026-11-25-tpb-10",
- "title": "thepornbang: error 1 now (worked at 00:34 UTC): network identity + session test",
+ "id": "rubika-hls-ip-test",
+ "title": "Rubika HLS from phone IP (compare with GitHub 403)",
  "steps": [
   {
-   "step": "net_identity"
+   "step": "net_identity",
+   "site": "vodrbstreamer48.iranlms.ir"
   },
   {
-   "step": "session_test",
-   "url": "https://www.thepornbang.com/video/summer-of-jolee-love_v1/",
-   "count": 2
+   "step": "hls_ip_test"
   }
  ]
 }
