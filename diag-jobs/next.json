@@ -1,38 +1,38 @@
 {
- "id": "rubika-register-code",
- "title": "Rubika web app: registerDevice / RSA code",
+ "id": "rubika-save-code",
+ "title": "Save Rubika web app code slices (register/sign-in)",
  "steps": [
   {
-   "step": "js_scan",
+   "step": "js_save",
    "url": "https://vod.rubika.ir/media/291423",
-   "pattern": "getRegisterDevicePayload=|device_hash",
-   "width": 1300,
-   "limit": 4,
-   "label": "register payload"
+   "find": "[\"checkRSA\",()=>I",
+   "before": 60,
+   "length": 22000,
+   "name": "rubika_signin_module.js"
   },
   {
-   "step": "js_scan",
+   "step": "js_save",
    "url": "https://vod.rubika.ir/media/291423",
-   "pattern": "checkRSA",
-   "width": 1300,
-   "limit": 4,
-   "label": "checkRSA"
+   "find": "AES.encrypt(a,n,{mode",
+   "before": 2500,
+   "length": 5000,
+   "name": "rubika_aes.js"
   },
   {
-   "step": "js_scan",
+   "step": "js_save",
    "url": "https://vod.rubika.ir/media/291423",
-   "pattern": "REGISTER_DEVICE\\)|registerDevice\\(",
-   "width": 1300,
-   "limit": 4,
-   "label": "api registerDevice"
+   "find": "getRegisterDevicePayload=",
+   "before": 3000,
+   "length": 17000,
+   "name": "rubika_authguard.js"
   },
   {
-   "step": "js_scan",
+   "step": "js_save",
    "url": "https://vod.rubika.ir/media/291423",
-   "pattern": "auth_enc|data_enc|tmp_session|\\.decrypt\\(",
-   "width": 1000,
-   "limit": 6,
-   "label": "auth decrypt"
+   "find": "t.REGISTER_DEVICE=\"registerDevice\"",
+   "before": 1500,
+   "length": 3500,
+   "name": "rubika_methods.js"
   }
  ]
 }
