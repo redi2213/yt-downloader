@@ -297,6 +297,63 @@ public class BrowserHelper {
         }
     }
 
+    // ---- file chooser (upload buttons on web pages) ------------------------------------
+    private static final int FILE_REQ = 7702;
+    private static ValueCallback<Uri[]> fileCb = null;
+    private static boolean resultHooked = false;
+
+    /** Hooks the activity's onActivityResult (p4a PythonActivity.registerActivityResultListener) once, by reflection. */
+    private static void hookResult() {
+        if (resultHooked || activity == null) return;
+        try {
+            Class<?> li = Class.forName("org.kivy.android.PythonActivity$ActivityResultListener");
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(li.getClassLoader(), new Class<?>[] { li },
+                new java.lang.reflect.InvocationHandler() {
+                    public Object invoke(Object p, java.lang.reflect.Method m, Object[] a) {
+                        String n = m.getName();
+                        if ("onActivityResult".equals(n) && a != null && a.length == 3) {
+                            onFileResult(((Integer) a[0]).intValue(), ((Integer) a[1]).intValue(), (android.content.Intent) a[2]);
+                            return null;
+                        }
+                        if ("hashCode".equals(n)) return Integer.valueOf(System.identityHashCode(p));
+                        if ("equals".equals(n)) return Boolean.valueOf(a != null && a.length == 1 && p == a[0]);
+                        if ("toString".equals(n)) return "BrowserHelper.FileResultListener";
+                        return null;
+                    }
+                });
+            activity.getClass().getMethod("registerActivityResultListener", li).invoke(activity, proxy);
+            resultHooked = true;
+        } catch (Throwable t) { resultHooked = false; }
+    }
+
+    private static void onFileResult(int req, int res, android.content.Intent data) {
+        if (req != FILE_REQ) return;
+        ValueCallback<Uri[]> cb = fileCb;
+        fileCb = null;
+        if (cb == null) return;
+        Uri[] out = null;
+        try {
+            if (res == Activity.RESULT_OK && data != null) out = WebChromeClient.FileChooserParams.parseResult(res, data);
+        } catch (Throwable t) { out = null; }
+        cb.onReceiveValue(out);
+    }
+
+    /** The page's <input type=file> / upload button: opens the system file or photo picker. */
+    private static boolean startFileChooser(ValueCallback<Uri[]> cb, WebChromeClient.FileChooserParams p) {
+        if (activity == null) { cb.onReceiveValue(null); return true; }
+        hookResult();
+        if (!resultHooked) { cb.onReceiveValue(null); return true; }
+        if (fileCb != null) { try { fileCb.onReceiveValue(null); } catch (Throwable t) { } }
+        fileCb = cb;
+        try {
+            activity.startActivityForResult(p.createIntent(), FILE_REQ);
+        } catch (Throwable t) {
+            fileCb = null;
+            cb.onReceiveValue(null);
+        }
+        return true;
+    }
+
     // ---- view set-up ----------------------------------------------------------------
     public static void create(final Activity act, final int top) {
         createWithProfile(act, top, profileName, secureProfile);
@@ -1351,6 +1408,11 @@ public class BrowserHelper {
             ask("Permission", req.getOrigin() + " wants to use the " + what + ".", os.toArray(new String[0]),
                 new Runnable() { public void run() { req.grant(grant.toArray(new String[0])); } },
                 new Runnable() { public void run() { req.deny(); } });
+        }
+
+        @Override
+        public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, WebChromeClient.FileChooserParams params) {
+            return startFileChooser(cb, params);
         }
 
         @Override
