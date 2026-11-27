@@ -1,16 +1,16 @@
-# Diagnostics (job) 2026-11-27 01:44:45 UTC, diag.py v2026-11-27d
+# Diagnostics (job) 2026-11-27 01:46:28 UTC, diag.py v2026-11-27e
 
 job: rubika-save-code
 title: Save Rubika web app code slices (register/sign-in)
 
-## Unknown step (js_save)
-unknown step: js_save
+## Save a slice of a page JS chunk to the repo (js_save)
+saved rubika_signin_module.js: 4107 chars from 46c75295dc6393dd.js at 499505
 
-## Unknown step (js_save)
-unknown step: js_save
+## Save a slice of a page JS chunk to the repo (js_save)
+saved rubika_aes.js: 5000 chars from 46c75295dc6393dd.js at 59955
 
-## Unknown step (js_save)
-unknown step: js_save
+## Save a slice of a page JS chunk to the repo (js_save)
+text not found in 20 chunks
 
-## Unknown step (js_save)
-unknown step: js_save
+## Save a slice of a page JS chunk to the repo (js_save)
+saved rubika_methods.js: 3500 chars from ebc9d4d8e0f0e835.js at 994
