@@ -1,0 +1,313 @@
+# app-id: rubika_vod
+# app-title: Rubika VOD links
+# app-domains: vod.rubika.ir
+# app-secrets:
+name: Rubika VOD links
+run-name: ${{ inputs.run_title || inputs.url }} [${{ inputs.job_id }}]${{ inputs.rerun && format(' ~{0}', inputs.rerun) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Rubika page link of the movie or series (https://vod.rubika.ir/media/...)'
+        required: true
+        type: string
+      season:
+        description: 'Season number or all'
+        required: false
+        default: 'all'
+        type: string
+      episodes:
+        description: 'Episodes: all, last, a number like 3, or a range like 2-5'
+        required: false
+        default: 'all'
+        type: string
+      quality:
+        description: 'Quality: master, all, 1080p, 720p, 468p or 360p'
+        required: false
+        default: 'master'
+        type: string
+      auth:
+        description: 'Rubika auth (empty = random guest auth)'
+        required: false
+        default: ''
+        type: string
+      job_id:
+        description: 'Set by the app so it can find this exact run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      run_title:
+        description: 'Short name for this run, set by the app (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      rerun:
+        description: 'Set by the app so Run again can repeat this run (leave empty when running by hand)'
+        required: false
+        default: ''
+        type: string
+      storage:
+        description: 'Where to keep the files: github, arvan or both (set by the app)'
+        required: false
+        default: 'github'
+        type: string
+      arvan_bucket:
+        description: 'Preferred Arvan bucket id (set by the app; empty = the main bucket)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Get the direct links from Rubika
+        env:
+          PAGE_URL: ${{ inputs.url }}
+          SEASON: ${{ inputs.season }}
+          EPISODES: ${{ inputs.episodes }}
+          QUALITY: ${{ inputs.quality }}
+          AUTH_TOKEN: ${{ inputs.auth }}
+        run: |
+          mkdir -p out
+          python3 - <<'PY'
+          import json, os, random, re, string, sys, time, urllib.request, urllib.error
+          from urllib.parse import urljoin
+          from datetime import datetime, timezone
+
+          API = "https://rbvod30.iranlms.ir/"
+          UA = "Mozilla/5.0 (Linux; Android 13; M2101K6G Build/TKQ1.221013.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/158.0.8127.46 Mobile Safari/537.36"
+          PAGE = os.environ.get("PAGE_URL", "").strip()
+          SEASON = (os.environ.get("SEASON") or "all").strip().lower()
+          EPS = (os.environ.get("EPISODES") or "all").strip().lower()
+          QUALITY = (os.environ.get("QUALITY") or "master").strip().lower()
+          AUTH = (os.environ.get("AUTH_TOKEN") or "").strip()
+
+
+          class Blocked(Exception):
+              pass
+
+
+          def die(msg):
+              print("::error::" + msg)
+              sys.exit(1)
+
+
+          m = re.search(r"/media/(\d+)", PAGE)
+          MID = m.group(1) if m else (PAGE if PAGE.isdigit() else "")
+          if not MID:
+              die("Give the Rubika page link, like https://vod.rubika.ir/media/291423 (or only the number)")
+          if not AUTH:
+              AUTH = "".join(random.choice(string.ascii_lowercase) for _ in range(32))
+              print("No auth given: using a random guest auth")
+          TRACK = "{'svc': 'vod_backend', 'l': 'Page_home', 's': '%s'}" % "".join(random.choice("0123456789abcdef") for _ in range(24))
+          HDR = {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*", "User-Agent": UA,
+                 "Origin": "https://vod.rubika.ir", "Referer": "https://vod.rubika.ir/"}
+
+
+          def call(method, data):
+              d = dict(data)
+              d["track_id"] = TRACK
+              body = {"auth": AUTH, "api_version": "1",
+                      "client": {"app_name": "Main", "app_version": "0.1.0", "package": "vod.rubika.ir", "platform": "VODWeb", "lang_code": "fa"},
+                      "data": d, "method": method}
+              payload = json.dumps(body).encode()
+              last = ""
+              for _ in range(3):
+                  try:
+                      req = urllib.request.Request(API, data=payload, headers=HDR)
+                      with urllib.request.urlopen(req, timeout=30) as r:
+                          j = json.loads(r.read().decode("utf-8", "replace"))
+                      if j.get("status") != "OK":
+                          raise RuntimeError("%s: %s / %s" % (method, j.get("status"), j.get("status_det")))
+                      return j.get("data") or {}
+                  except urllib.error.HTTPError as e:
+                      if e.code == 403:
+                          raise Blocked()
+                      last = "%s: HTTP %s" % (method, e.code)
+                  except RuntimeError:
+                      raise
+                  except Exception as e:
+                      last = "%s: %s %s" % (method, type(e).__name__, e)
+                  time.sleep(2)
+              raise RuntimeError(last)
+
+
+          def pick(n):
+              if EPS in ("", "all"):
+                  return set(range(1, n + 1))
+              if EPS == "last":
+                  return {n}
+              r = re.fullmatch(r"(\d+)\s*-\s*(\d+)", EPS)
+              if r:
+                  return set(range(int(r.group(1)), int(r.group(2)) + 1))
+              if EPS.isdigit():
+                  return {int(EPS)}
+              die("episodes must be: all, last, a number like 3, or a range like 2-5")
+
+
+          def variants(master):
+              req = urllib.request.Request(master, headers={"User-Agent": UA, "Referer": "https://vod.rubika.ir/", "Origin": "https://vod.rubika.ir"})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      lines = r.read().decode("utf-8", "replace").splitlines()
+              except Exception as e:
+                  print("  warn: could not read the master playlist (%s %s)" % (type(e).__name__, e))
+                  return []
+              res = []
+              for i, ln in enumerate(lines):
+                  if ln.startswith("#EXT-X-STREAM-INF") and i + 1 < len(lines):
+                      u = urljoin(master, lines[i + 1].strip())
+                      q = re.search(r"out_([0-9a-z]+)\.m3u8", u)
+                      res.append((q.group(1).lower() if q else "variant", u))
+              return res
+
+
+          items = []
+          try:
+              media = call("getMedia", {"media_id": MID}).get("media") or {}
+              mtype = media.get("media_type") or ""
+              title = (media.get("title") or MID).replace("|", "-")
+              print("Title: %s | type: %s | id: %s" % (title, mtype, MID))
+              if mtype == "Series":
+                  seasons = media.get("seasons") or []
+                  if not seasons:
+                      die("This series has no seasons in the answer")
+                  if EPS == "last" and SEASON == "all":
+                      seasons = seasons[-1:]
+                  for si, s in enumerate(seasons, 1):
+                      snum = s.get("season_number") or si
+                      if SEASON != "all" and str(snum) != SEASON:
+                          continue
+                      eps = call("getSeasonEpisodes", {"series_id": MID, "season_id": s.get("season_id"), "section_type": "MediaInfo"}).get("episodes") or []
+                      keep = pick(len(eps))
+                      print("Season %s: %d episodes" % (snum, len(eps)))
+                      for ei, ep in enumerate(eps, 1):
+                          if ei in keep:
+                              name = (ep.get("title") or "").replace("|", "-")
+                              items.append(("S%02dE%02d %s" % (int(snum), ei, name), ep.get("media_id")))
+                      time.sleep(0.4)
+              else:
+                  items.append((title, MID))
+          except Blocked:
+              die("Rubika API answered HTTP 403: this IP is blocked. Run this tool on the phone (Iran IP), not on GitHub.")
+          except RuntimeError as e:
+              die("Rubika API failed: %s (a network error = IP blocked or API host changed; an auth error = paste a real auth into the auth input)" % e)
+
+          if not items:
+              die("No episode matched (check the season and episodes inputs)")
+
+          rows, urls = [], []
+          for label, eid in items[:200]:
+              try:
+                  d = call("getPlayInfo", {"media_id": eid, "type": "Main", "version": 1})
+              except Blocked:
+                  die("Rubika API answered HTTP 403: this IP is blocked. Run this tool on the phone (Iran IP), not on GitHub.")
+              except RuntimeError as e:
+                  print("skip %s: %s" % (label, e))
+                  continue
+              if d.get("has_access") is False:
+                  print("skip %s: no access (needs a subscription or login)" % label)
+                  continue
+              master = ((d.get("play_data") or {}).get("play_url") or "").strip()
+              if not master:
+                  print("skip %s: no play_url in the answer" % label)
+                  continue
+              got = []
+              if QUALITY in ("master", "all"):
+                  got.append(("master", master))
+              if QUALITY != "master":
+                  vs = variants(master)
+                  if QUALITY == "all":
+                      got += vs
+                  else:
+                      sel = [v for v in vs if v[0] == QUALITY]
+                      if sel:
+                          got += sel
+                      else:
+                          print("  quality %s not found for %s: giving the master link" % (QUALITY, label))
+                          got.append(("master", master))
+              for q, u in got:
+                  rows.append("%s | %s | %s" % (label, q, u))
+                  urls.append(u)
+              print("ok %s (%d link)" % (label, len(got)))
+              time.sleep(0.4)
+
+          if not urls:
+              die("No link was produced (see the lines above)")
+          os.makedirs("out", exist_ok=True)
+          now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+          head = ["# %s (%s, id %s)" % (title, mtype or "?", MID), "# made %s - the links are signed and expire, use them soon" % now]
+          with open("out/rubika_links.txt", "w", encoding="utf-8") as f:
+              f.write("\n".join(head + rows) + "\n")
+          with open("out/rubika_urls.txt", "w", encoding="utf-8") as f:
+              f.write("\n".join(urls) + "\n")
+          print("Done: %d link(s) in out/rubika_links.txt and out/rubika_urls.txt" % len(urls))
+          PY
+
+      - name: Get the publish scripts
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: _repo
+          sparse-checkout: scripts
+      - name: Install boto3 (Arvan Cloud)
+        if: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') }}
+        run: python3 -m pip install --quiet boto3 || python3 -m pip install --quiet --break-system-packages boto3
+      - name: Publish (GitHub Release and/or Arvan Cloud)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORAGE: ${{ inputs.storage || 'github' }}
+          ARVAN_BUCKET: ${{ inputs.arvan_bucket }}
+          ALL_SECRETS: ${{ (inputs.storage == 'arvan' || inputs.storage == 'both') && toJSON(secrets) || '' }}
+        run: |
+          python3 _repo/scripts/storage_publish.py publish --dir out --tag "run-${{ github.run_id }}" --title "Rubika VOD run-${{ github.run_id }}"
+
+      - name: Notify (ntfy)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          TOOL_NAME: Rubika VOD links
+          RUN_TITLE: ${{ inputs.run_title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          CFG=$(curl -fsS -m 20 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/ntfy.json?ref=config" 2>/dev/null || true)
+          if [ -z "$CFG" ]; then echo "No ntfy.json on the config branch: no notification."; exit 0; fi
+          RESULT=$(CFG="$CFG" python3 - <<'PY'
+          import json, os, re
+          try:
+              d = json.loads(os.environ["CFG"])
+          except Exception:
+              d = {}
+          topic = str(d.get("topic", "")).strip()
+          server = str(d.get("server") or "https://ntfy.sh").strip().rstrip("/")
+          if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic) and re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+              print(topic + " " + server)
+          PY
+          )
+          if [ -z "$RESULT" ]; then echo "ntfy topic is not set: no notification."; exit 0; fi
+          TOPIC=${RESULT%% *}
+          SERVER=${RESULT#* }
+          case "$JOB_STATUS" in
+            success)   WORD="OK";        TAGS="white_check_mark"; PRIO="default" ;;
+            cancelled) WORD="Cancelled"; TAGS="no_entry_sign";    PRIO="default" ;;
+            *)         WORD="FAILED";    TAGS="x";                PRIO="high" ;;
+          esac
+          BODY="$TOOL_NAME: $WORD"
+          if [ -n "${RUN_TITLE:-}" ]; then BODY="$BODY"$'\n'"$RUN_TITLE"; fi
+          BODY="$BODY"$'\n'"$RUN_URL"
+          if curl -fsS -m 20 -X POST "$SERVER/$TOPIC" -H "Title: YT Bridge - $TOOL_NAME - $WORD" \
+              -H "Tags: $TAGS" -H "Priority: $PRIO" -H "Click: $RUN_URL" --data-binary "$BODY" >/dev/null; then
+            echo "Notification sent."
+          else
+            echo "ntfy could not be reached."
+          fi
