@@ -220,6 +220,17 @@ def collect(page, season, eps, quality, auth, log):
         log.append("title=%s type=%s" % (title, mtype))
         items = []
         counts = {}
+        for se in media.get("season_episodes") or []:
+            if se.get("season_number") is not None:
+                counts[str(se.get("season_number"))] = len(se.get("episodes") or [])
+        if mtype == "Episode":
+            sid, sname = str(media.get("series_id") or ""), (media.get("short_description") or media.get("latin_name") or title)
+        elif mtype == "Series":
+            sid, sname = mid, title
+        else:
+            sid, sname = "", title
+        pub = media.get("publish_date_info") or ""
+        log.append("series_id=%s name=%s publish=%s" % (sid or "-", sname, pub or "-"))
         if mtype == "Series":
             seasons = media.get("seasons") or []
             if not seasons:
@@ -280,7 +291,8 @@ def collect(page, season, eps, quality, auth, log):
         raise Fail("Rubika answered HTTP 403: this network is blocked. Turn Wi-Fi/VPN off and use Irancell mobile data.")
     if not rows:
         raise Fail("No link was produced. See the log (last lines): " + " / ".join(x.strip() for x in log[-3:]))
-    return {"title": title, "mtype": mtype, "mid": mid, "rows": rows, "counts": counts}
+    return {"title": title, "mtype": mtype, "mid": mid, "rows": rows, "counts": counts,
+            "series_id": sid, "series_name": sname, "pub": pub}
 
 
 # ---- log ----
@@ -438,9 +450,10 @@ def show_results(host, res, report, saved):
     host.button("Copy links only", lambda: (host.copy(urls), host.set_status("Copied %d links" % len(rows))))
     host.button("Share links", lambda: host.share_text(full))
     host.button("Copy log", lambda: (host.copy(report), host.set_status("Log copied")))
-    if res.get("mtype") == "Series":
+    if res.get("series_id"):
         host.button("Follow this series (save by name)", lambda: host.show(
-            follow_form, res["mid"], res["title"], res.get("counts") or {}))
+            follow_form, res["series_id"], res.get("series_name") or res["title"], res.get("counts") or {}, None,
+            res.get("pub") or ""))
     for label, q, u in rows[:MAX_BUTTONS]:
         _row_button(host, label, q, u)
     if len(rows) > MAX_BUTTONS:
@@ -465,6 +478,19 @@ _LOCK = threading.Lock()
 _CHECK_LOCK = threading.Lock()
 _FLOG = []
 _SAVED = {"err": 0}
+
+
+_PDAYS = [("چهارشنبه", 2), ("پنجشنبه", 3), ("سهشنبه", 1), ("دوشنبه", 0), ("یکشنبه", 6), ("جمعه", 4), ("شنبه", 5)]
+
+
+def _parse_pub(txt):
+    """Rubika's publish_date_info like 'چهارشنبه‌ها، 20:00' -> (weekday 0=Mon.., minutes) or (None, None)."""
+    t = str(txt or "").replace("\u200c", "").replace(" ", "").replace("ي", "ی").replace("ك", "ک")
+    t = t.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    day = next((d for w, d in _PDAYS if w in t), None)
+    m = re.search(r"(\d{1,2}):(\d{2})", t)
+    hm = int(m.group(1)) * 60 + int(m.group(2)) if m and int(m.group(1)) < 24 and int(m.group(2)) < 60 else None
+    return day, hm
 
 
 def _load(host):
@@ -699,14 +725,19 @@ def _toggle_follow(host):
     host.replace(series_list)
 
 
-def follow_form(host, mid, title, counts=None, old=None):
+def follow_form(host, mid, title, counts=None, old=None, pub=""):
     old = old or {}
     counts = counts or {}
+    sug_day, sug_hm = _parse_pub(pub)
+    first_day = old.get("day") if old.get("day") is not None else sug_day
+    order = ([first_day] if first_day is not None else []) + [k for k in DAY_ORDER if k != first_day]
     host.title("Follow a series")
     host.text("Name to save it with:")
     name = host.input("name")
-    host.text("Release day (Tehran time). You must pick it:")
-    day = host.choice([DAY_NAMES[k] for k in DAY_ORDER])
+    host.text("Release day (Tehran time)%s:" % (
+        (" - Rubika says: %s, so %s is first in the list" % (pub, DAY_NAMES[first_day].split(" ")[0])) if first_day is not None
+        else ". You must pick it"))
+    day = host.choice([DAY_NAMES[k] for k in order])
     host.text("Release time (Tehran, 24h), like 12:00:")
     tm = host.input("12:00")
     host.text("Season: last (newest; follows a new season by itself) or a number:")
@@ -721,7 +752,7 @@ def follow_form(host, mid, title, counts=None, old=None):
     quality = host.choice(QUALITIES)
     try:
         name.text = old.get("name") or title or mid
-        hm = int(old.get("hm", 720))
+        hm = int(old.get("hm", sug_hm if sug_hm is not None else 720))
         tm.text = "%02d:%02d" % (hm // 60, hm % 60)
         season.text = str(old.get("season") or "last")
         tries.text = str(old.get("tries") or DEF_TRIES)
@@ -742,6 +773,8 @@ def follow_form(host, mid, title, counts=None, old=None):
         for k, v in DAY_NAMES.items():
             if v == day.value:
                 wd = k
+        if wd is None:
+            wd = first_day
         if wd is None:
             host.set_status("Pick the release day")
             return
