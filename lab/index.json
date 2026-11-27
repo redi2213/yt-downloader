@@ -251,6 +251,36 @@
       ],
       "description": "Test: find TVs (SSDP), play a phone file on the TV from a small server on the phone (Range/Seek), Pause/Stop/Seek/Volume. Not promoted yet.",
       "min_host": 1
+    },
+    {
+      "id": "rubika_vod",
+      "title": "Rubika VOD links",
+      "file": "wf_rubika_vod.py",
+      "modules": [
+        "lib/lab_fa.py",
+        "lib/wf_core.py",
+        "lib/wf_runner.py",
+        "lib/lab_jobs.py"
+      ],
+      "description": "Give a vod.rubika.ir movie or series page link, get the direct (m3u8) links of the episodes. Run on this phone is the way that works if GitHub's IP is blocked. Workflow lab-rubika-vod.yml on the lab branch.",
+      "min_host": 1,
+      "meta": {
+        "id": "rubika_vod",
+        "title": "Rubika VOD links",
+        "domains": [
+          "vod.rubika.ir"
+        ]
+      },
+      "imported": {
+        "workflow": "lab-rubika-vod.yml",
+        "source": "written by Claude",
+        "files": [
+          ".github/workflows/lab-rubika-vod.yml",
+          "lab/wf_rubika_vod.py"
+        ],
+        "fixes": [],
+        "added": "2026-11-27T01:20:06Z"
+      }
     }
   ]
 }
