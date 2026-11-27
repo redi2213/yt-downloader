@@ -775,7 +775,35 @@ def step_rubika_media_info(host, url="", auth=""):
     mid = m.group(1) if m else (str(url) if str(url).isdigit() else "")
     if not mid:
         return "give url=https://vod.rubika.ir/media/<id>"
-    au = auth or "".join(random.choice(string.ascii_lowercase) for _ in range(32))
+    au, note = auth, "given"
+    if not au:
+        try:
+            from api import export_prefs
+            tok = export_prefs.get_token()
+            base = "https://api.github.com/repos/%s/contents/" % export_prefs.REPO
+            gh = {"Authorization": "token " + tok, "Accept": "application/vnd.github+json", "User-Agent": "ytbridge"}
+            rw = dict(gh, Accept="application/vnd.github.raw+json")
+            names = sorted((i["name"] for i in requests.get(base + "vod.rubika.ir?ref=" + export_prefs.BRANCH, headers=gh, timeout=30).json()
+                            if i.get("type") == "dir"), reverse=True)
+            for nm in names[:3]:
+                rr = requests.get(base + "vod.rubika.ir/%s/requests.json?ref=%s" % (nm, export_prefs.BRANCH), headers=rw, timeout=30)
+                data = rr.json()
+                for q in (data.get("requests") if isinstance(data, dict) else data) or []:
+                    if "rbvod" in str(q.get("url", "")) and q.get("body"):
+                        try:
+                            au = str(json.loads(q["body"]).get("auth") or "")
+                        except Exception:
+                            au = ""
+                        if au:
+                            break
+                if au:
+                    note = "from export " + nm
+                    break
+        except Exception as ex:
+            note = "export read failed: %s" % str(ex)[:80]
+        if not au:
+            au = "".join(random.choice(string.ascii_lowercase) for _ in range(32))
+            note += " -> random guest"
     ua = "Mozilla/5.0 (Linux; Android 13; M2101K6G Build/TKQ1.221013.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/158.0.8127.46 Mobile Safari/537.36"
     hdr = {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*", "User-Agent": ua,
            "Origin": "https://vod.rubika.ir", "Referer": "https://vod.rubika.ir/"}
@@ -786,7 +814,7 @@ def step_rubika_media_info(host, url="", auth=""):
         j = r.json()
     except Exception:
         return "HTTP %s not JSON: %s" % (r.status_code, r.text[:200])
-    out = "media_id %s | HTTP %s status=%s det=%s\n" % (mid, r.status_code, j.get("status"), j.get("status_det"))
+    out = "media_id %s | auth %s | HTTP %s status=%s det=%s\n" % (mid, note, r.status_code, j.get("status"), j.get("status_det"))
     return out + json.dumps(_shape(j.get("data")), ensure_ascii=False, indent=1)[:5500]
 
 
