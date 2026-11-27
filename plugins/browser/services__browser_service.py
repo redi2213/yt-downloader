@@ -122,6 +122,38 @@ def fetch_headers(url, headers=None):
         r.close()
 
 
+def _hls_size(text, url, headers, bandwidth=0):
+    """Estimated bytes of one HLS quality (its media playlist text): the number of segments times the average size
+    of a few of them (HEAD); when no segment size is known: bandwidth x duration. None when nothing can be told."""
+    try:
+        from core import hls_download as hd
+        segs = hd.parse_media(text, url)["segments"]
+    except Exception:
+        segs = []
+    n = len(segs)
+    lens = []
+    for i in (sorted({0, n // 3, 2 * n // 3}) if n else ()):
+        try:
+            ln = bm.clean_length(fetch_headers(segs[i]["url"], headers).get("length"))
+        except Exception:
+            ln = None
+        if ln:
+            lens.append(ln)
+    if lens:
+        return int(sum(lens) / len(lens) * n)
+    dur = bm.hls_duration(text)
+    return int(bandwidth * dur / 8) if bandwidth and dur else None
+
+
+def _hls_variant_size(v, headers):
+    try:
+        r = requests.get(v["url"], headers=headers, timeout=10)
+        r.raise_for_status()
+        v["size"] = _hls_size(r.text, v["url"], headers, v.get("bandwidth") or 0)
+    except Exception:
+        pass
+
+
 def _probe_one(item, rules=None):
     headers = item.get("headers") or None
     try:
@@ -131,7 +163,14 @@ def _probe_one(item, rules=None):
         elif item["kind"] == "hls":
             r = requests.get(item["url"], headers=headers, timeout=10)
             r.raise_for_status()
-            item["variants"] = bm.parse_m3u8_variants(r.text, item["url"]) or None
+            variants = bm.parse_m3u8_variants(r.text, item["url"])
+            if variants:
+                with ThreadPoolExecutor(max_workers=4) as pool:      # the size of every quality of the master
+                    list(pool.map(lambda v: _hls_variant_size(v, headers), variants))
+                item["variants"] = variants
+            else:
+                item["variants"] = None
+                item["size"] = _hls_size(r.text, item["url"], headers)
         else:       # archive, APK, package, document, custom, unknown: name, type and size come from the headers
             bm.apply_headers(item, fetch_headers(item["url"], headers), rules or bm.Rules())
     except Exception:
