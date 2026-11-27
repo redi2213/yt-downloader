@@ -7,6 +7,7 @@ without copying anything, and the screen has a Copy log button.
 """
 import base64
 import json
+import json as J
 import platform
 import random
 import re
@@ -143,6 +144,51 @@ def _variants(master, log):
             q = re.search(r"out_([0-9a-z]+)\.m3u8", u)
             res.append((q.group(1).lower() if q else "variant", u))
     return res
+
+
+def _find_auth(data):
+    reqs = data.get("requests") if isinstance(data, dict) else data
+    for r in reqs or []:
+        if "rbvod" in str(r.get("url", "")) and r.get("body"):
+            try:
+                a = J.loads(r["body"]).get("auth")
+            except Exception:
+                a = None
+            if a:
+                return str(a)
+    return ""
+
+
+def _export_auth(log):
+    """Read the Rubika auth the web page used from your newest Browser export (private repo yt-exports)."""
+    try:
+        from api import export_prefs
+    except Exception as e:
+        raise Fail("Cannot read the exports settings (%s)" % e)
+    tok = export_prefs.get_token()
+    if not tok:
+        raise Fail("No exports token: add it in Settings > Account and sign-in")
+    base = "https://api.github.com/repos/%s/contents/" % export_prefs.REPO
+    hdr = {"Authorization": "token " + tok, "Accept": "application/vnd.github+json", "User-Agent": "ytbridge"}
+    raw = dict(hdr, Accept="application/vnd.github.raw+json")
+    code, text = _http("GET", base + "vod.rubika.ir?ref=" + export_prefs.BRANCH, hdr)
+    if code != 200:
+        raise Fail("Exports repo folder vod.rubika.ir: HTTP %s (make a Browser > Export cookies > Full page export on vod.rubika.ir while logged in)" % code)
+    names = sorted((i["name"] for i in J.loads(text) if i.get("type") == "dir"), reverse=True)
+    for name in names[:3]:
+        code, text = _http("GET", base + "vod.rubika.ir/%s/requests.json?ref=%s" % (name, export_prefs.BRANCH), raw)
+        if code != 200:
+            log.append("  export %s requests.json: HTTP %s" % (name, code))
+            continue
+        try:
+            a = _find_auth(J.loads(text))
+        except ValueError:
+            a = ""
+        if a:
+            log.append("  auth taken from export %s (%d chars)" % (name, len(a)))
+            return a
+        log.append("  export %s has no Rubika API request with an auth" % name)
+    raise Fail("No auth found in the newest vod.rubika.ir exports: log in on the site in the Browser, play a video, then Full page export")
 
 
 def collect(page, season, eps, quality, auth, log):
@@ -296,7 +342,7 @@ def build(host):
         pass
     host.text("4) Quality (master = one link that has all 4 qualities inside; all = every quality as its own link):")
     quality = host.choice(QUALITIES)
-    host.text("5) Rubika auth: leave EMPTY (a guest auth is used). Fill it only if the log says the guest auth is refused.")
+    host.text("5) Rubika auth: leave EMPTY. It is taken by itself from your newest Browser export of vod.rubika.ir (you must be logged in there).")
     auth = host.input("auth (optional)")
     host.button("Get links (this phone)", lambda: host.show(
         run, url.text.strip(), (season.text or "").strip() or "all", (episodes.text or "").strip() or "all",
@@ -313,16 +359,36 @@ def run(host, page, season, eps, quality, auth):
     params = {"page": page, "season": season, "episodes": eps, "quality": quality, "own_auth": bool(auth)}
 
     def work():
-        result, error = None, ""
+        result, error, used = None, "", auth
         try:
-            result = collect(page, season, eps, quality, auth, log)
+            if not used:
+                try:
+                    used = host.store.get("auth", "") or ""
+                except Exception:
+                    used = ""
+                if used:
+                    log.append("auth: saved from an earlier run")
+            if not used:
+                try:
+                    used = _export_auth(log)
+                except Fail as e:
+                    log.append("auth from export failed: %s" % e)
+            try:
+                result = collect(page, season, eps, quality, used, log)
+            except Fail as e:
+                if "NOT_REGISTERED" in str(e) and used and not auth:
+                    log.append("saved auth refused: reading a fresh one from the export")
+                    used = _export_auth(log)
+                    result = collect(page, season, eps, quality, used, log)
+                else:
+                    raise
         except Exception as e:
             error = "%s: %s" % (type(e).__name__, e) if not isinstance(e, Fail) else str(e)
             if not isinstance(e, Fail):
                 log.append(traceback.format_exc())
         report = _report(host, params, log, result, error)
         saved = _save(host, report)
-        return {"result": result, "error": error, "report": report, "saved": saved}
+        return {"result": result, "error": error, "report": report, "saved": saved, "auth": used if result else ""}
 
     def done(data, err):
         if err or not data:
@@ -330,6 +396,11 @@ def run(host, page, season, eps, quality, auth):
         elif data["error"]:
             host.replace(show_error, data["error"], data["report"], data["saved"])
         else:
+            try:
+                if data.get("auth"):
+                    host.store.set("auth", data["auth"])
+            except Exception:
+                pass
             host.replace(show_results, data["result"], data["report"], data["saved"])
 
     host.background(work, done=done)
