@@ -189,6 +189,22 @@ def start_ytdlp(page_url, on_done):
     run_in_background(work)
 
 
+def start_mediafire_direct(page_url, on_done):
+    """Reads a MediaFire file page and finds the direct file address. ``on_done({"ok", "url" | "error"})``."""
+    def work():
+        try:
+            r = requests.get(page_url, timeout=25, headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36"})
+            link = bm.mediafire_direct(r.text)
+            if link:
+                on_done({"ok": True, "url": link})
+            else:
+                on_done({"ok": False, "error": "No direct link found on that page"})
+        except Exception as e:
+            on_done({"ok": False, "error": str(e)[:80]})
+    run_in_background(work)
+
+
 # -- tabs, history and bookmarks (they stay after the app is closed) -----------------------------------------------
 class BrowserState:
     """The open tabs, the history and the bookmarks. Changes are written at most every few seconds

@@ -1,12 +1,13 @@
 """In-app browser: the Tabs, History and Bookmarks screens (the data is core/browser_tabs.py, kept by
 services/browser_service.state()). Written like screens/browser.py: English texts, translated by core/i18n."""
+from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 
-from core import browser_tabs as bt
+from core import browser_media as bm, browser_tabs as bt
 from screens.common import (BTN_H, CARD, CARD_ON, GAP, card_box, content_width, fa_font_kwargs, fa_text,
                             paint_card, wrapped_label, wrapped_label_height)
 from api import browser_prefs
@@ -139,6 +140,7 @@ def build_menu(nav):
 
 # -- a link pressed and held in the page ----------------------------------------------------------------------------
 def open_link_menu(nav, url, text=""):
+    url = bm.real_link(url)         # ad redirects joined by commas: the last address is the real link
     nav.remember(lambda: open_link_menu(nav, url, text))
     build_link_menu(nav, url, text)
 
@@ -203,7 +205,21 @@ def build_link_menu(nav, url, text=""):
             browser._copy(url)
             status.text = "Share is not available - copied to the clipboard"
 
+    def mediafire_direct():
+        status.text = "Getting the direct link..."
+
+        def done(res):
+            def draw(dt):
+                if not res.get("ok"):
+                    status.text = res.get("error") or "No direct link found"
+                    return
+                browser.open_actions(nav, [sess.add_link(res["url"], text)])
+            Clock.schedule_once(draw, 0)
+        browser_service.start_mediafire_direct(url, done)
+
     items = []
+    if bm.is_mediafire(url):
+        items.append(("Get direct file link (MediaFire)", mediafire_direct))
     if web:
         items += [("Open in a background tab", bg_tab), ("Open in the download editor", editor)]
     items += [("Copy link text", copy_text), ("Copy link", copy_link), ("Share link", share_link)]
