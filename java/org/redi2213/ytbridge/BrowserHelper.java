@@ -1301,6 +1301,14 @@ public class BrowserHelper {
             String host = u.getHost();
             if (host == null) return null;
             host = host.toLowerCase();
+            // a list of addresses joined by commas (ad, ad, real file): the last one is the real link
+            String low = url.toLowerCase();
+            int cut = Math.max(low.lastIndexOf(",http"), low.lastIndexOf("%2chttp"));
+            if (cut > 0) {
+                String t = url.substring(cut + (url.charAt(cut) == ',' ? 1 : 3));
+                String th = Uri.parse(t).getHost();
+                if (th != null && !th.equalsIgnoreCase(u.getHost()) && !t.equals(url)) return t;
+            }
             boolean known = false;
             for (String d : SHORT_HOSTS) {
                 if (host.equals(d) || host.endsWith("." + d)) { known = true; break; }
