@@ -97,13 +97,6 @@ def build_menu(nav):
     sess = st.tabs.session_for(tab["id"])
     page = sess.page if bt.is_web(sess.page) else tab.get("url")
     title = sess.title or tab.get("title") or ""
-    try:
-        from screens import home_menu
-        home_btn = Button(text="Home", size_hint_y=None, height=BTN_H)
-        home_btn.bind(on_release=lambda b: home_menu.open(nav, b))
-        nav.add(home_btn)
-    except Exception:
-        pass            # an older app without the Home drop-down
     nav.add(Label(text="Browser menu", size_hint_y=None, height=BTN_H))
     status = _status()
     nav.add(status)
