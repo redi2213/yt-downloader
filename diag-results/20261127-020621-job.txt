@@ -1,0 +1,16 @@
+# Diagnostics (job) 2026-11-27 02:06:21 UTC, diag.py v2026-11-27d
+
+job: rubika-save-code-2
+title: Save Rubika code slices 2 (AES, API client, token sign-in)
+
+## Unknown step (js_save)
+unknown step: js_save
+
+## Unknown step (js_save)
+unknown step: js_save
+
+## Unknown step (js_save)
+unknown step: js_save
+
+## Unknown step (js_save)
+unknown step: js_save
