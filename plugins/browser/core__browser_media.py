@@ -259,6 +259,47 @@ def dedupe_key(url):
 _IP_BOUND = re.compile(r"[?&]ip=[0-9a-f.:]{7,}", re.I)
 
 
+def real_link(url):
+    """A link made of several addresses joined by commas (ad redirect, ad redirect, real file: the download buttons of
+    mod sites): the last address is the real one. Any other link is returned as it is."""
+    text = (url or "").strip()
+    low = text.lower()
+    cut = max(low.rfind(",http"), low.rfind("%2chttp"))
+    if cut <= 0:
+        return text
+    tail = text[cut + (1 if text[cut] == "," else 3):]
+    host_a, host_b = urlsplit(text).netloc.lower(), urlsplit(tail).netloc.lower()
+    if not host_b or host_a == host_b:
+        return text
+    return tail
+
+
+def is_mediafire(url):
+    host = urlsplit(url or "").netloc.lower()
+    return host == "mediafire.com" or host.endswith(".mediafire.com")
+
+
+_MF_SCRAMBLED = re.compile(r'data-scrambled-url="([^"]+)"')
+_MF_HREF = re.compile(r'href="(https?://download[0-9a-z.-]*\.mediafire\.com/[^"]+)"', re.I)
+
+
+def mediafire_direct(html):
+    """The direct file address inside a MediaFire file page (the Download button), or an empty text."""
+    html = html or ""
+    m = _MF_SCRAMBLED.search(html)
+    if m:
+        try:
+            import base64
+            raw = m.group(1)
+            link = base64.b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8", "ignore").strip()
+            if link.startswith("http"):
+                return link
+        except Exception:
+            pass
+    m = _MF_HREF.search(html)
+    return m.group(1).replace("&amp;", "&") if m else ""
+
+
 def is_ip_bound(url):
     """A CDN link signed for one IP (``...&ip=1.2.3.4``): it works from the phone only, GitHub gets 404 / timeout."""
     return bool(_IP_BOUND.search(url or ""))
@@ -653,6 +694,7 @@ class Session:
     def add_link(self, url, title=""):
         """A link picked by hand (the long-press menu of a link): it joins the list like a file the page started,
         whatever its type, so the actions menu can work on it. Returns its key."""
+        url = real_link(url)
         key = dedupe_key(url)
         if key not in self.items:
             kind, ext = self.rules.classify(url)
