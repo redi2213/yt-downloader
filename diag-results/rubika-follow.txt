@@ -1,0 +1,14 @@
+Rubika follow log
+[Fri 13:27] yal (manual): NEW: S01E06 قسمت ششم
+  getMedia OK (0.4s) keys=[media]
+  getSeasonEpisodes OK (0.3s) keys=[episodes]
+media id 291423 | season=1 episodes=6-6 quality=720p | your auth
+  getAccountInfo OK (0.3s) keys=[subscription_info,user_info]
+  subscription_info: {"has_paid_subscription": false, "has_network_subscription": true, "network_subscription_type": "MTN"}
+  getMedia OK (0.4s) keys=[media]
+title=یَل type=Series
+  getSeasonEpisodes OK (0.3s) keys=[episodes]
+season 1: 6 episodes
+episode S01E06 قسمت ششم (id 295104)
+  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer42.iranlms.ir/play/st8/6afbcc8dbe586eb74338786e/playlist.m3u8?token=<hidden>
+  master playlist HTTP 200, 3614 chars
