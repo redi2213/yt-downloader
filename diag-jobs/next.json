@@ -1,9 +1,9 @@
 {
- "id": "rubika-api-test",
- "title": "Rubika VOD API from phone (random guest auth)",
+ "id": "rubika-js-scan",
+ "title": "Rubika web app: how does it register?",
  "steps": [
   {
-   "step": "rubika_api_test",
+   "step": "js_scan",
    "url": "https://vod.rubika.ir/media/291423"
   }
  ]
