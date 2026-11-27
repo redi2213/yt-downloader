@@ -449,15 +449,14 @@ def show_results(host, res, report, saved):
 
 
 # ---- follow: save a series by name and auto-check for new episodes ----
-# Saved in host.store ("follow_json"). While the app is open a background loop checks every series
-# inside its release window (weekday + time, Tehran) every 10 minutes until a new episode shows up,
-# plus a catch-up check every 6 hours. New links: notification + the series page (Copy / Share).
+# Saved in host.store ("follow_json"). While the app is open a background loop checks a series ONLY at its
+# release day and time (Tehran): up to `tries` checks, `every` minutes apart, until the new episode shows up;
+# then it gives up. No other checks. New links: notification + the series page (Copy / Share / Update).
 FOLLOW_ENV = "RUBIKA_FOLLOW_TOKEN"
 FOLLOW_LOG_PATH = "diag-results/rubika-follow.txt"
 TEHRAN_OFF = 12600  # Tehran = UTC+3:30, no daylight saving
-WINDOW_S = 6 * 3600
-RETRY_S = 600
-CATCHUP_S = 6 * 3600
+DEF_TRIES = 6
+DEF_EVERY = 10  # minutes
 TICK_S = 30
 DAY_NAMES = {5: "Saturday (شنبه)", 6: "Sunday (یکشنبه)", 0: "Monday (دوشنبه)", 1: "Tuesday (سه‌شنبه)",
              2: "Wednesday (چهارشنبه)", 3: "Thursday (پنجشنبه)", 4: "Friday (جمعه)"}
@@ -498,18 +497,29 @@ def _when(s):
     return "%s %02d:%02d" % (DAY_NAMES.get(s.get("day"), "?").split(" ")[0][:3], hm // 60, hm % 60)
 
 
+def _window(s):
+    try:
+        t = max(1, int(s.get("tries") or DEF_TRIES))
+        e = max(1, int(s.get("every") or DEF_EVERY))
+    except Exception:
+        t, e = DEF_TRIES, DEF_EVERY
+    return t, e
+
+
 def _release_ts(s, now):
-    """UTC seconds of the release time whose 6-hour window is open now, else None."""
+    """UTC seconds of the release time whose try-window (tries x every) is open now, else None."""
     try:
         hm = int(s.get("hm", 720))
     except Exception:
         hm = 720
+    t, e = _window(s)
+    span = min(t * e * 60, 23 * 3600)
     day0 = int((now + TEHRAN_OFF) // 86400) * 86400  # Tehran midnight, shifted
     for back in (0, 1):
         d = day0 - back * 86400
         if time.gmtime(d).tm_wday == s.get("day"):
             rel = d + hm * 60 - TEHRAN_OFF
-            if rel <= now < rel + WINDOW_S:
+            if rel <= now < rel + span:
                 return rel
     return None
 
@@ -592,40 +602,58 @@ def _check(s, auth, log):
     return dict(base, known=k, rows=rows, msg="NEW: " + ", ".join(labels))
 
 
+def _notify(host, title, msg):
+    try:
+        host.nav.schedule(lambda: host.notify(title, msg))
+    except Exception:
+        pass
+
+
 def _check_one(host, s, why):
+    """why = "scheduled" (counts as one try of the release window) or "manual" (counts nothing)."""
     with _CHECK_LOCK:
         now = time.time()
         log = []
+        sched = (why == "scheduled")
         out = {"name": s.get("name") or s["mid"], "mid": s["mid"], "rows": [], "msg": "", "ok": True}
         rel = _release_ts(s, now)
+        tries, every = _window(s)
+        att = (s.get("att") or 0) if s.get("att_rel") == rel else 0
+        upd = {"last_check": now}
+        if sched:
+            att += 1
+            upd.update(att_rel=rel, att=att, next=now + every * 60)
+        done = False
         try:
             r, auth = _with_auth(host, log, lambda a: _check(s, a, log))
             try:
                 host.store.set("auth", auth)
             except Exception:
                 pass
-            upd = {"known": r["known"], "snum": r["snum"], "next": now + RETRY_S, "last_check": now,
-                   "last_msg": r["msg"]}
+            upd.update(known=r["known"], snum=r["snum"], last_msg=r["msg"])
             if r["rows"]:
                 upd["found"] = [list(x) for x in r["rows"]]
                 upd["found_at"] = now
-                if r["known"] >= r["n"] and rel:
-                    upd["done_rel"] = rel
-                try:
-                    host.nav.schedule(lambda: host.notify("Rubika: " + out["name"], r["msg"]))
-                except Exception:
-                    pass
+                _notify(host, "Rubika: " + out["name"], r["msg"])
+                done = r["known"] >= r["n"]
             out.update(rows=r["rows"], msg=r["msg"])
         except Exception as e:
-            upd = {"next": now + RETRY_S, "last_check": now, "last_msg": "error: %s" % str(e)[:100]}
+            upd["last_msg"] = "error: %s" % str(e)[:100]
             out.update(ok=False, msg="error: %s" % e)
             if not isinstance(e, Fail):
                 log.append(traceback.format_exc())
+        if sched and rel and not done and att >= tries:
+            done = True
+            out["msg"] += " | gave up after %d tries" % att
+            upd["last_msg"] = out["msg"][:140]
+            _notify(host, "Rubika: " + out["name"], "No new episode after %d tries" % att)
+        if done and rel:
+            upd["done_rel"] = rel
         _update(host, s["mid"], **upd)
-        _FLOG.append("[%s] %s (%s): %s" % (_tstr(now), out["name"], why, out["msg"]))
+        _FLOG.append("[%s] %s (%s%s): %s" % (_tstr(now), out["name"], why, " try %d/%d" % (att, tries) if sched else "", out["msg"]))
         _FLOG.extend(_hide(x) for x in log[-12:])
         del _FLOG[:-80]
-        if out["rows"] or (not out["ok"] and now - _SAVED["err"] > 3600):
+        if out["rows"] or (not out["ok"] and now - _SAVED["err"] > 3600) or "gave up" in out["msg"]:
             if not out["rows"]:
                 _SAVED["err"] = now
             _save(host, "Rubika follow log\n" + "\n".join(_FLOG), FOLLOW_LOG_PATH)
@@ -633,21 +661,15 @@ def _check_one(host, s, why):
 
 
 def _follow_loop(host, token):
-    last_full = 0
     while os.environ.get(FOLLOW_ENV) == token:
         try:
             now = time.time()
-            full = now - last_full >= CATCHUP_S
             for s in _load(host):
                 if now < (s.get("next") or 0):
                     continue
                 rel = _release_ts(s, now)
                 if rel is not None and s.get("done_rel") != rel:
-                    _check_one(host, s, "release window")
-                elif full:
-                    _check_one(host, s, "catch-up")
-            if full:
-                last_full = now
+                    _check_one(host, s, "scheduled")
         except Exception:
             pass
         end = time.time() + TICK_S
@@ -691,6 +713,10 @@ def follow_form(host, mid, title, counts=None, old=None):
     season = host.input("last")
     host.text("Episodes you already have (only the next ones count as new). Lower it by one to get the latest episode now:")
     known = host.input("number")
+    host.text("Tries: how many times to check, starting at the release time (then it gives up):")
+    tries = host.input("6")
+    host.text("Minutes between the tries:")
+    every = host.input("10")
     host.text("Quality (master = one link with all qualities inside):")
     quality = host.choice(QUALITIES)
     try:
@@ -698,6 +724,8 @@ def follow_form(host, mid, title, counts=None, old=None):
         hm = int(old.get("hm", 720))
         tm.text = "%02d:%02d" % (hm // 60, hm % 60)
         season.text = str(old.get("season") or "last")
+        tries.text = str(old.get("tries") or DEF_TRIES)
+        every.text = str(old.get("every") or DEF_EVERY)
         if old.get("known") is not None:
             known.text = str(old["known"])
         elif counts:
@@ -721,6 +749,10 @@ def follow_form(host, mid, title, counts=None, old=None):
         if se != "last" and not se.isdigit():
             host.set_status("Season must be last or a number")
             return
+        tr, ev = (tries.text or "").strip() or str(DEF_TRIES), (every.text or "").strip() or str(DEF_EVERY)
+        if not (tr.isdigit() and ev.isdigit() and 1 <= int(tr) <= 30 and 1 <= int(ev) <= 60):
+            host.set_status("Tries must be 1-30 and minutes 1-60")
+            return
         kn = (known.text or "").strip()
         if kn and not kn.isdigit():
             host.set_status("Episodes you have must be a number")
@@ -728,7 +760,7 @@ def follow_form(host, mid, title, counts=None, old=None):
         item = {"mid": mid, "name": (name.text or "").strip() or mid, "day": wd,
                 "hm": int(m.group(1)) * 60 + int(m.group(2)), "season": se, "quality": quality.value or "master",
                 "known": int(kn) if kn else None, "snum": int(se) if se.isdigit() else None,
-                "next": 0, "done_rel": 0}
+                "tries": int(tr), "every": int(ev), "next": 0, "done_rel": 0}
         with _LOCK:
             items = [x for x in _load(host) if x.get("mid") != mid] + [item]
             _put(host, items)
@@ -747,8 +779,8 @@ def follow_form(host, mid, title, counts=None, old=None):
 def series_list(host):
     items = _load(host)
     host.title("Followed series (%d)" % len(items))
-    host.text("Auto-check is %s. It works while the app is open, on Irancell mobile data. "
-              "In the release window (6 hours from the release time) it checks every 10 minutes."
+    host.text("Auto-check is %s. It checks only at each series' release day and time (Tehran), a few times, "
+              "then gives up. It works only while the app is open, on Irancell mobile data."
               % ("ON" if _follow_on() else "OFF"))
     host.status()
     host.button("Auto-check: turn %s" % ("OFF" if _follow_on() else "ON"), lambda: _toggle_follow(host))
@@ -770,10 +802,11 @@ def series_detail(host, mid):
         return
     host.title(s.get("name") or mid)
     last = _tstr(s["last_check"]) if s.get("last_check") else "never"
-    host.text("Release: %s (Tehran) | season: %s | quality: %s | episodes you have: %s\nLast check: %s - %s"
-              % (_when(s), s.get("season"), s.get("quality"), s.get("known"), last, s.get("last_msg") or "-"))
+    host.text("Release: %s (Tehran), %s tries every %s min | season: %s | quality: %s | episodes you have: %s\nLast check: %s - %s"
+              % (_when(s), _window(s)[0], _window(s)[1], s.get("season"), s.get("quality"), s.get("known"), last, s.get("last_msg") or "-"))
     host.status()
     host.button("Check now", lambda: host.show(check_screen, [mid]))
+    host.button("Update links (links expire)", lambda: host.show(update_screen, mid))
     host.button("Get latest episode links", lambda: host.show(
         run, mid, str(s.get("snum") or s.get("season") or "all").replace("last", "all"), "last",
         s.get("quality") or "master", ""))
@@ -820,4 +853,36 @@ def check_result(host, outs, err):
             for label, q, u in rows[:MAX_BUTTONS]:
                 host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u: (host.copy(u), host.set_status("Copied")))
     host.status()
+    host.back_button("Back")
+
+
+def update_screen(host, mid):
+    """Signed links expire: ask Rubika again for the episodes of the last found links (or the newest one)."""
+    host.title("Updating links")
+    host.status()
+    host.set_status("Getting fresh links from this phone... (10-60 seconds)")
+
+    def work():
+        s = next((x for x in _load(host) if x.get("mid") == mid), None)
+        if not s:
+            return []
+        name = s.get("name") or mid
+        log = []
+        nums = [x for x in (_episode_no(r[0]) for r in (s.get("found") or [])) if x]
+        a = min(nums) if nums else max(int(s.get("known") or 1), 1)
+        s2 = dict(s, known=a - 1)
+        try:
+            r, auth = _with_auth(host, log, lambda au: _check(s2, au, log))
+        except Exception as e:
+            return [{"name": name, "rows": [], "msg": "error: %s" % e}]
+        if not r["rows"]:
+            return [{"name": name, "rows": [], "msg": r["msg"]}]
+        _update(host, mid, found=[list(x) for x in r["rows"]], found_at=time.time(), snum=r["snum"],
+                known=max(int(s.get("known") or 0), r["known"]), last_msg="links updated")
+        return [{"name": name, "rows": r["rows"], "msg": "Links updated: " + r["msg"].replace("NEW: ", "")}]
+
+    def done(data, err):
+        host.replace(check_result, data or [], str(err or ""))
+
+    host.background(work, done=done)
     host.back_button("Back")
