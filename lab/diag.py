@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-27c"
+VERSION = "2026-11-27d"
 AUTO_ENV = "YTB_DIAG_AUTO"   # process-wide token of the running auto loop (survives plugin reload)
 POLL_S = 15                  # seconds between checks of diag-jobs/next.json
 
@@ -674,6 +674,50 @@ def step_rubika_api_test(host, url="", auth=""):
     return "\n".join(out)
 
 
+def step_js_scan(host, url="https://vod.rubika.ir/media/291423", pattern="", width=160, limit=14):
+    """Fetches the page, then every /_next JS chunk from THIS phone, and greps them (regex pattern).
+    Shows file name + text around each match. For finding how a web app registers / signs its API calls."""
+    import requests
+    rx = re.compile(pattern or r"registerDevice|register_device|getAuth|public_key|publicKey|NOT_REGISTERED|tmp_session|importKey|RSA-OAEP|JSEncrypt", re.I)
+    ua = {"User-Agent": "Mozilla/5.0 (Linux; Android 13; M2101K6G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Mobile Safari/537.36"}
+    out = []
+    try:
+        pg = requests.get(url, headers=ua, timeout=30).text
+    except Exception as e:
+        return "page FAILED %s %s" % (type(e).__name__, str(e)[:100])
+    base = _up.urlsplit(url)
+    srcs = []
+    for s in re.findall(r'(?:src|href)="([^"]+\.js[^"]*)"', pg):
+        s = _html.unescape(s)
+        if s.startswith("/"):
+            s = base.scheme + "://" + base.netloc + s
+        if s.startswith("http") and "/_next/" in s and s not in srcs:
+            srcs.append(s)
+    out.append("page bytes=%d, js chunks=%d" % (len(pg), len(srcs)))
+    shown = 0
+    for s in srcs:
+        try:
+            t = requests.get(s, headers=ua, timeout=30).text
+        except Exception as e:
+            out.append("%s FAILED %s" % (s[-30:], type(e).__name__))
+            continue
+        ms = list(rx.finditer(t))
+        if not ms:
+            continue
+        out.append("== %s (%d bytes, %d matches)" % (s.split("/")[-1], len(t), len(ms)))
+        last = -10**9
+        for m in ms:
+            if m.start() - last < int(width):
+                continue
+            last = m.start()
+            a = max(0, m.start() - int(width) // 2)
+            out.append("  ..." + t[a:a + int(width)].replace("\n", " ") + "...")
+            shown += 1
+            if shown >= int(limit):
+                return "\n".join(out)
+    return "\n".join(out)
+
+
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
@@ -685,6 +729,7 @@ ARG_STEPS = [
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
     ("hls_ip_test", "HLS link test from this phone (Iran IP)", step_hls_ip_test),
     ("rubika_api_test", "Rubika VOD API from this phone (guest auth)", step_rubika_api_test),
+    ("js_scan", "Scan a page's JS chunks for a pattern", step_js_scan),
 ]
 
 
