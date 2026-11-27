@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-25e"
+VERSION = "2026-11-27a"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -526,6 +526,89 @@ def step_phone_rows(host, url=""):
     return "\n".join(out)
 
 
+def step_hls_ip_test(host, url="", referer=""):
+    """Is the HLS link (e.g. Rubika vod, iranlms.ir) usable from THIS phone (Iran IP)? GitHub's IP gets 403.
+    url empty = newest .m3u8 caught by the in-app browser (open the video there first). Uses only a few KB:
+    country, playlist text (first 4 KB), 1 KB of the first segment, status of the AES key. Tokens are hidden."""
+    import gc
+    cands = []
+    if url and url.startswith("http"):
+        cands = [url]
+    else:
+        try:
+            for o in gc.get_objects():
+                if type(o).__name__ == "Session" and hasattr(o, "all_entries"):
+                    try:
+                        for e in o.all_entries():
+                            u = str((e.get("url") if isinstance(e, dict) else getattr(e, "url", "")) or "")
+                            if ".m3u8" in u and u not in cands:
+                                cands.append(u)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        cands = [u for u in cands if "iranlms" in u][-2:] or cands[-2:]
+    if not cands:
+        return "no m3u8 URL (open the video in the in-app browser first, then run again)"
+    out = []
+    try:
+        j = host.get("https://ipinfo.io/json", headers=_UA).json()
+        out.append("phone network: country=%s org=%s" % (j.get("country"), j.get("org")))
+    except Exception as e:
+        out.append("ipinfo FAILED %s" % type(e).__name__)
+
+    def get(u, h, n):
+        r = host.get(u, headers=h, stream=True)
+        try:
+            data = next(r.iter_content(n))
+        except Exception:
+            data = b""
+        try:
+            r.close()
+        except Exception:
+            pass
+        return r, data
+
+    for u in cands:
+        out.append("== %s" % _up.urlsplit(u).netloc + _up.urlsplit(u).path[-40:])
+        text = ""
+        for name, ref in (("no referer", ""), ("referer", referer or "https://rubika.ir/")):
+            h = dict(_UA)
+            if ref:
+                h["Referer"] = ref
+            try:
+                r, data = get(u, h, 4096)
+            except Exception as e:
+                out.append("  [%s] FAILED %s: %s" % (name, type(e).__name__, str(e)[:100]))
+                continue
+            body = data.decode("utf-8", "replace")
+            out.append("  [%s] HTTP %s bytes=%d extm3u=%s" % (name, getattr(r, "status_code", "?"), len(data), body.startswith("#EXTM3U")))
+            if body.startswith("#EXTM3U") and not text:
+                text = body
+        if not text:
+            continue
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        out.append("  playlist lines=%d, has_key=%s, master=%s" % (len(lines), any("EXT-X-KEY" in l for l in lines), any("STREAM-INF" in l for l in lines)))
+        km = re.search(r'EXT-X-KEY[^\n]*URI="([^"]+)"', text)
+        if km:
+            try:
+                r, data = get(_up.urljoin(u, km.group(1)), dict(_UA), 64)
+                out.append("  key: HTTP %s bytes=%d" % (getattr(r, "status_code", "?"), len(data)))
+            except Exception as e:
+                out.append("  key FAILED %s" % type(e).__name__)
+        segs = [l for l in lines if not l.startswith("#")]
+        if segs:
+            su = _up.urljoin(u, segs[0])
+            try:
+                h = dict(_UA, Range="bytes=0-1023")
+                r, data = get(su, h, 1024)
+                out.append("  first %s: HTTP %s bytes=%d host=%s" % ("variant" if any("STREAM-INF" in l for l in lines) else "segment",
+                                                                  getattr(r, "status_code", "?"), len(data), _up.urlsplit(su).netloc))
+            except Exception as e:
+                out.append("  first entry FAILED %s: %s" % (type(e).__name__, str(e)[:100]))
+    return "\n".join(out)
+
+
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
@@ -535,6 +618,7 @@ ARG_STEPS = [
     ("session_test", "Session test (page, then get_stream)", step_session_test),
     ("net_identity", "Network identity (country, provider, proxy)", step_net_identity),
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
+    ("hls_ip_test", "HLS link test from this phone (Iran IP)", step_hls_ip_test),
 ]
 
 
