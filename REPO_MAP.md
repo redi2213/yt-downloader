@@ -37,7 +37,7 @@
 - خودکار: graph-report.yml (روزانه؛ اگر چیزی بیرون docs/ عوض نشده باشد اجرا نمی‌شود؛ docs/GRAPH_REPORT.md و docs/GRAPH_SOURCE_SHA.txt را به‌روز می‌کند؛ دستی هم قابل اجراست)، Auto-Follow.yml، backup-project.yml (zip از main + config در Release)، build-apk.yml
 - پاک‌سازی: cleanup-artifacts.yml، cleanup-releases.yml، standalone-cleanup-all-artifacts.yml
 - پروکسی: find-proxies.yml
-- Lab: lab-*.yml (browser-send (ارسال از مرورگر داخلی: stub روی main، نسخه‌ی واقعی روی lab؛ ورودی: url=لینک صفحه، quality، direct_link غیر IP‌دار؛ دکمه‌ی «Send page + quality to GitHub» در screens/browser.py: _send_from_browser، با ref=lab)، download، find-proxies، free-iran-proxy-list، links، pornhub-search-scraper، refresh-configs، run، schedule، site-suj-mobi، workflow)
+- Lab: lab-*.yml (browser-send (ارسال از مرورگر داخلی: stub روی main، نسخه‌ی واقعی روی lab؛ ورودی: url=لینک صفحه، quality، direct_link غیر IP‌دار؛ دکمه‌ی «Send page + quality to GitHub» در screens/browser.py: _send_from_browser، با ref=lab)، download، find-proxies، free-iran-proxy-list، links، pornhub-search-scraper، refresh-configs، rubika-vod، run، schedule، site-suj-mobi، workflow)
 
 ## کجا دنبال چه چیزی بگردیم
 - متن/برچسب فارسی: core/fa_strings*.py
@@ -55,6 +55,7 @@
 - پخش روی تلویزیون (DLNA/UPnP، تست در Lab): شاخه lab → lab/dlna_tv.py (UI) + lab/lib/dlna_core.py (SSDP، SOAP، سرور HTTP با Range، دانلود/اسکن)؛ مجوزهای ACCESS_WIFI_STATE/CHANGE_WIFI_MULTICAST_STATE در buildozer.spec (نیاز به Build)
 - Lab و Promote: شاخه lab → lab/promote.py، lab/lib/promote_*.py، lab/wf_import.py
 - Link Lab و «Get links only (this phone)» (اندازه‌ی کیفیت‌ها، پیشنهاد VPN): شاخه lab → lab/link_lab.py (توابع _phone_*؛ fallback سایت‌های KVS/KT-player که yt-dlp لینکشان را نمی‌بیند: _phone_kvs، خواندن video_url/video_alt_url از تنظیمات پلیر صفحه)؛ در _phone_kvs لینک get_stream سایت‌های KVS تا آدرس واقعی فایل روی CDN دنبال می‌شود (_phone_final_url؛ آدرس get_stream به IP گیت‌هاب «error 1» می‌دهد و زود منقضی می‌شود، آدرس CDN چند ساعت اعتبار دارد)؛ نمایش جاب‌های Action هنگام ران ورکفلو در Lab: lab/lib/lab_jobs.py (در modules فایل lab/index.json ثبت شده)
+- روبیکا VOD (لینک مستقیم فیلم/سریال، تست در Lab): ابزار rubika_vod → شاخه lab: .github/workflows/lab-rubika-vod.yml (اسکریپت پایتون داخل خود yml؛ ورودی‌ها: url=لینک صفحه‌ی vod.rubika.ir/media/<id>، season، episodes (all/last/عدد/بازه)، quality (master/all/1080p...)، auth (خالی = auth تصادفی مهمان)؛ خروجی out/rubika_links.txt و rubika_urls.txt) + lab/wf_rubika_vod.py + ثبت در lab/index.json؛ stub هم‌نام روی main. API: POST به rbvod30.iranlms.ir با متدهای getMedia → getSeasonEpisodes → getPlayInfo (play_url = لینک m3u8 امضاشده). از IP گیت‌هاب احتمالاً ۴۰۳ می‌دهد؛ «Run on this phone» با IP ایران. وضعیت: هنوز تست نشده (auth تصادفی پذیرفته می‌شود یا نه؟).
 - لاگ خطای Lab (هر لینک ناموفق = یک فایل در config/lab-logs/): شاخه lab → lab_scripts/lab_log.py (نوشتن فایل، پنهان‌کردن توکن/کانفیگ) + lab_scripts/lab_log_push.py (commit به config؛ ۳۰۰ فایل آخر) + استفاده در lab_scripts/links.py و download.py (متغیر LAB_LOG_MODE) + مرحله‌ی آخر lab-links.yml و lab-download.yml؛ حالت گوشی: دکمه‌ی «Save log of failed links» در lab/link_lab.py (_phone_save_logs)
 - نسخه/ساخت APK: version.txt، build-apk.yml، buildozer.spec
 - بکاپ پروژه: .github/workflows/backup-project.yml (خروجی: zip در Release)
