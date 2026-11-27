@@ -505,6 +505,11 @@ def parse_m3u8_variants(text, base_url):
     return out
 
 
+def hls_duration(text):
+    """Seconds of an HLS media playlist (the sum of its #EXTINF lines); 0 when there are none."""
+    return sum(float(x) for x in re.findall(r"#EXTINF:([\d.]+)", text or ""))
+
+
 def headers_from(rec):
     headers = {}
     for key, name in (("referer", "Referer"), ("ua", "User-Agent"), ("cookie", "Cookie")):
@@ -675,7 +680,7 @@ class Session:
                         continue
                     seen.add(key)
                     out.append({**item, "key": key, "url": v["url"], "kind": "hls", "quality": v["label"],
-                                "variants": None, "probed": True,
+                                "variants": None, "probed": True, "size": v.get("size") or item.get("size"),
                                 "gid": "m:" + item["key"], "gname": item["name"]})
             elif item["key"] not in variant_keys:
                 out.append(item)
