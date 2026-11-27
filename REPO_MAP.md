@@ -66,6 +66,7 @@
 - docs/GRAPH_REPORT.md (~۵۶KB، شاخه main): کامیونیتی‌ها و نودهای پرارتباط (Navigator، run_in_background، Label، Button ...). فقط وقتی REPO_MAP برای پیدا کردن فایل کافی نبود (مثلاً «این تابع از کجا صدا زده می‌شود»)، فقط بخش لازم را بخوان. روزانه با graph-report.yml به‌روز می‌شود — graphify query روی Termux قابل نصب نیست (tree-sitter build fail)؛ جایگزین ندارد.
 
 ## قوانین کار
+- خواندن خروجی مرورگر (وقتی کاربر گفت «اکسپورت جدید» یا نام یک سایت): ریپوی private جدا redi2213/yt-exports (شاخه‌ی main؛ ساختار <domain>/<date_time>/ با meta.json، requests.json، cookies.txt، storage.json، page.html). اول درخت ریپو را بگیر (git/trees/main?recursive=1)، بعد جدیدترین پوشه‌ی همان دامنه (یا جدیدترین پوشه‌ی کل ریپو اگر سایت گفته نشد) را بخوان. فایل‌های حاوی کوکی/توکن را در چت تکرار نکن. چیزی در این ریپو نمی‌نویسی و هیچ داده‌ای از آن را در yt-downloader (public) ذخیره نکن.
 - تست واقعی/عیب‌یابی: اگر برای ادامه‌ی کار لازم است چیزی روی گوشی یا سایت واقعاً اجرا شود، اول DIAG_TOOLS.md را بخوان. کار را به شکل job در config/diag-jobs/next.json بنویس (لینک و آرگومان‌ها داخل job) و از کاربر فقط بخواه Lab > Diagnostics > Run Claude's job را بزند؛ بعد نتیجه را از config/diag-results/latest.txt بخوان. step مناسب نبود، step جدید در lab/diag.py بساز و در DIAG_TOOLS.md ثبت کن. از کاربر نخواه لینک تایپ کند یا لاگ/کد کپی کند.
 - تغییر ظاهری/متنی → معمولاً فقط main. افزودن منبع دانلود → معمولاً config.json در شاخه config.
 - workflowهای lab-* در هر دو شاخه main و lab هستند (نسخه‌ها متفاوت‌اند)؛ قبل از تغییر، شاخه‌ی درست را مشخص کن.
