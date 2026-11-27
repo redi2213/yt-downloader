@@ -29,7 +29,7 @@ MAX_TOTAL = 24000
 _LAST = {"report": "", "saved": ""}
 _PROBE = {"page": "", "media": [], "cookies": ""}
 JOB_PATH = "diag-jobs/next.json"
-VERSION = "2026-11-27a"
+VERSION = "2026-11-27b"
 
 _HIDE = [
     (re.compile(r"(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"), "<token>"),
@@ -609,6 +609,69 @@ def step_hls_ip_test(host, url="", referer=""):
     return "\n".join(out)
 
 
+def step_rubika_api_test(host, url="", auth=""):
+    """Rubika VOD API from THIS phone (Iran IP): getMedia -> getSeasonEpisodes -> getPlayInfo -> master playlist.
+    auth empty = random 32-letter guest auth (tests whether the server accepts it). Tokens are not printed."""
+    import random
+    import string
+    import requests
+    m = re.search(r"/media/(\d+)", str(url or ""))
+    mid = m.group(1) if m else (str(url) if str(url).isdigit() else "291423")
+    au = auth or "".join(random.choice(string.ascii_lowercase) for _ in range(32))
+    out = ["media_id: %s, auth: %s" % (mid, "given" if auth else "random guest")]
+    ua = "Mozilla/5.0 (Linux; Android 13; M2101K6G Build/TKQ1.221013.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/158.0.8127.46 Mobile Safari/537.36"
+    hdr = {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*", "User-Agent": ua,
+           "Origin": "https://vod.rubika.ir", "Referer": "https://vod.rubika.ir/"}
+    track = "{'svc': 'vod_backend', 'l': 'Page_home', 's': '%s'}" % "".join(random.choice("0123456789abcdef") for _ in range(24))
+
+    def call(method, data):
+        d = dict(data)
+        d["track_id"] = track
+        body = {"auth": au, "api_version": "1", "client": {"app_name": "Main", "app_version": "0.1.0", "package": "vod.rubika.ir",
+                "platform": "VODWeb", "lang_code": "fa"}, "data": d, "method": method}
+        try:
+            r = requests.post("https://rbvod30.iranlms.ir/", json=body, headers=hdr, timeout=30)
+        except Exception as e:
+            out.append("%s: FAILED %s %s" % (method, type(e).__name__, str(e)[:100]))
+            return None
+        try:
+            j = r.json()
+        except Exception:
+            out.append("%s: HTTP %s, not JSON: %s" % (method, r.status_code, r.text[:150]))
+            return None
+        out.append("%s: HTTP %s status=%s det=%s" % (method, r.status_code, j.get("status"), j.get("status_det")))
+        return j.get("data") if j.get("status") == "OK" else None
+
+    d = call("getMedia", {"media_id": mid})
+    if not d:
+        return "\n".join(out)
+    media = d.get("media") or {}
+    out.append("title=%s type=%s seasons=%s" % (media.get("title"), media.get("media_type"),
+               [(s.get("season_number"), s.get("season_id")) for s in (media.get("seasons") or [])]))
+    eid = mid
+    if media.get("media_type") == "Series" and media.get("seasons"):
+        e = call("getSeasonEpisodes", {"series_id": mid, "season_id": media["seasons"][0].get("season_id"), "section_type": "MediaInfo"})
+        eps = (e or {}).get("episodes") or []
+        out.append("episodes in season 1: %d, first: %s" % (len(eps), eps[0].get("title") if eps else "-"))
+        if not eps:
+            return "\n".join(out)
+        eid = eps[0].get("media_id")
+    p = call("getPlayInfo", {"media_id": eid, "type": "Main", "version": 1})
+    if not p:
+        return "\n".join(out)
+    pu = ((p.get("play_data") or {}).get("play_url") or "")
+    out.append("has_access=%s play_url=%s" % (p.get("has_access"), (_up.urlsplit(pu).netloc + _up.urlsplit(pu).path) if pu else "MISSING"))
+    if pu:
+        try:
+            r = requests.get(pu, headers={"User-Agent": ua, "Referer": "https://vod.rubika.ir/", "Origin": "https://vod.rubika.ir"}, timeout=30)
+            lines = r.text.splitlines()
+            names = re.findall(r"out_([0-9a-z]+)\.m3u8", r.text)
+            out.append("master playlist: HTTP %s extm3u=%s variants=%s" % (r.status_code, r.text.startswith("#EXTM3U"), names))
+        except Exception as e:
+            out.append("master playlist FAILED %s %s" % (type(e).__name__, str(e)[:100]))
+    return "\n".join(out)
+
+
 # Steps that need arguments: used only by Claude's job (diag-jobs/next.json).
 ARG_STEPS = [
     ("probe", "Page probe", step_probe),
@@ -619,6 +682,7 @@ ARG_STEPS = [
     ("net_identity", "Network identity (country, provider, proxy)", step_net_identity),
     ("phone_rows", "Link Lab rows (yt-dlp vs player settings)", step_phone_rows),
     ("hls_ip_test", "HLS link test from this phone (Iran IP)", step_hls_ip_test),
+    ("rubika_api_test", "Rubika VOD API from this phone (guest auth)", step_rubika_api_test),
 ]
 
 
