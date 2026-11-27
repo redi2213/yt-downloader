@@ -104,11 +104,6 @@ def build_menu(nav):
         nav.add(home_btn)
     except Exception:
         pass            # an older app without the Home drop-down
-    try:
-        app_tabs = nav.app.tabs
-        nav.add(_button(f"App tabs ({len(app_tabs.tabs)})", lambda: app_tabs.open_overlay()))
-    except Exception:
-        pass            # an older app without app tabs
     nav.add(Label(text="Browser menu", size_hint_y=None, height=BTN_H))
     status = _status()
     nav.add(status)
