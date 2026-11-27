@@ -1,20 +1,20 @@
 Rubika VOD log
-2026-11-27 10:26:14 UTC
+2026-11-27 10:27:25 UTC
 python 3.14.2 | Android-13-aarch64-64bit-ELF
 app_version=2.86 id=rubika_vod
-inputs: {"page": "https://vod.rubika.ir/media/293705", "season": "all", "episodes": "all", "quality": "master", "own_auth": false}
+inputs: {"page": "https://vod.rubika.ir/media/296525", "season": "all", "episodes": "all", "quality": "master", "own_auth": false}
 
 --- steps ---
 auth: saved from an earlier run
-media id 293705 | season=all episodes=all quality=master | your auth
-  getAccountInfo OK (0.6s) keys=[subscription_info,user_info]
+media id 296525 | season=all episodes=all quality=master | your auth
+  getAccountInfo OK (0.4s) keys=[subscription_info,user_info]
   subscription_info: {"has_paid_subscription": false, "has_network_subscription": true, "network_subscription_type": "MTN"}
-  getMedia OK (0.5s) keys=[media]
-title=قسمت هشتم type=Episode
-series_id=292600 name=تاکسی publish=چهارشنبه‌ها، 20:00
-episode قسمت هشتم (id 293705)
-  getPlayInfo OK (0.6s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_skips,play_suggestion,session_id,start_play_time,subtitles] has_access=True play_url=https://vodrbstreamer61.iranlms.ir/play/st22/6b06fb815b3336533e7df8a2/playlist.m3u8?token=<hidden>
+  getMedia OK (0.4s) keys=[media]
+title=قسمت دوازدهم type=Episode
+series_id=284923 name=شاه‌گُل publish=چهارشنبه، 20:00
+episode قسمت دوازدهم (id 296525)
+  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,start_play_time,subtitles] has_access=True play_url=https://vodrbstreamer23.iranlms.ir/play/st20/6afdcf047e4ff87b92e62237/playlist.m3u8?token=<hidden>
 
 --- result ---
-OK: 1 link(s) for قسمت هشتم
-  قسمت هشتم | master | https://vodrbstreamer61.iranlms.ir/play/st22/6b06fb815b3336533e7df8a2/playlist.m3u8?token=<hidden>
+OK: 1 link(s) for قسمت دوازدهم
+  قسمت دوازدهم | master | https://vodrbstreamer23.iranlms.ir/play/st20/6afdcf047e4ff87b92e62237/playlist.m3u8?token=<hidden>
