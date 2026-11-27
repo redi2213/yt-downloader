@@ -1,14 +1,14 @@
 Rubika follow log
-[Fri 13:36] یَل (manual): NEW: S01E05 قسمت پنجم, S01E06 قسمت ششم
+[Fri 13:58] شاه‌گُل (manual): NEW: S01E12 قسمت دهم, S01E13 قسمت یازدهم, S01E14 قسمت دوازدهم, S01E15 قسمت سیزدهم
+title=شاه‌گُل type=Series
+series_id=284923 name=شاه‌گُل publish=چهارشنبه، 20:00
   getSeasonEpisodes OK (0.3s) keys=[episodes]
-media id 291423 | season=1 episodes=5-6 quality=master | your auth
-  getAccountInfo OK (0.4s) keys=[subscription_info,user_info]
-  subscription_info: {"has_paid_subscription": false, "has_network_subscription": true, "network_subscription_type": "MTN"}
-  getMedia OK (0.4s) keys=[media]
-title=یَل type=Series
-  getSeasonEpisodes OK (0.3s) keys=[episodes]
-season 1: 6 episodes
-episode S01E05 قسمت پنجم (id 294121)
-  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer73.iranlms.ir/play/st13/6aeee476882a6e29201b9989/playlist.m3u8?token=<hidden>
-episode S01E06 قسمت ششم (id 295104)
-  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer71.iranlms.ir/play/st8/6afbcc8dbe586eb74338786e/playlist.m3u8?token=<hidden>
+season 1: 15 episodes
+episode S01E12 قسمت دهم (id 294122)
+  getPlayInfo OK (0.6s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer2.iranlms.ir/play/st8/6aeb4b7bc5c69178c7910b4f/playlist.m3u8?token=<hidden>
+episode S01E13 قسمت یازدهم (id 295107)
+  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer79.iranlms.ir/play/st13/6af4962577b618732d3f80f1/playlist.m3u8?token=<hidden>
+episode S01E14 قسمت دوازدهم (id 296525)
+  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,start_play_time,subtitles] has_access=True play_url=https://vodrbstreamer82.iranlms.ir/play/st20/6afdcf047e4ff87b92e62237/playlist.m3u8?token=<hidden>
+episode S01E15 قسمت سیزدهم (id 297033)
+  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer38.iranlms.ir/play/st2/6b070321e87f05a53e874d53/playlist.m3u8?token=<hidden>
