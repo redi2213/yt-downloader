@@ -29,7 +29,8 @@ _COLORS = {ts.RUNNING: (1.0, 0.82, 0.45, 1), ts.DONE: (0.55, 0.9, 0.6, 1), ts.ER
 _SCREEN_TITLES = {
     "show_youtube_download": "YouTube Download",
     "show_dynamic_actions": "Download Anything",
-    "show_browser": "Browser",
+    "show_browser": "مرورگر",
+    "show_browser_list": "مرورگر",
     "show_follow_menu": "Auto follow",
     "show_downloads": "Downloads",
     "show_release_history": "Release History",
@@ -117,7 +118,14 @@ class TabShell:
             return str(name) if name else _JOB_TITLES.get(job.type, "Running job")
         if getattr(self.nav, "on_home", False):
             return "Home"
-        name = getattr(getattr(self.nav, "_last_menu", None), "__name__", "")
+        menu = getattr(self.nav, "_last_menu", None)
+        owner = getattr(menu, "__self__", None)
+        page = getattr(owner, "title_text", None)       # a Lab / plugin tool page: the tool's own name
+        if page:
+            return str(page)
+        if getattr(menu, "__module__", "") == "screens.lab":    # the Lab tool list
+            return "Lab"
+        name = getattr(menu, "__name__", "")
         return _SCREEN_TITLES.get(name, "Tab")
 
 
