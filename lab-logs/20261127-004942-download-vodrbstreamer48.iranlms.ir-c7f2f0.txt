@@ -1,0 +1,43 @@
+Lab link failure log
+mode: download
+time (UTC): 2026-11-27 00:49:42
+workflow: Lab Browser Send
+run: https://github.com/redi2213/yt-downloader/actions/runs/45918898183
+commit: 270cf42
+url: https://vodrbstreamer48.iranlms.ir/play/st15/6af2de183fd5ff486db93b18/out_360p.m3u8
+title: 
+error: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: SocksHTTPSConnectionPool(host='vodrbstreamer48.iranlms.ir', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vodrbstreamer48.iranlms.ir', port=443): Read timed out. (read timeout=15.0)"))
+method: yt-dlp
+proxy: socks5://127.0.0.1:10813
+
+---- console output for this link (the end) ----
+
+>>> Trying (direct, GitHub IP)
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)
+
+>>> Racing 4 proxies (the first that works wins)
+  [race] socks5://103.119.237.60:1080: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: 2 bytes missing (caused by TransportError('2 bytes missing'))
+  [race] socks5://103.13.19.219:10808: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)
+  [race] socks5://103.136.107.70:1080: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)
+  [race] socks5://102.0.14.42:1080: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: (<SocksHTTPSConnection(host='vodrbstreamer48.iranlms.ir', port=443) at 0x7b3514513e90>, 'Connection to vodrbstreamer48.iranlms.ir timed out. (connect timeout=15.0)') (caused by TransportError("(<SocksHTTPSConnection(host='vodrbstreamer48.iranlms.ir', port=443) at 0x7b3514513e90>, 'Connection to vodrbstreamer48.iranlms.ir timed out. (connect timeout=15.0)')"))
+
+>>> Trying config socks5://127.0.0.1:10811
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)
+
+>>> Trying config socks5://127.0.0.1:10812
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: HTTP Error 403: Forbidden (caused by <HTTPError 403: Forbidden>)
+
+>>> Trying config socks5://127.0.0.1:10813
+  [yt-dlp] ...
+  [yt-dlp] fail: yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: SocksHTTPSConnectionPool(host='vodrbstreamer48.iranlms.ir', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vodrbstreamer48.iranlms.ir', port=443): Read timed out. (read timeout=15.0)"))
+=======================================================
+unknown
+=======================================================
+URL    : https://vodrbstreamer48.iranlms.ir/play/st15/6af2de183fd5ff486db93b18/out_360p.m3u8?token=0E9y8wH6fHVaFefXGFZPMCN7WDCGuvhExrf1YEaiH2zzvpO9uLXz9QQeuQpWUoMm_Kxf8MAHnNoCyC1UK5s4hZoTtUlBu__osRN6TAvyDAhOmMBSEGPompeL7np7qRBz65kWnbA07B2Temoqat1CB5wFjqpTFXwOJ69rTJRbCdoX2hiZRXS1LN8w8HnXpYI5C1zpV8bXEY3JJsXp9rfseib0yEVkisFiY4Mmcd8sJgwdOSCnc7E5RzJ6F4Y3qqIc3KRS9t4oFr1N1zM7Vrhbuoi0rgUgve8qj7sHjkW7n87RRfRqcbUa44uYx0Iru+7z3cgbV+AXK4J4AudHlwbKEY2BKo8anbVBUzUgeqJHixfyQs21nnVbOsO2NcTwW8e6dg4ki97mt40urtYTLojKpx7dR4t8aKb5UaW3LOjdOb9t9oRkXlxwYQqYNIXhhHtOgifLZJtubIrgWlX_agDpwybc6XLEvNN1M5+SAYTa4qjvtCLlPwrKkkAPdMjViru3z5uqoFJEbJJEmn0Nr_5RLpA8vyOvExWzXRDJ_40TznhMCghtXerFr4aIIZnRRTf+3Oyce_hsGXvwKAEv5zTisWANRz+ZtLLh2xnYapXoI3UBcR6z7WqwawNZn4RM2hUY0iGtZnlkLeXyaDsZ6YaultP+VZnuuz371BWmyLcRoGlkA7YY_iUghhxZY5Aa_DSXqDTqQ2Q_OlO2BlcIcE5XR6IluqLaBi3NwgumoNof5pvKxmlgX7UMrCLXSOVOdMp55QGQTaDOO6k5XIwLwPRPmSmHBDN30g9yEL8rn4VOJQ8-
+Method : yt-dlp
+Proxy  : socks5://127.0.0.1:10813
+ERROR  : yt-dlp: ERROR: [generic] out_360p: Unable to download webpage: SocksHTTPSConnectionPool(host='vodrbstreamer48.iranlms.ir', port=443): Read timed out. (read timeout=15.0) (caused by TransportError("SocksHTTPSConnectionPool(host='vodrbstreamer48.iranlms.ir', port=443): Read timed out. (read timeout=15.0)"))
+
