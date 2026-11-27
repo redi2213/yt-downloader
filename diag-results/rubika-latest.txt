@@ -1,0 +1,14 @@
+Rubika VOD log
+2026-11-27 08:57:50 UTC
+python 3.14.2 | Android-13-aarch64-64bit-ELF
+app_version=2.86 id=rubika_vod
+inputs: {"page": "https://vod.rubika.ir/media/291423", "season": "all", "episodes": "1", "quality": "master", "own_auth": false}
+
+--- steps ---
+media id 291423 | season=all episodes=1 quality=master | guest auth (random)
+  getAccountInfo try1 ERROR_ACTION / NOT_REGISTERED (0.6s)
+  account check failed: getAccountInfo: ERROR_ACTION / NOT_REGISTERED
+  getMedia try1 ERROR_ACTION / NOT_REGISTERED (0.4s)
+
+--- result ---
+FAILED: getMedia: ERROR_ACTION / NOT_REGISTERED
