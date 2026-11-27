@@ -52,7 +52,7 @@ _CUSTOM_ERRORS = {"invalid": "Not a valid extension (letters and digits only, up
 def build(nav, url=None):
     nav.clear()
     try:
-        nav.app.show_topbar(False)      # the page has its own bar; Home is in the browser Menu
+        nav.app.show_topbar("tabs")     # only the app Tabs button on top (switch app tabs); Home is in the browser Menu
     except Exception:
         pass
     if not android_browser.supported():
