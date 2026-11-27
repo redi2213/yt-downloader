@@ -8,12 +8,14 @@ without copying anything, and the screen has a Copy log button.
 import base64
 import json
 import json as J
+import os
 import platform
 import random
 import re
 import string
 import sys
 import time
+import threading
 import traceback
 from urllib.parse import urljoin
 
@@ -217,6 +219,7 @@ def collect(page, season, eps, quality, auth, log):
         title = (media.get("title") or mid).replace("|", "-")
         log.append("title=%s type=%s" % (title, mtype))
         items = []
+        counts = {}
         if mtype == "Series":
             seasons = media.get("seasons") or []
             if not seasons:
@@ -231,6 +234,7 @@ def collect(page, season, eps, quality, auth, log):
                                                    "section_type": "MediaInfo"}).get("episodes") or []
                 keep = _pick(len(el), eps)
                 log.append("season %s: %d episodes" % (snum, len(el)))
+                counts[str(snum)] = len(el)
                 for ei, ep in enumerate(el, 1):
                     if ei in keep:
                         name = (ep.get("title") or "").replace("|", "-")
@@ -276,7 +280,7 @@ def collect(page, season, eps, quality, auth, log):
         raise Fail("Rubika answered HTTP 403: this network is blocked. Turn Wi-Fi/VPN off and use Irancell mobile data.")
     if not rows:
         raise Fail("No link was produced. See the log (last lines): " + " / ".join(x.strip() for x in log[-3:]))
-    return {"title": title, "mtype": mtype, "mid": mid, "rows": rows}
+    return {"title": title, "mtype": mtype, "mid": mid, "rows": rows, "counts": counts}
 
 
 # ---- log ----
@@ -299,10 +303,10 @@ def _report(host, params, log, result, error):
     return "\n".join(out)
 
 
-def _save(host, text):
+def _save(host, text, path=None):
     """Blocking: write the log to the config branch. Returns a short status."""
     try:
-        url = GH_API + "/contents/" + LOG_PATH
+        url = GH_API + "/contents/" + (path or LOG_PATH)
         sha = None
         try:
             sha = host.gh.request("GET", url + "?ref=" + LOG_BRANCH).json().get("sha")
@@ -347,8 +351,14 @@ def build(host):
     host.button("Get links (this phone)", lambda: host.show(
         run, url.text.strip(), (season.text or "").strip() or "all", (episodes.text or "").strip() or "all",
         quality.value, (auth.text or "").strip()))
+    host.button("Followed series (%d)" % len(_load(host)), lambda: host.show(series_list))
     host.status()
     host.back_button("Back")
+    try:
+        if not host.store.get("follow_off", False):
+            _follow_start(host)
+    except Exception:
+        pass
 
 
 def run(host, page, season, eps, quality, auth):
@@ -428,8 +438,386 @@ def show_results(host, res, report, saved):
     host.button("Copy links only", lambda: (host.copy(urls), host.set_status("Copied %d links" % len(rows))))
     host.button("Share links", lambda: host.share_text(full))
     host.button("Copy log", lambda: (host.copy(report), host.set_status("Log copied")))
+    if res.get("mtype") == "Series":
+        host.button("Follow this series (save by name)", lambda: host.show(
+            follow_form, res["mid"], res["title"], res.get("counts") or {}))
     for label, q, u in rows[:MAX_BUTTONS]:
         host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u, l=label, q=q: (host.copy(u), host.set_status("Copied: %s [%s]" % (l, q))))
     if len(rows) > MAX_BUTTONS:
         host.text("Only the first %d are listed as buttons; Copy all has every link." % MAX_BUTTONS)
+    host.back_button("Back")
+
+
+# ---- follow: save a series by name and auto-check for new episodes ----
+# Saved in host.store ("follow_json"). While the app is open a background loop checks every series
+# inside its release window (weekday + time, Tehran) every 10 minutes until a new episode shows up,
+# plus a catch-up check every 6 hours. New links: notification + the series page (Copy / Share).
+FOLLOW_ENV = "RUBIKA_FOLLOW_TOKEN"
+FOLLOW_LOG_PATH = "diag-results/rubika-follow.txt"
+TEHRAN_OFF = 12600  # Tehran = UTC+3:30, no daylight saving
+WINDOW_S = 6 * 3600
+RETRY_S = 600
+CATCHUP_S = 6 * 3600
+TICK_S = 30
+DAY_NAMES = {5: "Saturday (شنبه)", 6: "Sunday (یکشنبه)", 0: "Monday (دوشنبه)", 1: "Tuesday (سه‌شنبه)",
+             2: "Wednesday (چهارشنبه)", 3: "Thursday (پنجشنبه)", 4: "Friday (جمعه)"}
+DAY_ORDER = [5, 6, 0, 1, 2, 3, 4]
+_LOCK = threading.Lock()
+_CHECK_LOCK = threading.Lock()
+_FLOG = []
+_SAVED = {"err": 0}
+
+
+def _load(host):
+    try:
+        v = json.loads(host.store.get("follow_json", "") or "[]")
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
+
+
+def _put(host, items):
+    host.store.set("follow_json", json.dumps(items, ensure_ascii=False))
+
+
+def _update(host, mid, **kw):
+    with _LOCK:
+        items = _load(host)
+        for s in items:
+            if s.get("mid") == mid:
+                s.update(kw)
+        _put(host, items)
+
+
+def _tstr(ts):
+    return time.strftime("%a %H:%M", time.gmtime(ts + TEHRAN_OFF))
+
+
+def _when(s):
+    hm = int(s.get("hm", 720))
+    return "%s %02d:%02d" % (DAY_NAMES.get(s.get("day"), "?").split(" ")[0][:3], hm // 60, hm % 60)
+
+
+def _release_ts(s, now):
+    """UTC seconds of the release time whose 6-hour window is open now, else None."""
+    try:
+        hm = int(s.get("hm", 720))
+    except Exception:
+        hm = 720
+    day0 = int((now + TEHRAN_OFF) // 86400) * 86400  # Tehran midnight, shifted
+    for back in (0, 1):
+        d = day0 - back * 86400
+        if time.gmtime(d).tm_wday == s.get("day"):
+            rel = d + hm * 60 - TEHRAN_OFF
+            if rel <= now < rel + WINDOW_S:
+                return rel
+    return None
+
+
+def _episode_no(label):
+    m = re.match(r"S\d+E(\d+)", label or "")
+    return int(m.group(1)) if m else 0
+
+
+def _get_auth(host, log, fresh=False):
+    used = ""
+    if not fresh:
+        try:
+            used = host.store.get("auth", "") or ""
+        except Exception:
+            used = ""
+        if used:
+            log.append("auth: saved from an earlier run")
+    return used or _export_auth(log)
+
+
+def _with_auth(host, log, fn):
+    auth = _get_auth(host, log)
+    try:
+        return fn(auth), auth
+    except Fail as e:
+        if "NOT_REGISTERED" in str(e):
+            log.append("saved auth refused: reading a fresh one from the export")
+            auth = _get_auth(host, log, True)
+            return fn(auth), auth
+        raise
+
+
+def _check(s, auth, log):
+    """Blocking. Count the episodes of the followed season and get the links of the new ones."""
+    cl = Rubika(auth, log)
+    try:
+        media = cl.call("getMedia", {"media_id": s["mid"]}).get("media") or {}
+        seasons = media.get("seasons") or []
+        if not seasons:
+            raise Fail("The series has no seasons in the answer")
+        want = str(s.get("season") or "last").strip().lower()
+        pick, snum = None, None
+        for si, se in enumerate(seasons, 1):
+            sn = se.get("season_number") or si
+            if want != "last" and str(sn) == want:
+                pick, snum = se, int(sn)
+        if pick is None:
+            if want != "last":
+                raise Fail("Season %s not found" % want)
+            pick = seasons[-1]
+            snum = int(pick.get("season_number") or len(seasons))
+        el = cl.call("getSeasonEpisodes", {"series_id": s["mid"], "season_id": pick.get("season_id"),
+                                           "section_type": "MediaInfo"}).get("episodes") or []
+    except Blocked:
+        raise Fail("Rubika answered HTTP 403: this network is blocked (use Irancell mobile data, Wi-Fi/VPN off)")
+    n = len(el)
+    known = s.get("known")
+    if s.get("snum") is not None and s.get("snum") != snum:
+        known = 0
+        log.append("  new season %s: counting from 0" % snum)
+    base = {"snum": snum, "n": n, "rows": []}
+    if known is None:
+        return dict(base, known=n, msg="start point set: %d episodes now" % n)
+    if n <= known:
+        return dict(base, known=known, msg="no new episode (%d episodes)" % n)
+    try:
+        res = collect(s["mid"], str(snum), "%d-%d" % (known + 1, n), s.get("quality") or "master", auth, log)
+    except Fail as e:
+        return dict(base, known=known, msg="%d new episode(s) listed, no link yet: %s" % (n - known, str(e)[:80]))
+    rows = res["rows"]
+    got = {_episode_no(r[0]) for r in rows}
+    k = known
+    while k + 1 in got:
+        k += 1
+    labels = []
+    for r in rows:
+        if r[0] not in labels:
+            labels.append(r[0])
+    return dict(base, known=k, rows=rows, msg="NEW: " + ", ".join(labels))
+
+
+def _check_one(host, s, why):
+    with _CHECK_LOCK:
+        now = time.time()
+        log = []
+        out = {"name": s.get("name") or s["mid"], "mid": s["mid"], "rows": [], "msg": "", "ok": True}
+        rel = _release_ts(s, now)
+        try:
+            r, auth = _with_auth(host, log, lambda a: _check(s, a, log))
+            try:
+                host.store.set("auth", auth)
+            except Exception:
+                pass
+            upd = {"known": r["known"], "snum": r["snum"], "next": now + RETRY_S, "last_check": now,
+                   "last_msg": r["msg"]}
+            if r["rows"]:
+                upd["found"] = [list(x) for x in r["rows"]]
+                upd["found_at"] = now
+                if r["known"] >= r["n"] and rel:
+                    upd["done_rel"] = rel
+                try:
+                    host.nav.schedule(lambda: host.notify("Rubika: " + out["name"], r["msg"]))
+                except Exception:
+                    pass
+            out.update(rows=r["rows"], msg=r["msg"])
+        except Exception as e:
+            upd = {"next": now + RETRY_S, "last_check": now, "last_msg": "error: %s" % str(e)[:100]}
+            out.update(ok=False, msg="error: %s" % e)
+            if not isinstance(e, Fail):
+                log.append(traceback.format_exc())
+        _update(host, s["mid"], **upd)
+        _FLOG.append("[%s] %s (%s): %s" % (_tstr(now), out["name"], why, out["msg"]))
+        _FLOG.extend(_hide(x) for x in log[-12:])
+        del _FLOG[:-80]
+        if out["rows"] or (not out["ok"] and now - _SAVED["err"] > 3600):
+            if not out["rows"]:
+                _SAVED["err"] = now
+            _save(host, "Rubika follow log\n" + "\n".join(_FLOG), FOLLOW_LOG_PATH)
+        return out
+
+
+def _follow_loop(host, token):
+    last_full = 0
+    while os.environ.get(FOLLOW_ENV) == token:
+        try:
+            now = time.time()
+            full = now - last_full >= CATCHUP_S
+            for s in _load(host):
+                if now < (s.get("next") or 0):
+                    continue
+                rel = _release_ts(s, now)
+                if rel is not None and s.get("done_rel") != rel:
+                    _check_one(host, s, "release window")
+                elif full:
+                    _check_one(host, s, "catch-up")
+            if full:
+                last_full = now
+        except Exception:
+            pass
+        end = time.time() + TICK_S
+        while time.time() < end and os.environ.get(FOLLOW_ENV) == token:
+            time.sleep(1)
+
+
+def _follow_on():
+    return bool(os.environ.get(FOLLOW_ENV))
+
+
+def _follow_start(host):
+    if _follow_on():
+        return
+    token = str(int(time.time() * 1000))
+    os.environ[FOLLOW_ENV] = token
+    threading.Thread(target=_follow_loop, args=(host, token), daemon=True).start()
+
+
+def _toggle_follow(host):
+    if _follow_on():
+        os.environ.pop(FOLLOW_ENV, None)
+        host.store.set("follow_off", True)
+    else:
+        host.store.set("follow_off", False)
+        _follow_start(host)
+    host.replace(series_list)
+
+
+def follow_form(host, mid, title, counts=None, old=None):
+    old = old or {}
+    counts = counts or {}
+    host.title("Follow a series")
+    host.text("Name to save it with:")
+    name = host.input("name")
+    host.text("Release day (Tehran time). You must pick it:")
+    day = host.choice([DAY_NAMES[k] for k in DAY_ORDER])
+    host.text("Release time (Tehran, 24h), like 12:00:")
+    tm = host.input("12:00")
+    host.text("Season: last (newest; follows a new season by itself) or a number:")
+    season = host.input("last")
+    host.text("Episodes you already have (only the next ones count as new). Lower it by one to get the latest episode now:")
+    known = host.input("number")
+    host.text("Quality (master = one link with all qualities inside):")
+    quality = host.choice(QUALITIES)
+    try:
+        name.text = old.get("name") or title or mid
+        hm = int(old.get("hm", 720))
+        tm.text = "%02d:%02d" % (hm // 60, hm % 60)
+        season.text = str(old.get("season") or "last")
+        if old.get("known") is not None:
+            known.text = str(old["known"])
+        elif counts:
+            known.text = str(counts[str(max(int(k) for k in counts))])
+    except Exception:
+        pass
+
+    def save():
+        m = re.fullmatch(r"(\d{1,2})\s*[:.]\s*(\d{2})", (tm.text or "").strip())
+        if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+            host.set_status("Time must look like 12:00")
+            return
+        wd = None
+        for k, v in DAY_NAMES.items():
+            if v == day.value:
+                wd = k
+        if wd is None:
+            host.set_status("Pick the release day")
+            return
+        se = (season.text or "").strip().lower() or "last"
+        if se != "last" and not se.isdigit():
+            host.set_status("Season must be last or a number")
+            return
+        kn = (known.text or "").strip()
+        if kn and not kn.isdigit():
+            host.set_status("Episodes you have must be a number")
+            return
+        item = {"mid": mid, "name": (name.text or "").strip() or mid, "day": wd,
+                "hm": int(m.group(1)) * 60 + int(m.group(2)), "season": se, "quality": quality.value or "master",
+                "known": int(kn) if kn else None, "snum": int(se) if se.isdigit() else None,
+                "next": 0, "done_rel": 0}
+        with _LOCK:
+            items = [x for x in _load(host) if x.get("mid") != mid] + [item]
+            _put(host, items)
+        try:
+            host.store.set("follow_off", False)
+        except Exception:
+            pass
+        _follow_start(host)
+        host.replace(series_list)
+
+    host.button("Save", save)
+    host.status()
+    host.back_button("Back")
+
+
+def series_list(host):
+    items = _load(host)
+    host.title("Followed series (%d)" % len(items))
+    host.text("Auto-check is %s. It works while the app is open, on Irancell mobile data. "
+              "In the release window (6 hours from the release time) it checks every 10 minutes."
+              % ("ON" if _follow_on() else "OFF"))
+    host.status()
+    host.button("Auto-check: turn %s" % ("OFF" if _follow_on() else "ON"), lambda: _toggle_follow(host))
+    if items:
+        host.button("Check all now", lambda: host.show(check_screen, [s["mid"] for s in items]))
+    for s in items:
+        host.button("%s | %s | have %s" % ((s.get("name") or s["mid"])[:30], _when(s), s.get("known", "?")),
+                    lambda m=s["mid"]: host.show(series_detail, m))
+    if not items:
+        host.text("Nothing saved yet. Get the links of a series once, then press 'Follow this series'.")
+    host.back_button("Back")
+
+
+def series_detail(host, mid):
+    s = next((x for x in _load(host) if x.get("mid") == mid), None)
+    if not s:
+        host.title("Series not found")
+        host.back_button("Back")
+        return
+    host.title(s.get("name") or mid)
+    last = _tstr(s["last_check"]) if s.get("last_check") else "never"
+    host.text("Release: %s (Tehran) | season: %s | quality: %s | episodes you have: %s\nLast check: %s - %s"
+              % (_when(s), s.get("season"), s.get("quality"), s.get("known"), last, s.get("last_msg") or "-"))
+    host.status()
+    host.button("Check now", lambda: host.show(check_screen, [mid]))
+    host.button("Get latest episode links", lambda: host.show(
+        run, mid, str(s.get("snum") or s.get("season") or "all").replace("last", "all"), "last",
+        s.get("quality") or "master", ""))
+    host.button("Edit", lambda: host.show(follow_form, mid, s.get("name"), {}, s))
+    host.button("Delete from the list", lambda: (_put(host, [x for x in _load(host) if x.get("mid") != mid]),
+                                                  host.replace(series_list)))
+    rows = s.get("found") or []
+    if rows:
+        host.text("Last new links (found %s). They expire: use them soon from this phone." % _tstr(s.get("found_at") or 0))
+        full = "\n".join("%s | %s | %s" % tuple(r) for r in rows)
+        host.button("Copy all (name | quality | link)", lambda: (host.copy(full), host.set_status("Copied")))
+        host.button("Share links", lambda: host.share_text(full))
+        for label, q, u in rows[:MAX_BUTTONS]:
+            host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u: (host.copy(u), host.set_status("Copied")))
+    host.back_button("Back")
+
+
+def check_screen(host, mids):
+    host.title("Checking")
+    host.status()
+    host.set_status("Asking Rubika from this phone... (10-60 seconds)")
+
+    def work():
+        return [_check_one(host, s, "manual") for s in _load(host) if s.get("mid") in mids]
+
+    def done(data, err):
+        host.replace(check_result, data or [], str(err or ""))
+
+    host.background(work, done=done)
+    host.back_button("Back")
+
+
+def check_result(host, outs, err):
+    host.title("Check result")
+    if err:
+        host.text("Crashed: " + err)
+    for o in outs:
+        host.text("%s: %s" % (o["name"], o["msg"]))
+        rows = o["rows"]
+        if rows:
+            full = "\n".join("%s | %s | %s" % tuple(r) for r in rows)
+            host.button("Copy all: %s" % o["name"][:30], lambda f=full: (host.copy(f), host.set_status("Copied")))
+            host.button("Share: %s" % o["name"][:30], lambda f=full: host.share_text(f))
+            for label, q, u in rows[:MAX_BUTTONS]:
+                host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u: (host.copy(u), host.set_status("Copied")))
+    host.status()
     host.back_button("Back")
