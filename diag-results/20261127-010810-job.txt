@@ -1,0 +1,26 @@
+# Diagnostics (job) 2026-11-27 01:08:06 UTC, diag.py v2026-11-27a
+
+job: rubika-hls-ip-test
+title: Rubika HLS from phone IP (compare with GitHub 403)
+
+## Network identity (country, provider, proxy) (net_identity)
+ipinfo FAILED JSONDecodeError: Expecting value: line 2 column 1 (char 1)
+cloudflare trace: loc=IR colo=FRA warp=off http=http/1.1
+proxy env vars set: none
+requests proxies for site: none
+vodrbstreamer48.iranlms.ir resolves to: {'IPv4': ['5.106.52.81']}
+
+## HLS link test from this phone (Iran IP) (hls_ip_test)
+ipinfo FAILED JSONDecodeError
+== vodrbstreamer19.iranlms.ir5/6af2de183fd5ff486db93b18/out_720p.m3u8
+  [no referer] HTTP 200 bytes=4096 extm3u=True
+  [referer] HTTP 200 bytes=4096 extm3u=True
+  playlist lines=13, has_key=True, master=False
+  key: HTTP 200 bytes=16
+  first segment: HTTP 200 bytes=1024 host=vodrbstreamer19.iranlms.ir
+== vodrbstreamer19.iranlms.ir/6af2de183fd5ff486db93b18/out_1080p.m3u8
+  [no referer] HTTP 200 bytes=4096 extm3u=True
+  [referer] HTTP 200 bytes=4096 extm3u=True
+  playlist lines=13, has_key=True, master=False
+  key: HTTP 200 bytes=16
+  first segment: HTTP 200 bytes=1024 host=vodrbstreamer19.iranlms.ir
