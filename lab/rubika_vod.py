@@ -163,8 +163,8 @@ def collect(page, season, eps, quality, auth, log):
             "has_paid_subscription", "has_network_subscription", "network_subscription_type")}))
         if not acc.get("has_network_subscription") and not acc.get("has_paid_subscription"):
             log.append("  WARNING: Rubika does not see an Irancell network (Wi-Fi or VPN on?) and the account has no subscription")
-    except Fail as e:
-        log.append("  account check failed: %s" % e)
+    except (Fail, Blocked) as e:
+        log.append("  account check failed: %s" % (e or "HTTP 403"))
     try:
         media = cl.call("getMedia", {"media_id": mid}).get("media") or {}
         mtype = media.get("media_type") or ""
