@@ -442,7 +442,7 @@ def show_results(host, res, report, saved):
         host.button("Follow this series (save by name)", lambda: host.show(
             follow_form, res["mid"], res["title"], res.get("counts") or {}))
     for label, q, u in rows[:MAX_BUTTONS]:
-        host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u, l=label, q=q: (host.copy(u), host.set_status("Copied: %s [%s]" % (l, q))))
+        _row_button(host, label, q, u)
     if len(rows) > MAX_BUTTONS:
         host.text("Only the first %d are listed as buttons; Copy all has every link." % MAX_BUTTONS)
     host.back_button("Back")
@@ -820,7 +820,7 @@ def series_detail(host, mid):
         host.button("Copy all (name | quality | link)", lambda: (host.copy(full), host.set_status("Copied")))
         host.button("Share links", lambda: host.share_text(full))
         for label, q, u in rows[:MAX_BUTTONS]:
-            host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u: (host.copy(u), host.set_status("Copied")))
+            _row_button(host, label, q, u)
     host.back_button("Back")
 
 
@@ -851,7 +851,7 @@ def check_result(host, outs, err):
             host.button("Copy all: %s" % o["name"][:30], lambda f=full: (host.copy(f), host.set_status("Copied")))
             host.button("Share: %s" % o["name"][:30], lambda f=full: host.share_text(f))
             for label, q, u in rows[:MAX_BUTTONS]:
-                host.button("%s [%s] - copy link" % (label[:40], q), lambda u=u: (host.copy(u), host.set_status("Copied")))
+                _row_button(host, label, q, u)
     host.status()
     host.back_button("Back")
 
@@ -885,4 +885,45 @@ def update_screen(host, mid):
         host.replace(check_result, data or [], str(err or ""))
 
     host.background(work, done=done)
+    host.back_button("Back")
+
+
+def _row_button(host, label, q, u):
+    """A master link opens a screen with the qualities split; any other link is copied on tap."""
+    if q == "master":
+        host.button("%s [master] - pick quality" % label[:36], lambda l=label, u=u: host.show(quality_screen, l, u))
+    else:
+        host.button("%s [%s] - copy link" % (label[:40], q),
+                    lambda u=u, l=label, q=q: (host.copy(u), host.set_status("Copied: %s [%s]" % (l, q))))
+
+
+def quality_screen(host, label, master):
+    host.title(label[:50])
+    host.status()
+    host.set_status("Reading the qualities from this phone...")
+    log = []
+
+    def work():
+        return _variants(master, log)
+
+    def done(vs, err):
+        host.replace(quality_result, label, master, vs or [], str(err or ""), log[-1] if log else "")
+
+    host.background(work, done=done)
+    host.back_button("Back")
+
+
+def quality_result(host, label, master, vs, err, last):
+    host.title("%s - qualities" % label[:40])
+    if err:
+        host.text("Failed: " + err)
+    elif not vs:
+        host.text("No separate qualities found (%s). The link may have expired: use Update links." % (_hide(last) or "no answer"))
+    host.status()
+    host.button("Copy master link (all qualities inside)", lambda: (host.copy(master), host.set_status("Master link copied")))
+    for q, u in vs:
+        host.button("%s - copy link" % q, lambda u=u, q=q: (host.copy(u), host.set_status("Copied %s" % q)))
+    if vs:
+        allq = "\n".join("%s | %s | %s" % (label, q, u) for q, u in vs)
+        host.button("Copy all qualities (name | quality | link)", lambda: (host.copy(allq), host.set_status("Copied")))
     host.back_button("Back")
