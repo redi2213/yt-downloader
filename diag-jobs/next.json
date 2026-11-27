@@ -1,13 +1,10 @@
 {
- "id": "rubika-hls-ip-test",
- "title": "Rubika HLS from phone IP (compare with GitHub 403)",
+ "id": "rubika-api-test",
+ "title": "Rubika VOD API from phone (random guest auth)",
  "steps": [
   {
-   "step": "net_identity",
-   "site": "vodrbstreamer48.iranlms.ir"
-  },
-  {
-   "step": "hls_ip_test"
+   "step": "rubika_api_test",
+   "url": "https://vod.rubika.ir/media/291423"
   }
  ]
 }
