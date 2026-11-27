@@ -1,8 +1,82 @@
-# Diagnostics (job) 2026-11-27 10:22:04 UTC, diag.py v2026-11-27e
+# Diagnostics (job) 2026-11-27 10:23:05 UTC, diag.py v2026-11-27e
 
 job: rubika-media-293705-b-1795768205
 title: Rubika getMedia shape for episode 293705 (real auth)
 
 ## Rubika getMedia shape for any media id (rubika_media_info)
-media_id 293705 | HTTP 200 status=ERROR_ACTION det=NOT_REGISTERED
-null
+media_id 293705 | auth from export 2026-11-27_12-11-23 | HTTP 200 status=OK det=OK
+{
+ "media": {
+  "media_id": "293705",
+  "media_type": "Episode",
+  "title": "قسمت هشتم",
+  "short_description": "تاکسی",
+  "year": "1404",
+  "is_hd": false,
+  "latin_name": "Taxi",
+  "has_trailer": false,
+  "cover_url": "https://vodrbmetacdn3.iranlms.ir/static/1/2026-11-25-18/6b06",
+  "poster_url": "https://vodrbmetacdn3.iranlms.ir/static/1/2026-11-25-18/6b06",
+  "age_limit": "+15",
+  "media_duration": 1787,
+  "remaining_time_to_publish": 0,
+  "publish_in_future": false,
+  "share_text": "https://rubika.ir/vod/293705",
+  "country": "ایران",
+  "like_percent": "81",
+  "genres": [
+   {
+    "genre_id": "68",
+    "title": "خانوادگی"
+   },
+   "...3 items"
+  ],
+  "season_id": "292601",
+  "series_id": "292600",
+  "publish_date_info": "چهارشنبه‌ها، 20:00",
+  "seasons": [
+   {
+    "season_id": "292601",
+    "season_name": "تاکسی، فصل اول",
+    "season_number": 1
+   },
+   "...1 items"
+  ],
+  "is_dubbing": false,
+  "is_online_cinema": false,
+  "provider": {
+   "name": "شیداروز",
+   "provider_key": "sheydarooz",
+   "image_url": "https://vodrbmetast1.iranlms.ir/static/1/2026-04-26-11/69edc"
+  },
+  "is_download_allowed": false,
+  "has_subtitle": false,
+  "create_time": 1793105340,
+  "full_description": "تاکسی مجموعه ای اپیزودیک از روایت های کوتاه و مستقل است، قصه",
+  "casts_data": [
+   {
+    "role": "کارگردان",
+    "casts": [
+     "{...3 keys}",
+     "...1 items"
+    ]
+   },
+   "...6 items"
+  ],
+  "in_wish_list": false,
+  "is_following": false,
+  "likes_count": 1824,
+  "season_episodes": [
+   {
+    "season_id": "292601",
+    "season_name": "تاکسی، فصل اول",
+    "season_number": 1,
+    "episodes": [
+     "{...27 keys}",
+     "...8 items"
+    ]
+   },
+   "...1 items"
+  ]
+ }
+}
