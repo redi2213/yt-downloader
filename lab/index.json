@@ -255,14 +255,11 @@
     {
       "id": "rubika_vod",
       "title": "Rubika VOD links",
-      "file": "wf_rubika_vod.py",
+      "file": "rubika_vod.py",
       "modules": [
-        "lib/lab_fa.py",
-        "lib/wf_core.py",
-        "lib/wf_runner.py",
-        "lib/lab_jobs.py"
+        "lib/lab_fa.py"
       ],
-      "description": "Give a vod.rubika.ir movie or series page link, get the direct (m3u8) links of the episodes. Run on this phone is the way that works if GitHub's IP is blocked. Workflow lab-rubika-vod.yml on the lab branch.",
+      "description": "Give a vod.rubika.ir movie or series page link, get the direct (signed m3u8) links of the episodes. Runs on this phone (Irancell IP): the same API calls the web page makes, no GitHub run.",
       "min_host": 1,
       "meta": {
         "id": "rubika_vod",
