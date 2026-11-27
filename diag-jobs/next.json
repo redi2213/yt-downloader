@@ -1,10 +1,38 @@
 {
- "id": "rubika-js-scan",
- "title": "Rubika web app: how does it register?",
+ "id": "rubika-register-code",
+ "title": "Rubika web app: registerDevice / RSA code",
  "steps": [
   {
    "step": "js_scan",
-   "url": "https://vod.rubika.ir/media/291423"
+   "url": "https://vod.rubika.ir/media/291423",
+   "pattern": "getRegisterDevicePayload=|device_hash",
+   "width": 1300,
+   "limit": 4,
+   "label": "register payload"
+  },
+  {
+   "step": "js_scan",
+   "url": "https://vod.rubika.ir/media/291423",
+   "pattern": "checkRSA",
+   "width": 1300,
+   "limit": 4,
+   "label": "checkRSA"
+  },
+  {
+   "step": "js_scan",
+   "url": "https://vod.rubika.ir/media/291423",
+   "pattern": "REGISTER_DEVICE\\)|registerDevice\\(",
+   "width": 1300,
+   "limit": 4,
+   "label": "api registerDevice"
+  },
+  {
+   "step": "js_scan",
+   "url": "https://vod.rubika.ir/media/291423",
+   "pattern": "auth_enc|data_enc|tmp_session|\\.decrypt\\(",
+   "width": 1000,
+   "limit": 6,
+   "label": "auth decrypt"
   }
  ]
 }
