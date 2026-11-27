@@ -1,5 +1,5 @@
 Rubika VOD log
-2026-11-27 09:56:34 UTC
+2026-11-27 10:05:09 UTC
 python 3.14.2 | Android-13-aarch64-64bit-ELF
 app_version=2.86 id=rubika_vod
 inputs: {"page": "https://vod.rubika.ir/media/291423", "season": "all", "episodes": "all", "quality": "master", "own_auth": false}
@@ -14,23 +14,23 @@ title=یَل type=Series
   getSeasonEpisodes OK (0.4s) keys=[episodes]
 season 1: 6 episodes
 episode S01E01 قسمت اول (id 291428)
-  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,start_play_time,subtitles] has_access=True play_url=https://vodrbstreamer77.iranlms.ir/play/st15/6af2de183fd5ff486db93b18/playlist.m3u8?token=<hidden>
+  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,start_play_time,subtitles] has_access=True play_url=https://vodrbstreamer19.iranlms.ir/play/st15/6af2de183fd5ff486db93b18/playlist.m3u8?token=<hidden>
 episode S01E02 قسمت دوم (id 291441)
-  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer27.iranlms.ir/play/st1/6ad1b9f8017d18cb6d6f3131/playlist.m3u8?token=<hidden>
+  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer56.iranlms.ir/play/st1/6ad1b9f8017d18cb6d6f3131/playlist.m3u8?token=<hidden>
 episode S01E03 قسمت سوم (id 292936)
-  getPlayInfo OK (0.6s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer58.iranlms.ir/play/st18/6adaf81c7e3cc4e483cb3854/playlist.m3u8?token=<hidden>
+  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer87.iranlms.ir/play/st18/6adaf81c7e3cc4e483cb3854/playlist.m3u8?token=<hidden>
 episode S01E04 قسمت چهارم (id 293589)
-  getPlayInfo OK (0.6s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer70.iranlms.ir/play/st13/6ae4245a841d6b3850c2bc48/playlist.m3u8?token=<hidden>
+  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer41.iranlms.ir/play/st13/6ae4245a841d6b3850c2bc48/playlist.m3u8?token=<hidden>
 episode S01E05 قسمت پنجم (id 294121)
-  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer15.iranlms.ir/play/st13/6aeee476882a6e29201b9989/playlist.m3u8?token=<hidden>
+  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer15.iranlms.ir/play/st13/6aeee476882a6e29201b9989/playlist.m3u8?token=<hidden>
 episode S01E06 قسمت ششم (id 295104)
-  getPlayInfo OK (0.5s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer13.iranlms.ir/play/st8/6afbcc8dbe586eb74338786e/playlist.m3u8?token=<hidden>
+  getPlayInfo OK (0.4s) keys=[buffer_time,disallow_screen_capture,has_access,media,play_commercial_ads,play_data,play_messages,play_suggestion,session_id,subtitles] has_access=True play_url=https://vodrbstreamer42.iranlms.ir/play/st8/6afbcc8dbe586eb74338786e/playlist.m3u8?token=<hidden>
 
 --- result ---
 OK: 6 link(s) for یَل
-  S01E01 قسمت اول | master | https://vodrbstreamer77.iranlms.ir/play/st15/6af2de183fd5ff486db93b18/playlist.m3u8?token=<hidden>
-  S01E02 قسمت دوم | master | https://vodrbstreamer27.iranlms.ir/play/st1/6ad1b9f8017d18cb6d6f3131/playlist.m3u8?token=<hidden>
-  S01E03 قسمت سوم | master | https://vodrbstreamer58.iranlms.ir/play/st18/6adaf81c7e3cc4e483cb3854/playlist.m3u8?token=<hidden>
-  S01E04 قسمت چهارم | master | https://vodrbstreamer70.iranlms.ir/play/st13/6ae4245a841d6b3850c2bc48/playlist.m3u8?token=<hidden>
+  S01E01 قسمت اول | master | https://vodrbstreamer19.iranlms.ir/play/st15/6af2de183fd5ff486db93b18/playlist.m3u8?token=<hidden>
+  S01E02 قسمت دوم | master | https://vodrbstreamer56.iranlms.ir/play/st1/6ad1b9f8017d18cb6d6f3131/playlist.m3u8?token=<hidden>
+  S01E03 قسمت سوم | master | https://vodrbstreamer87.iranlms.ir/play/st18/6adaf81c7e3cc4e483cb3854/playlist.m3u8?token=<hidden>
+  S01E04 قسمت چهارم | master | https://vodrbstreamer41.iranlms.ir/play/st13/6ae4245a841d6b3850c2bc48/playlist.m3u8?token=<hidden>
   S01E05 قسمت پنجم | master | https://vodrbstreamer15.iranlms.ir/play/st13/6aeee476882a6e29201b9989/playlist.m3u8?token=<hidden>
-  S01E06 قسمت ششم | master | https://vodrbstreamer13.iranlms.ir/play/st8/6afbcc8dbe586eb74338786e/playlist.m3u8?token=<hidden>
+  S01E06 قسمت ششم | master | https://vodrbstreamer42.iranlms.ir/play/st8/6afbcc8dbe586eb74338786e/playlist.m3u8?token=<hidden>
