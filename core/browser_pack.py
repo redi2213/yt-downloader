@@ -41,7 +41,7 @@ import traceback
 import types
 
 PACK_API = 1        # the contract between pack code and the fixed parts of the app (navigator, settings)
-NATIVE_API = 2      # BrowserHelper.java / core/android_browser.py level of this APK
+NATIVE_API = 3      # BrowserHelper.java / core/android_browser.py level of this APK (3: inspect("storage") for the Full page export)
 
 # Dependency order: the core logic first, then services, then the screens (a screen imports the ones above it).
 PACK_FILES = (

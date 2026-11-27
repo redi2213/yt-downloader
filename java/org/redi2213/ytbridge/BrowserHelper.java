@@ -1047,6 +1047,10 @@ public class BrowserHelper {
     private static final int INSPECT_MAX = 300000;
     private static final String HTML_JS =
         "'<!-- '+location.href+' -->\\n'+document.documentElement.outerHTML";
+    // Full page export (inspect("storage")): localStorage and sessionStorage of the shown page as JSON.
+    private static final String STORAGE_JS =
+        "(function(){function d(s){var o={};try{for(var i=0;i<s.length;i++){var k=s.key(i);o[k]=s.getItem(k)}}catch(e){o['__error__']=String(e)}return o}"
+      + "return JSON.stringify({url:location.href,localStorage:d(window.localStorage),sessionStorage:d(window.sessionStorage)},null,2)})()";
     private static final String LINKS_JS =
         "(function(){var o=['PAGE '+location.href];"
       + "function t(e){return (e.textContent||e.getAttribute('title')||'').replace(/\\s+/g,' ').trim().slice(0,80)}"
@@ -1086,14 +1090,14 @@ public class BrowserHelper {
         synchronized (NAV) { NAV.clear(); adLogged.clear(); }
     }
 
-    /** Reads the shown page: kind "html" (whole HTML) or "links" (links, frames, forms). The answer comes with
+    /** Reads the shown page: kind "html" (whole HTML), "storage" (localStorage + sessionStorage as JSON) or "links" (links, frames, forms). The answer comes with
      *  inspectResult() (null while the page has not answered yet). */
     public static void inspect(final String kind) {
         inspectOut = null;
         ui(new Runnable() {
             public void run() {
                 if (web == null) { inspectOut = ""; return; }
-                String js = "html".equals(kind) ? HTML_JS : LINKS_JS;
+                String js = "html".equals(kind) ? HTML_JS : "storage".equals(kind) ? STORAGE_JS : LINKS_JS;
                 web.evaluateJavascript("(function(){try{return " + js + "}catch(e){return 'ERROR '+e}})()",
                     new ValueCallback<String>() {
                         public void onReceiveValue(String value) {

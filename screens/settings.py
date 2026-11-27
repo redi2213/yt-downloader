@@ -10,7 +10,7 @@ from kivy.uix.checkbox import CheckBox
 from kivy.uix.boxlayout import BoxLayout
 
 from api import (auto_build_prefs, download_folder_prefs, download_manager_prefs, filimo, ntfy_prefs,
-                 open_link_prefs, release_delete_prefs)
+                 open_link_prefs, release_delete_prefs, export_prefs)
 from core import android_downloads
 from screens.common import back_button, GAP, paste_row, wrapped_label
 from services import ntfy_service, token_service
@@ -159,6 +159,14 @@ def _account(nav):
         save_filimo_btn.bind(on_press=lambda i: _save_filimo_and_refresh(nav, filimo_input))
         nav.add(save_filimo_btn)
 
+    nav.add(Label(text="Exports token (yt-exports only; kept on this phone)", size_hint_y=None, height=28))
+    exports_input = TextInput(text=export_prefs.get_token(), hint_text="Exports token (fine-grained, yt-exports)",
+                              multiline=False, password=True, size_hint_y=None, height=48)
+    nav.add(exports_input)
+    save_exports_btn = Button(text="Save exports token", size_hint_y=None, height=40)
+    save_exports_btn.bind(on_press=lambda i: _save_exports_and_refresh(nav, exports_input))
+    nav.add(save_exports_btn)
+
     github_signin_btn = Button(text="Sign in with GitHub", size_hint_y=None, height=48)
     github_signin_btn.bind(on_press=lambda i: nav.show_github_signin())
     nav.add(github_signin_btn)
@@ -266,6 +274,11 @@ def _reveal_filimo_field(nav):
 def _save_filimo_and_refresh(nav, filimo_input):
     filimo.save_token(filimo_input.text.strip())
     nav.show_filimo_field = False
+    nav.show_settings_section("account")
+
+
+def _save_exports_and_refresh(nav, exports_input):
+    export_prefs.set_token(exports_input.text.strip())
     nav.show_settings_section("account")
 
 
