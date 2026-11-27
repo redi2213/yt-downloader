@@ -25,6 +25,39 @@ from services import browser_service
 START_PAGE = "https://www.google.com"
 
 
+def _app_tab_count(nav, state):
+    try:
+        return len(nav.app.tabs.tabs)
+    except Exception:
+        return state.tabs.count()
+
+
+def _open_app_tabs(nav, br, state):
+    """The Tabs button: the app's tabs (screens/tabs.py). The native WebView would cover the list, so it is hidden
+    first; it comes back when the list is closed without switching (a switch restores it through TabManager)."""
+    try:
+        mgr = nav.app.tabs
+        shell = mgr.active
+    except Exception:
+        browser_pages.open_tabs(nav)        # an older app without app tabs
+        return
+    br.hide()
+    br.visible = True                       # only the flag: TabManager restores the page when this tab is opened again
+    mgr.open_overlay()
+    overlay = getattr(mgr, "_overlay", None)
+    if not overlay:
+        br.show(True)
+        return
+
+    def closed(*_a):
+        def back(_dt):
+            if mgr.active is shell and shell.nav is nav and nav.browser is not None:
+                nav.show_browser()          # nothing was switched: put the page back
+        Clock.schedule_once(back, 0.4)
+
+    overlay["dlg"].bind(on_dismiss=closed)
+
+
 def _is_start(u):
     """The default start page (google.com home, no query): what a tab must not end up on by mistake."""
     u = (u or "").split("#")[0].strip().lower()
@@ -80,7 +113,7 @@ def build(nav, url=None):
     row2 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
     buttons = {}
     for key, text, width in (("back", "<", 0.09), ("forward", ">", 0.09), ("reload", "Reload", 0.19),
-                             ("tabs", f"Tabs ({state.tabs.count()})", 0.23), ("menu", "Menu", 0.20),
+                             ("tabs", f"Tabs ({_app_tab_count(nav, state)})", 0.23), ("menu", "Menu", 0.20),
                              ("close", "Close", 0.20)):
         buttons[key] = Button(text=text, size_hint_x=width)
         row2.add_widget(buttons[key])
@@ -99,7 +132,7 @@ def build(nav, url=None):
     buttons["back"].bind(on_press=lambda i: br.back())
     buttons["forward"].bind(on_press=lambda i: br.forward())
     buttons["reload"].bind(on_press=lambda i: br.reload())
-    buttons["tabs"].bind(on_press=lambda i: browser_pages.open_tabs(nav))
+    buttons["tabs"].bind(on_press=lambda i: _open_app_tabs(nav, br, state))
     buttons["menu"].bind(on_press=lambda i: browser_pages.open_menu(nav))
     buttons["close"].bind(on_press=lambda i: (state.flush(), nav.show_home()))
 
