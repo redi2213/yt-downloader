@@ -280,6 +280,24 @@
       }
     },
     {
+      "id": "filimo_vod",
+      "title": "Filimo VOD links",
+      "file": "filimo_vod.py",
+      "modules": [
+        "lib/lab_fa.py"
+      ],
+      "description": "Give a filimo.com movie or series page link, get the direct (signed m3u8) links of the episodes. Runs on this phone (Irancell IP): the same API calls the web page makes, no GitHub run. Follow a series for new episodes.",
+      "min_host": 1,
+      "meta": {
+        "id": "filimo_vod",
+        "title": "Filimo VOD links",
+        "domains": [
+          "www.filimo.com",
+          "filimo.com"
+        ]
+      }
+    },
+    {
       "id": "instamod",
       "title": "InstaMod (SamMods app updates)",
       "file": "instamod.py",
