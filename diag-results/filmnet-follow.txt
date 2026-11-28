@@ -1,0 +1,27 @@
+FilmNet follow log
+[Sat 05:14] سریال یل (manual): 1 new episode(s) listed, no link yet: No link was produced. See the log (last lines): video-contents/1c224b5d-2386-4b0
+auth: saved from an earlier run
+  video-contents/sc9nEOr OK (5.3s)
+id sc9nEOr | season=1 episodes=7-7 quality=master
+  video-contents/sc9nEOr OK (0.2s)
+title=سریال یل type=series access=subscription flag=playable
+  video-contents/sc9nEOr/conditional-prop OK (0.2s)
+  conditional-prop: carrier=MCI flag=has_access, playable, carrier_specific
+season 1: 7 episodes
+episode S01E07 (id 1c224b5d-2386-4b08-bea7-b52f7a1ad995)
+  video-contents/1c224b5d-2386-4b08-bea7-b52f7a1ad995 OK (0.2s)
+  play 1c224b5d-2386-4b08-bea7-b52f7a1ad995: no primary video file (access=subscription flag=none)
+  skip: no m3u8 in the answer (needs MCI mobile data, or the episode is not out yet)
+[Sat 05:15] سریال یل (manual): NEW: S01E06
+title=سریال یل type=series access=subscription flag=playable
+  video-contents/sc9nEOr/conditional-prop OK (0.3s)
+  conditional-prop: carrier=MCI flag=has_access, playable, carrier_specific
+season 1: 7 episodes
+episode S01E06 (id 06fd3ff5-b2b6-430a-b988-e72396827910)
+  video-contents/06fd3ff5-b2b6-430a-b988-e72396827910 OK (0.3s)
+  video-contents/06fd3ff5-b2b6-430a-b988-e72396827910/file OK (0.2s)
+  play 06fd3ff5-b2b6-430a-b988-e72396827910: master=yes expires=2026-11-29T08:45:24
+episode S01E07 (id 1c224b5d-2386-4b08-bea7-b52f7a1ad995)
+  video-contents/1c224b5d-2386-4b08-bea7-b52f7a1ad995 OK (0.2s)
+  play 1c224b5d-2386-4b08-bea7-b52f7a1ad995: no primary video file (access=subscription flag=none)
+  skip: no m3u8 in the answer (needs MCI mobile data, or the episode is not out yet)
