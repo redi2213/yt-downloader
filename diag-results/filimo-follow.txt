@@ -1,0 +1,14 @@
+Filimo follow log
+[Sat 04:56] سرخ و سیاه (manual): NEW: S01E07 
+  movie/movie/one/uid/fwusl OK (0.6s)
+  movie/serial/allseason/uid/fwusl OK (0.6s)
+  movie/serial/episodebyseason/parent_id/183812/pa OK (0.4s)
+uid fwusl | season=1 episodes=7-7 quality=master
+  movie/movie/one/uid/fwusl OK (0.6s)
+title=سرخ و سیاه - فصل ۱ قسمت ۶: آشفته حالان بیدار بخت serial=True parent_id=183812 publish=جمعه‌ها، 8:00 cost=package
+  movie/serial/allseason/uid/fwusl OK (0.5s)
+  movie/serial/episodebyseason/parent_id/183812/pa OK (0.5s)
+season 1: 7 episodes (allseason says 7)
+episode S01E07  (uid 9mca4)
+  movie/watch/watch/uid/9mca4 OK (0.5s)
+  watch 9mca4: master=yes freemium=1
