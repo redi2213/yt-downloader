@@ -1,0 +1,19 @@
+Filimo VOD log
+2026-11-28 01:26:04 UTC
+python 3.14.2 | Android-13-aarch64-64bit-ELF
+app_version=2.87 id=filimo_vod
+inputs: {"page": "https://www.filimo.com/w/fwusl", "season": "all", "episodes": "all", "quality": "master", "own_auth": false}
+
+--- steps ---
+  auth taken from export 2026-11-27_19-56-56 (276 chars, cookie yes)
+uid fwusl (single episode link) | season=all episodes=all quality=master
+  movie/movie/one/uid/fwusl OK (0.5s)
+title=سرخ و سیاه - فصل ۱ قسمت ۶: آشفته حالان بیدار بخت serial=True parent_id=183812 publish=جمعه‌ها، 8:00 cost=package
+  movie/serial/allseason/uid/fwusl OK (0.4s)
+episode سرخ و سیاه - فصل ۱ قسمت ۶: آشفته حالان بیدار بخت (uid fwusl)
+  movie/watch/watch/uid/fwusl OK (0.5s)
+  watch fwusl: master=yes freemium=1
+
+--- result ---
+OK: 1 link(s) for سرخ و سیاه - فصل ۱ قسمت ۶: آشفته حالان بیدار بخت
+  سرخ و سیاه - فصل ۱ قسمت ۶: آشفته حالان بیدار بخت | master | https://www.filimo.com/external/sb/v1/m3u8/fwusl.m3u8?film_id=227149&usid=<hidden>&tot=1795829164&exp=1795857964&asn=-1&afcn=<hidden>&freemi
