@@ -106,9 +106,11 @@ def build(nav, url=None):
 
     bar = BoxLayout(orientation="vertical", size_hint_y=None, height=2 * BTN_H + GAP, spacing=GAP)
     row1 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
-    url_box = TextInput(text=sess.page or tab.get("url") or "", hint_text="Search or type a link", multiline=False, size_hint_x=0.76)
-    go_btn = Button(text="Go", size_hint_x=0.24)
+    url_box = TextInput(text=sess.page or tab.get("url") or "", hint_text="Search or type a link", multiline=False, size_hint_x=0.62)
+    copy_btn = Button(text="Copy", size_hint_x=0.16)
+    go_btn = Button(text="Go", size_hint_x=0.22)
     row1.add_widget(url_box)
+    row1.add_widget(copy_btn)
     row1.add_widget(go_btn)
     row2 = BoxLayout(orientation="horizontal", size_hint_y=None, height=BTN_H, spacing=GAP)
     buttons = {}
@@ -127,6 +129,16 @@ def build(nav, url=None):
             url_box.focus = False
             br.load(target)
 
+    def copy_page_link(*_args):
+        # copies the address of the page being viewed (not a half-typed text)
+        link = sess.page or url_box.text or ""
+        if not link:
+            return
+        _copy(link)
+        copy_btn.text = "Copied"
+        Clock.schedule_once(lambda dt: setattr(copy_btn, "text", "Copy"), 1.2)
+
+    copy_btn.bind(on_press=copy_page_link)
     go_btn.bind(on_press=open_typed)
     url_box.bind(on_text_validate=open_typed)
     buttons["back"].bind(on_press=lambda i: br.back())
