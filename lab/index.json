@@ -298,6 +298,24 @@
       }
     },
     {
+      "id": "filmnet_vod",
+      "title": "FilmNet VOD links",
+      "file": "filmnet_vod.py",
+      "modules": [
+        "lib/lab_fa.py"
+      ],
+      "description": "Give a filmnet.ir movie or series page link, get the direct (signed m3u8) links of the episodes. Runs on this phone (MCI / Hamrah-e-Aval IP): the same API calls the web page makes, no GitHub run. Follow a series for new episodes.",
+      "min_host": 1,
+      "meta": {
+        "id": "filmnet_vod",
+        "title": "FilmNet VOD links",
+        "domains": [
+          "filmnet.ir",
+          "www.filmnet.ir"
+        ]
+      }
+    },
+    {
       "id": "instamod",
       "title": "InstaMod (SamMods app updates)",
       "file": "instamod.py",
