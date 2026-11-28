@@ -278,6 +278,13 @@
         "fixes": [],
         "added": "2026-11-27T01:20:06Z"
       }
+    },
+    {
+      "id": "instamod",
+      "title": "InstaMod (SamMods app updates)",
+      "file": "instamod.py",
+      "description": "Reads instamod.app on the phone without ads, drops the ad redirects before the real links, shows the newest app versions (NEW mark) and gets direct MediaFire/Drive links.",
+      "min_host": 1
     }
   ]
 }
